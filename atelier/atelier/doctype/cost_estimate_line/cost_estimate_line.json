@@ -1,0 +1,113 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-10-31 00:51:14.985028",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "cost_type",
+  "item",
+  "description",
+  "qty",
+  "uom",
+  "rate",
+  "zero_confirmed",
+  "rate_source",
+  "amount",
+  "is_missing"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "cost_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Type de co\u00fbt",
+   "options": "Mati\u00e8re\nMachine\nMain d'\u0153uvre\nSous-traitance\nFinition\nAutre",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Article",
+   "options": "Item"
+  },
+  {
+   "columns": 2,
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Quantit\u00e9"
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "Unit\u00e9",
+   "options": "UOM"
+  },
+  {
+   "columns": 1,
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Co\u00fbt unitaire"
+  },
+  {
+   "default": "0",
+   "description": "Cocher seulement si le co\u00fbt est r\u00e9ellement nul. Sinon, un co\u00fbt vide ou 0 est consid\u00e9r\u00e9 comme manquant.",
+   "fieldname": "zero_confirmed",
+   "fieldtype": "Check",
+   "label": "Co\u00fbt z\u00e9ro confirm\u00e9"
+  },
+  {
+   "fieldname": "rate_source",
+   "fieldtype": "Select",
+   "label": "Source du co\u00fbt",
+   "options": "\nSaisie manuelle\nValorisation stock\nTaux d\u00e9mo\nDevis fournisseur"
+  },
+  {
+   "columns": 1,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Montant",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "is_missing",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Donn\u00e9e manquante",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-31 00:51:44.671549",
+ "modified_by": "Administrator",
+ "module": "Atelier",
+ "name": "Cost Estimate Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
