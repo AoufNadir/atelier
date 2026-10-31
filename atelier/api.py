@@ -327,7 +327,8 @@ def save_customer(data):
 		doc = frappe.new_doc("Customer")
 	doc.customer_name = data["customer_name"].strip()
 	doc.customer_type = "Company" if data.get("customer_type") == "Company" else "Individual"
-	doc.customer_group = _group(data.get("relation"))
+	if doc.is_new() or data.get("relation"):
+		doc.customer_group = _group(data.get("relation"))
 	# Tax ID belongs to companies; an individual keeps none.
 	doc.tax_id = ((data.get("tax_id") or "").strip() or None) if doc.customer_type == "Company" else None
 	doc.customer_details = (data.get("notes") or "").strip() or None

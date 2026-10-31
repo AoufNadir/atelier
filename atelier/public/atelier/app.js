@@ -884,7 +884,7 @@ const CustomerView = {
   <div class="page">
     <LoadState :s="s" :rows="6" @retry="load"><template v-if="s.data">
       <div class="page-head">
-        <div class="stack" style="gap:2px;min-width:0;flex:1"><h1 class="wrap-any">{{ s.data.customer_name }} <span v-if="s.data.relation==='subcontract'" class="badge b-info" style="vertical-align:middle">{{ t('rel_subcontract') }}</span></h1>
+        <div class="stack" style="gap:2px;min-width:0;flex:1"><h1 class="wrap-any">{{ s.data.customer_name }}</h1>
           <a v-if="s.data.mobile_no" class="meta num" dir="ltr" :href="'tel:'+s.data.mobile_no" style="align-self:flex-start">{{ s.data.mobile_no }}</a></div>
         <div class="row wrap" style="gap:6px">
           <a class="btn primary" :href="'/atelier/orders/new?customer='+encodeURIComponent(s.data.name)" @click.prevent="go('/orders/new?customer='+encodeURIComponent(s.data.name))"><Icon name="plus" :size="18"/>{{ t('c_new_order') }}</a>
@@ -907,7 +907,6 @@ const CustomerView = {
           <section class="card"><div class="card-h"><h2>{{ t('cs_info') }}</h2></div>
             <div class="card-b"><dl class="kv">
               <dt>{{ t('cs_type') }}</dt><dd>{{ t(s.data.customer_type==='Company' ? 'c_type_company' : 'c_type_person') }}</dd>
-              <dt>{{ t('cs_relation') }}</dt><dd>{{ t(s.data.relation==='subcontract' ? 'rel_subcontract' : 'rel_final') }}</dd>
               <template v-if="s.data.contact_person"><dt>{{ t('cs_contact_person') }}</dt><dd>{{ s.data.contact_person }}</dd></template>
               <dt>{{ t('c_phone') }}</dt><dd><a v-if="s.data.mobile_no" class="num" dir="ltr" :href="'tel:'+s.data.mobile_no">{{ s.data.mobile_no }}</a><span v-else class="muted">—</span></dd>
               <dt>{{ t('cs_email') }}</dt><dd><a v-if="s.data.email_id" :href="'mailto:'+s.data.email_id" dir="ltr">{{ s.data.email_id }}</a><span v-else class="muted">—</span></dd>
@@ -1074,7 +1073,6 @@ const CustomerList = {
     const filters = computed(() => [
       ...(finance.value ? [["owes", "c_f_owes", (c) => c.balance > 0.005], ["credit", "c_f_credit", (c) => c.balance < -0.005]] : []),
       ["active", "c_f_active", (c) => c.open_orders > 0],
-      ["sub", "rel_subcontract", (c) => c.relation === "subcontract"], ["final", "rel_final", (c) => c.relation !== "subcontract"],
       ["company", "c_type_company_short", (c) => c.customer_type === "Company"], ["person", "c_type_person", (c) => c.customer_type !== "Company"],
     ]);
     const open = (c) => go("/customers/" + encodeURIComponent(c.name));
@@ -1089,8 +1087,7 @@ const CustomerList = {
         initial-sort="customer_name" :empty="t('c_none')">
         <template #cell="{row, col}">
           <span v-if="col.k==='customer_name'" class="title-cell"><a :href="'/atelier/customers/'+encodeURIComponent(row.name)" @click.prevent="open(row)" class="medium clamp2">{{ row.customer_name }}</a>
-            <span class="row wrap" style="gap:4px"><span class="cap">{{ t(row.customer_type==='Company' ? 'c_type_company_short' : 'c_type_person') }}</span>
-              <span v-if="row.relation==='subcontract'" class="badge b-info">{{ t('rel_subcontract') }}</span></span></span>
+            <span class="row wrap" style="gap:4px"><span class="cap">{{ t(row.customer_type==='Company' ? 'c_type_company_short' : 'c_type_person') }}</span></span></span>
           <a v-else-if="col.k==='mobile_no'" class="num" dir="ltr" :href="row.mobile_no ? 'tel:'+row.mobile_no : null">{{ row.mobile_no || '—' }}</a>
           <span v-else-if="col.k==='open_orders'" class="num">{{ row.open_orders || '—' }}</span>
           <template v-else-if="col.k==='last_order'">{{ row.last_order ? date(row.last_order, true) : '—' }}</template>
@@ -1109,7 +1106,7 @@ const CustomerSheet = {
   props: ["opts"], components: { Icon },
   setup(props) {
     const editing = !!props.opts.name;
-    const f = reactive({ name: props.opts.name || null, customer_name: "", customer_type: "Individual", relation: "final", contact_person: "", mobile_no: "", email_id: "", tax_id: "", address: "", city: "", notes: "" });
+    const f = reactive({ name: props.opts.name || null, customer_name: "", customer_type: "Individual", contact_person: "", mobile_no: "", email_id: "", tax_id: "", address: "", city: "", notes: "" });
     const ready = ref(!editing), saving = ref(false), error = ref(null), serverErrors = ref({}), attempted = ref(false);
     onMounted(async () => {
       if (editing) { try { Object.assign(f, await call("customer_profile", { name: f.name })); } catch (e) { error.value = e.message; } ready.value = true; }
@@ -1140,38 +1137,30 @@ const CustomerSheet = {
   },
   template: `
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="cs-h">
-    <form class="sheet" novalidate @submit.prevent="save">
+    <form class="sheet wide" novalidate @submit.prevent="save">
       <div class="row"><h2 id="cs-h" style="flex:1">{{ editing ? t('cs_edit_title') : t('c_add') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
       <div v-if="error" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ error }}</span></div>
       <div v-if="!ready" class="meta">{{ t('loading') }}</div>
       <template v-else>
-        <div class="field"><span class="label">{{ t('cs_type') }}</span>
-          <div class="seg" role="group" :aria-label="t('cs_type')">
-            <button type="button" :aria-pressed="f.customer_type==='Individual'" @click="f.customer_type='Individual'">{{ t('c_type_person') }}</button>
-            <button type="button" :aria-pressed="f.customer_type==='Company'" @click="f.customer_type='Company'">{{ t('c_type_company') }}</button></div></div>
-        <div class="field"><span class="label">{{ t('cs_relation') }}</span>
-          <div class="seg" role="group" :aria-label="t('cs_relation')">
-            <button type="button" :aria-pressed="f.relation==='final'" @click="f.relation='final'">{{ t('rel_final') }}</button>
-            <button type="button" :aria-pressed="f.relation==='subcontract'" @click="f.relation='subcontract'">{{ t('rel_subcontract') }}</button></div>
-          <span class="hint">{{ f.relation==='subcontract' ? t('rel_subcontract_hint') : t('rel_final_hint') }}</span></div>
+        <div class="seg" role="group" :aria-label="t('cs_type')">
+          <button type="button" :aria-pressed="f.customer_type==='Individual'" @click="f.customer_type='Individual'"><Icon name="users" :size="16"/>{{ t('c_type_person') }}</button>
+          <button type="button" :aria-pressed="f.customer_type==='Company'" @click="f.customer_type='Company'"><Icon name="orders" :size="16"/>{{ t('c_type_company_short') }}</button></div>
         <div class="field"><label for="cs-name" class="req">{{ f.customer_type==='Company' ? t('cs_company_name') : t('cs_full_name') }}</label>
           <input id="cs-name" class="input" :class="{invalid: attempted && errs.customer_name}" type="text" v-model="f.customer_name" autocomplete="off" enterkeyhint="next">
           <span v-if="attempted && errs.customer_name" class="error-text">{{ errs.customer_name }}</span></div>
-        <div v-if="f.customer_type==='Company'" class="field"><label for="cs-person">{{ t('cs_contact_person') }}</label>
-          <input id="cs-person" class="input" type="text" v-model="f.contact_person" autocomplete="off" :placeholder="t('cs_contact_person_ph')"></div>
-        <div class="cols-2">
+        <div class="grid-2">
+          <div v-if="f.customer_type==='Company'" class="field"><label for="cs-person">{{ t('cs_contact_person') }}</label>
+            <input id="cs-person" class="input" type="text" v-model="f.contact_person" autocomplete="off"></div>
           <div class="field"><label for="cs-phone">{{ t('c_phone') }}</label>
             <input id="cs-phone" class="input num" type="tel" inputmode="tel" dir="ltr" v-model="f.mobile_no" autocomplete="off" placeholder="0550 00 00 00"></div>
           <div class="field"><label for="cs-email">{{ t('cs_email') }}</label>
             <input id="cs-email" class="input" :class="{invalid: attempted && errs.email_id}" type="email" inputmode="email" dir="ltr" v-model="f.email_id" autocomplete="off">
             <span v-if="attempted && errs.email_id" class="error-text">{{ errs.email_id }}</span></div>
-        </div>
-        <div class="cols-2">
+          <div v-if="f.customer_type==='Company'" class="field"><label for="cs-tax">{{ t('cs_tax_id') }}</label>
+            <input id="cs-tax" class="input num" type="text" dir="ltr" v-model="f.tax_id" autocomplete="off"></div>
           <div class="field"><label for="cs-addr">{{ t('cs_address') }}</label><input id="cs-addr" class="input" type="text" v-model="f.address"></div>
           <div class="field"><label for="cs-city">{{ t('cs_city') }}</label><input id="cs-city" class="input" type="text" v-model="f.city"></div>
         </div>
-        <div v-if="f.customer_type==='Company'" class="field"><label for="cs-tax">{{ t('cs_tax_id') }} <span class="cap">({{ t('optional') }})</span></label>
-          <input id="cs-tax" class="input num" type="text" dir="ltr" v-model="f.tax_id" autocomplete="off"><span class="hint">{{ t('cs_tax_hint') }}</span></div>
         <div class="field"><label for="cs-notes">{{ t('cs_notes') }}</label><textarea id="cs-notes" class="input" rows="2" v-model="f.notes"></textarea></div>
         <button type="submit" class="btn primary block lg" :disabled="saving">{{ saving ? t('of_saving') : editing ? t('cs_save') : t('c_add') }}</button>
       </template>

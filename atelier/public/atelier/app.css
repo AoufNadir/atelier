@@ -339,3 +339,7 @@ details.collapse[open] > summary .chev { transform: rotate(-90deg); }
 .kpis.static .kpi { cursor: default; }
 .t-danger { color: var(--danger); } .t-success { color: var(--success); } .t-warning { color: var(--warning); }
 .kpis.static { margin-bottom: var(--s4); }
+.sheet.wide { max-width: 640px; }
+.sheet .seg button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.grid-2 { display: grid; gap: var(--s3); grid-template-columns: 1fr; }
+@media (min-width: 560px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
