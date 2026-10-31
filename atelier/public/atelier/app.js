@@ -1393,11 +1393,41 @@ const MorePage = {
 };
 
 
+// Receipts: photos are shrunk to 1600px JPEG before upload (phone photos are often 5–10 MB); PDFs go as they are.
+async function shrinkImage(file) {
+  if (!file.type.startsWith("image/") || file.type === "image/gif" || file.size < 400 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.82));
+    return blob && blob.size < file.size ? new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" }) : file;
+  } catch { return file; }
+}
+async function uploadPrivate(file, doctype, docname) {
+  const fd = new FormData();
+  fd.append("file", file, file.name); fd.append("doctype", doctype); fd.append("docname", docname); fd.append("is_private", "1");
+  const res = await fetch("/api/method/upload_file", { method: "POST", body: fd, credentials: "same-origin", headers: { "X-Frappe-CSRF-Token": window.csrf_token } });
+  if (!res.ok) throw new Error(serverMessage(await res.json().catch(() => ({}))));
+  return (await res.json()).message;
+}
+
 // ------------------------------------------------------------------ expense sheet
 const ExpenseSheet = {
   props: ["opts"], components: { Icon },
   setup(props) {
     const f = reactive({ account: "", amount: "", mode: "Cash", description: "", order: props.opts.order || "", date: todayISO() });
+    const receipt = ref(null), receiptError = ref(null), uploadWarn = ref(null), fileInput = ref(null);
+    const onFile = (e) => {
+      const file = e.target.files?.[0]; receiptError.value = null;
+      if (!file) return;
+      if (!/^image\/|^application\/pdf$/.test(file.type)) { receiptError.value = t("e_receipt_type"); e.target.value = ""; return; }
+      if (file.size > 15 * 1048576) { receiptError.value = t("e_receipt_big"); e.target.value = ""; return; }
+      receipt.value = { file, name: file.name, size: file.size, url: file.type.startsWith("image/") ? URL.createObjectURL(file) : null };
+    };
+    const dropReceipt = () => { if (receipt.value?.url) URL.revokeObjectURL(receipt.value.url); receipt.value = null; if (fileInput.value) fileInput.value.value = ""; };
+    onBeforeUnmount(dropReceipt);
     const opts = ref(null), loadError = ref(null), saving = ref(false), error = ref(null), attempted = ref(false), done = ref(null), q = ref("");
     onMounted(async () => {
       try { opts.value = await call("expense_options"); } catch (e) { loadError.value = e.message; }
@@ -1427,19 +1457,25 @@ const ExpenseSheet = {
       try {
         done.value = await call("record_expense", { account: f.account, amount: +f.amount, mode_of_payment: f.mode, description: f.description,
           sales_order: f.order || null, posting_date: f.date }, true);
+        if (receipt.value) {
+          // The expense is already booked; a failed upload must not hide that.
+          try { await uploadPrivate(await shrinkImage(receipt.value.file), "Journal Entry", done.value.name); done.value.receipt = true; }
+          catch (e) { uploadWarn.value = t("e_receipt_failed", e.message || t("error_net")); }
+        }
         toast(t("e_done", done.value.name));
       } catch (e) { error.value = e.message; }
       saving.value = false;
     }
-    const again = () => { Object.assign(f, { account: "", amount: "", description: "", order: "" }); done.value = null; attempted.value = false; };
-    return { f, opts, loadError, saving, error, attempted, errs, save, close, done, again, q, frequent, matches, chosen, pick, label, t, money, state, date, dfw, parseDate };
+    const again = () => { Object.assign(f, { account: "", amount: "", description: "", order: "" }); dropReceipt(); uploadWarn.value = null; done.value = null; attempted.value = false; };
+    return { receipt, receiptError, uploadWarn, fileInput, onFile, dropReceipt, fileSize, f, opts, loadError, saving, error, attempted, errs, save, close, done, again, q, frequent, matches, chosen, pick, label, t, money, state, date, dfw, parseDate };
   },
   template: `
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="exp-h">
     <form class="sheet" novalidate @submit.prevent="save">
       <div class="row"><h2 id="exp-h" style="flex:1">{{ t('e_title') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
       <template v-if="done">
-        <div class="alert success"><Icon name="check" :size="16"/><span>{{ t('e_done', done.name) }}<template v-if="done.project"> · {{ t('e_on_order') }}</template></span></div>
+        <div class="alert success"><Icon name="check" :size="16"/><span>{{ t('e_done', done.name) }}<template v-if="done.project"> · {{ t('e_on_order') }}</template><template v-if="done.receipt"> · {{ t('e_receipt_saved') }}</template></span></div>
+        <div v-if="uploadWarn" class="alert warn" role="alert"><Icon name="alert" :size="16"/><span>{{ uploadWarn }}</span></div>
         <div class="row wrap"><button type="button" class="btn primary" @click="again">{{ t('e_another') }}</button>
           <a class="btn" :href="'/app/journal-entry/'+encodeURIComponent(done.name)">{{ t('ov_open_erp') }}</a>
           <button type="button" class="btn ghost" @click="close">{{ t('close') }}</button></div>
@@ -1472,6 +1508,16 @@ const ExpenseSheet = {
           <select id="e-o" class="input" v-model="f.order"><option value="">{{ t('e_order_none') }}</option>
             <option v-for="o in opts.orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + o.customer_name }}</option></select>
           <span class="hint">{{ f.order ? t('e_order_hint') : t('e_general_hint') }}</span></div>
+        <div class="field"><span class="label">{{ t('e_receipt') }} <span class="cap">({{ t('optional') }})</span></span>
+          <div v-if="receipt" class="row" style="gap:10px;border:1px solid var(--line);border-radius:10px;padding:8px">
+            <img v-if="receipt.url" :src="receipt.url" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:8px;flex-shrink:0">
+            <Icon v-else name="file" :size="28" class="muted"/>
+            <span style="min-width:0;flex:1;display:flex;flex-direction:column"><span class="ellipsis" dir="auto">{{ receipt.name }}</span><span class="meta" v-html="fileSize(receipt.size)"></span></span>
+            <button type="button" class="btn sm ghost" @click="dropReceipt">{{ t('e_receipt_remove') }}</button></div>
+          <label v-else for="e-r" class="btn" style="align-self:flex-start;cursor:pointer"><Icon name="image" :size="18"/>{{ t('e_receipt_add') }}</label>
+          <input id="e-r" ref="fileInput" type="file" accept="image/*,application/pdf" class="sr-only" @change="onFile">
+          <span v-if="receiptError" class="error-text">{{ receiptError }}</span>
+          <span v-else class="hint">{{ t('e_receipt_hint') }}</span></div>
         <div class="field"><label for="e-dt">{{ t('c_date') }}</label>
           <input id="e-dt" class="input" type="date" v-model="f.date" :max="new Date().toISOString().slice(0,10)">
           <span v-if="f.date" class="hint">{{ dfw.format(parseDate(f.date)) }}</span></div>
