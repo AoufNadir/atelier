@@ -76,7 +76,7 @@ function useLoad(fn) {
 const state = reactive({
   path: location.pathname, query: new URLSearchParams(location.search),
   boot: null, toast: null, sheet: null, online: navigator.onLine, keyboard: false, editing: false,
-  collapsed: !!store.get("atelier.sidebarCollapsed"),
+  collapsed: !!store.get("atelier.sidebarCollapsed"), rev: 0,
 });
 watch(() => state.collapsed, (v) => store.set("atelier.sidebarCollapsed", v));
 function go(path) {
@@ -171,6 +171,7 @@ const ICONS = {
   trash: "M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15",
   wifi: "M2 8.8a15 15 0 0 1 20 0M5 12.6a10 10 0 0 1 14 0M8.5 16.4a5 5 0 0 1 7 0M12 20h.01",
   panel: "M3 4h18v16H3zM15 4v16",
+  edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z",
 };
 const Icon = (props) => h("svg", { width: props.size || 20, height: props.size || 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
   "stroke-width": 1.8, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", class: props.class },
@@ -884,17 +885,18 @@ const CustomerView = {
     <LoadState :s="s" :rows="6" @retry="load"><template v-if="s.data">
       <div class="page-head">
         <div class="stack" style="gap:2px;min-width:0;flex:1"><h1 class="wrap-any">{{ s.data.customer_name }}</h1>
-          <a v-if="s.data.mobile_no" class="meta num" :href="'tel:'+s.data.mobile_no" style="align-self:flex-start">{{ s.data.mobile_no }}</a></div>
+          <a v-if="s.data.mobile_no" class="meta num" dir="ltr" :href="'tel:'+s.data.mobile_no" style="align-self:flex-start">{{ s.data.mobile_no }}</a></div>
         <div class="row wrap" style="gap:6px">
           <a class="btn primary" :href="'/atelier/orders/new?customer='+encodeURIComponent(s.data.name)" @click.prevent="go('/orders/new?customer='+encodeURIComponent(s.data.name))"><Icon name="plus" :size="18"/>{{ t('c_new_order') }}</a>
           <button v-if="state.boot.can.payment" class="btn" @click="state.sheet={type:'payment', customer:{name:s.data.name, customer_name:s.data.customer_name}}"><Icon name="in" :size="18"/>{{ t('record_payment') }}</button>
           <a v-if="s.data.ledger" class="btn ghost" :href="statement"><Icon name="file" :size="18"/>{{ t('c_statement') }}</a>
+          <button v-if="s.data.can_edit" type="button" class="btn ghost" @click="state.sheet={type:'customer', name:s.data.name}"><Icon name="edit" :size="18"/>{{ t('cs_edit') }}</button>
         </div>
       </div>
 
       <div class="split">
-        <aside v-if="s.data.ledger" class="side" style="order:-1">
-          <section class="card"><div class="card-h"><h2>{{ t('c_balance_title') }}</h2>
+        <aside class="side stack" style="order:-1">
+          <section v-if="s.data.ledger" class="card"><div class="card-h"><h2>{{ t('c_balance_title') }}</h2>
             <span class="badge" :class="bal.cls"><Icon :name="bal.icon" :size="13"/>{{ bal.label }}</span></div>
             <div class="card-b stack">
               <span class="money" style="font-size:24px;font-weight:600">{{ money(bal.value) }}</span>
@@ -902,6 +904,14 @@ const CustomerView = {
                 <dt>{{ t('c_invoiced') }}</dt><dd class="money">{{ money(s.data.invoiced) }}</dd>
                 <dt>{{ t('c_received') }}</dt><dd class="money">{{ money(s.data.received) }}</dd></dl>
             </div></section>
+          <section class="card"><div class="card-h"><h2>{{ t('cs_info') }}</h2></div>
+            <div class="card-b"><dl class="kv">
+              <dt>{{ t('cs_type') }}</dt><dd>{{ t(s.data.customer_type==='Company' ? 'c_type_company' : 'c_type_person') }}</dd>
+              <dt>{{ t('c_phone') }}</dt><dd><a v-if="s.data.mobile_no" class="num" dir="ltr" :href="'tel:'+s.data.mobile_no">{{ s.data.mobile_no }}</a><span v-else class="muted">—</span></dd>
+              <dt>{{ t('cs_email') }}</dt><dd><a v-if="s.data.email_id" :href="'mailto:'+s.data.email_id" dir="ltr">{{ s.data.email_id }}</a><span v-else class="muted">—</span></dd>
+              <dt>{{ t('cs_address') }}</dt><dd>{{ [s.data.address, s.data.city].filter(Boolean).join('، ') || '—' }}</dd>
+              <dt>{{ t('cs_tax_id') }}</dt><dd class="num">{{ s.data.tax_id || '—' }}</dd>
+            </dl><p v-if="s.data.notes" class="hint" style="margin-top:8px;white-space:pre-line">{{ s.data.notes }}</p></div></section>
         </aside>
 
         <section class="card" style="min-width:0">
@@ -971,88 +981,6 @@ const CustomerView = {
         </div>
       </div>
     </template></LoadState>
-  </div>`,
-};
-
-const CustomerList = {
-  components: { Icon, LoadState },
-  setup() {
-    const q = ref("");
-    const { s, load } = useLoad(() => call("customers", q.value ? { q: q.value } : {}));
-    let timer; watch(q, () => { clearTimeout(timer); timer = setTimeout(load, 250); });
-    onMounted(load);
-    return { q, s, load, t, go };
-  },
-  template: `
-  <div class="page">
-    <div class="page-head"><h1>{{ t('c_title') }}</h1></div>
-    <section class="card" style="max-width:900px">
-      <div class="table-toolbar" style="padding-top:12px"><div class="search" style="flex:1;max-width:none"><label for="c-q" class="sr-only">{{ t('search_label') }}</label>
-        <Icon name="search" class="s-icon" :size="16"/><input id="c-q" class="input" type="search" v-model="q" :placeholder="t('c_list_ph')" enterkeyhint="search"></div></div>
-      <LoadState :s="s" @retry="load">
-        <div v-if="!s.data.length" class="empty">{{ t('c_none') }}</div>
-        <div class="list"><a v-for="c in s.data" :key="c.name" class="list-item" :href="'/atelier/customers/'+c.name" @click.prevent="go('/customers/'+encodeURIComponent(c.name))">
-          <Icon name="users" :size="18" class="muted"/><span class="main-col"><span class="medium ellipsis">{{ c.customer_name }}</span></span>
-          <span class="meta num">{{ c.mobile_no || '' }}</span><Icon name="chev" :size="16" class="muted"/></a></div>
-      </LoadState>
-    </section>
-  </div>`,
-};
-
-// ------------------------------------------------------------------ payment sheet
-const PaymentSheet = {
-  props: ["opts"], components: { Icon, CustomerPicker },
-  setup(props) {
-    const f = reactive({ customer: props.opts.customer || null, amount: "", mode: "Cash", order: props.opts.order || "" });
-    const orders = ref([]), saving = ref(false), error = ref(null), attempted = ref(false), done = ref(null);
-    const loadOrders = async () => {
-      orders.value = [];
-      if (!f.customer) return;
-      try { orders.value = (await call("customer", { name: f.customer.name })).orders.filter((o) => o.docstatus === 1 && o.per_billed < 100); } catch { /* optional */ }
-    };
-    watch(() => f.customer, loadOrders, { immediate: true });
-    const errs = computed(() => ({ customer: !f.customer ? t("err_pick_customer") : null, amount: !(+f.amount > 0) ? t("err_amount") : null }));
-    const close = () => (state.sheet = null);
-    const onKey = (e) => { if (e.key === "Escape") close(); };
-    onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.querySelector(".sheet input")?.focus(), 50); });
-    onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
-    async function save() {
-      attempted.value = true; error.value = null;
-      if (errs.value.customer || errs.value.amount) return;
-      saving.value = true;
-      try {
-        done.value = await call("record_payment", { customer: f.customer.name, amount: +f.amount, mode_of_payment: f.mode, sales_order: f.order || null }, true);
-        toast(t("p_done", done.value));
-      } catch (e) { error.value = e.message; }
-      saving.value = false;
-    }
-    return { f, orders, saving, error, attempted, errs, save, close, done, t, money, state };
-  },
-  template: `
-  <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="pay-h">
-    <form class="sheet" novalidate @submit.prevent="save">
-      <div class="row"><h2 id="pay-h" style="flex:1">{{ t('p_title') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
-      <template v-if="done">
-        <div class="alert success"><Icon name="check" :size="16"/><span>{{ t('p_done', done) }}</span></div>
-        <div class="row wrap"><a class="btn primary" target="_blank" rel="noopener" :href="'/api/method/frappe.utils.print_format.download_pdf?doctype=Payment%20Entry&name='+encodeURIComponent(done)">{{ t('p_receipt') }}</a>
-          <button type="button" class="btn" @click="close">{{ t('close') }}</button></div>
-      </template>
-      <template v-else>
-        <div v-if="error" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ error }}</span></div>
-        <div class="field"><label for="p-c" class="req">{{ t('p_customer') }}</label>
-          <CustomerPicker v-model="f.customer" input-id="p-c" :invalid="attempted && !!errs.customer"/>
-          <span v-if="attempted && errs.customer" class="error-text">{{ errs.customer }}</span></div>
-        <div class="field"><label for="p-a" class="req">{{ t('p_amount') }} ({{ t('currency') }})</label>
-          <input id="p-a" class="input num" :class="{invalid: attempted && errs.amount}" type="text" inputmode="decimal" autocomplete="off" v-model="f.amount" placeholder="0.00" enterkeyhint="done">
-          <span v-if="attempted && errs.amount" class="error-text">{{ errs.amount }}</span></div>
-        <div class="field"><span class="label">{{ t('p_mode') }}</span>
-          <div class="seg" role="group" :aria-label="t('p_mode')"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="f.mode===m.value" @click="f.mode=m.value">{{ m.label }}</button></div></div>
-        <div class="field"><label for="p-o">{{ t('p_order') }}</label>
-          <select id="p-o" class="input" v-model="f.order"><option value="">{{ t('p_order_none') }}</option>
-            <option v-for="o in orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + money(o.grand_total - o.paid) }}</option></select></div>
-        <button type="submit" class="btn primary block lg" :disabled="saving">{{ saving ? t('of_saving') : t('p_save') }}</button>
-      </template>
-    </form>
   </div>`,
 };
 
@@ -1128,6 +1056,173 @@ const Kpis = {
 };
 
 const deskLink = (doctype, name) => `/app/${doctype.toLowerCase().replace(/ /g, "-")}/${encodeURIComponent(name)}`;
+
+const CustomerList = {
+  components: { Icon, LoadState, DataTable },
+  setup() {
+    const { s, load } = useLoad(() => call("customers", { full: 1 }));
+    onMounted(load);
+    watch(() => state.rev, load);
+    const finance = computed(() => (s.data || []).some((c) => c.balance !== null && c.balance !== undefined));
+    const cols = computed(() => [
+      { k: "customer_name", label: t("col_customer"), sort: true }, { k: "mobile_no", label: t("c_phone") },
+      { k: "open_orders", label: t("c_open_orders"), type: "num", sort: true }, { k: "last_order", label: t("c_last_order"), type: "date", sort: true },
+      ...(finance.value ? [{ k: "balance", label: t("c_balance"), type: "money", sort: true, main: true }] : []),
+    ]);
+    const filters = computed(() => [
+      ...(finance.value ? [["owes", "c_f_owes", (c) => c.balance > 0.005], ["credit", "c_f_credit", (c) => c.balance < -0.005]] : []),
+      ["active", "c_f_active", (c) => c.open_orders > 0],
+    ]);
+    const open = (c) => go("/customers/" + encodeURIComponent(c.name));
+    return { s, load, cols, filters, open, t, money, num, date, state };
+  },
+  template: `
+  <div class="page">
+    <div class="page-head"><div><h1>{{ t('c_title') }}</h1><div class="sub">{{ t('c_sub') }}</div></div>
+      <button v-if="state.boot.can.customer" type="button" class="btn primary" @click="state.sheet={type:'customer'}"><Icon name="plus" :size="18"/>{{ t('c_add') }}</button></div>
+    <LoadState :s="s" :rows="6" @retry="load">
+      <DataTable :rows="s.data" :cols="cols" row-key="name" :search-keys="['customer_name','mobile_no','email_id']" :filters="filters"
+        initial-sort="customer_name" :empty="t('c_none')">
+        <template #cell="{row, col}">
+          <span v-if="col.k==='customer_name'" class="title-cell"><a :href="'/atelier/customers/'+encodeURIComponent(row.name)" @click.prevent="open(row)" class="medium clamp2">{{ row.customer_name }}</a>
+            <span class="cap">{{ t(row.customer_type==='Company' ? 'c_type_company' : 'c_type_person') }}</span></span>
+          <a v-else-if="col.k==='mobile_no'" class="num" dir="ltr" :href="row.mobile_no ? 'tel:'+row.mobile_no : null">{{ row.mobile_no || '—' }}</a>
+          <span v-else-if="col.k==='open_orders'" class="num">{{ row.open_orders || '—' }}</span>
+          <template v-else-if="col.k==='last_order'">{{ row.last_order ? date(row.last_order, true) : '—' }}</template>
+          <template v-else-if="col.k==='balance'">
+            <span v-if="Math.abs(row.balance) < 0.005" class="cap">{{ t('c_settled') }}</span>
+            <span v-else class="money medium" :class="row.balance > 0 ? 't-danger' : 't-success'">{{ money(Math.abs(row.balance)) }}
+              <span class="cap">{{ row.balance > 0 ? t('c_owes') : t('c_credit_short') }}</span></span></template>
+        </template>
+      </DataTable>
+    </LoadState>
+  </div>`,
+};
+
+// ------------------------------------------------------------------ customer sheet (create / edit)
+const CustomerSheet = {
+  props: ["opts"], components: { Icon },
+  setup(props) {
+    const editing = !!props.opts.name;
+    const f = reactive({ name: props.opts.name || null, customer_name: "", customer_type: "Individual", mobile_no: "", email_id: "", tax_id: "", address: "", city: "", notes: "" });
+    const ready = ref(!editing), saving = ref(false), error = ref(null), serverErrors = ref({}), attempted = ref(false);
+    onMounted(async () => {
+      if (editing) { try { Object.assign(f, await call("customer_profile", { name: f.name })); } catch (e) { error.value = e.message; } ready.value = true; }
+      setTimeout(() => document.getElementById("cs-name")?.focus(), 50);
+    });
+    const errs = computed(() => ({
+      customer_name: !f.customer_name.trim() ? t("cs_err_name") : serverErrors.value.customer_name,
+      email_id: f.email_id && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email_id) ? t("cs_err_email") : serverErrors.value.email_id,
+    }));
+    const close = () => (state.sheet = null);
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    onMounted(() => window.addEventListener("keydown", onKey));
+    onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+    async function save() {
+      attempted.value = true; error.value = null; serverErrors.value = {};
+      const first = ["customer_name", "email_id"].find((k) => errs.value[k]);
+      if (first) { document.getElementById({ customer_name: "cs-name", email_id: "cs-email" }[first])?.focus(); return; }
+      saving.value = true;
+      try {
+        const name = await call("save_customer", { data: JSON.stringify(f) }, true);
+        toast(editing ? t("cs_saved") : t("cs_created"));
+        close(); state.rev++;
+        if (!editing) go("/customers/" + encodeURIComponent(name));
+      } catch (e) { error.value = e.message; serverErrors.value = e.errors || {}; }
+      saving.value = false;
+    }
+    return { f, editing, ready, saving, error, attempted, errs, save, close, t };
+  },
+  template: `
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="cs-h">
+    <form class="sheet" novalidate @submit.prevent="save">
+      <div class="row"><h2 id="cs-h" style="flex:1">{{ editing ? t('cs_edit_title') : t('c_add') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
+      <div v-if="error" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ error }}</span></div>
+      <div v-if="!ready" class="meta">{{ t('loading') }}</div>
+      <template v-else>
+        <div class="field"><span class="label">{{ t('cs_type') }}</span>
+          <div class="seg" role="group" :aria-label="t('cs_type')">
+            <button type="button" :aria-pressed="f.customer_type==='Individual'" @click="f.customer_type='Individual'">{{ t('c_type_person') }}</button>
+            <button type="button" :aria-pressed="f.customer_type==='Company'" @click="f.customer_type='Company'">{{ t('c_type_company') }}</button></div></div>
+        <div class="field"><label for="cs-name" class="req">{{ f.customer_type==='Company' ? t('cs_company_name') : t('of_new_name') }}</label>
+          <input id="cs-name" class="input" :class="{invalid: attempted && errs.customer_name}" type="text" v-model="f.customer_name" autocomplete="off" enterkeyhint="next">
+          <span v-if="attempted && errs.customer_name" class="error-text">{{ errs.customer_name }}</span></div>
+        <div class="cols-2">
+          <div class="field"><label for="cs-phone">{{ t('c_phone') }}</label>
+            <input id="cs-phone" class="input num" type="tel" inputmode="tel" dir="ltr" v-model="f.mobile_no" autocomplete="off" placeholder="0550 00 00 00"></div>
+          <div class="field"><label for="cs-email">{{ t('cs_email') }}</label>
+            <input id="cs-email" class="input" :class="{invalid: attempted && errs.email_id}" type="email" inputmode="email" dir="ltr" v-model="f.email_id" autocomplete="off">
+            <span v-if="attempted && errs.email_id" class="error-text">{{ errs.email_id }}</span></div>
+        </div>
+        <div class="cols-2">
+          <div class="field"><label for="cs-addr">{{ t('cs_address') }}</label><input id="cs-addr" class="input" type="text" v-model="f.address"></div>
+          <div class="field"><label for="cs-city">{{ t('cs_city') }}</label><input id="cs-city" class="input" type="text" v-model="f.city"></div>
+        </div>
+        <div class="field"><label for="cs-tax">{{ t('cs_tax_id') }} <span class="cap">({{ t('optional') }})</span></label>
+          <input id="cs-tax" class="input num" type="text" dir="ltr" v-model="f.tax_id" autocomplete="off"><span class="hint">{{ t('cs_tax_hint') }}</span></div>
+        <div class="field"><label for="cs-notes">{{ t('cs_notes') }}</label><textarea id="cs-notes" class="input" rows="2" v-model="f.notes"></textarea></div>
+        <button type="submit" class="btn primary block lg" :disabled="saving">{{ saving ? t('of_saving') : editing ? t('cs_save') : t('c_add') }}</button>
+      </template>
+    </form>
+  </div>`,
+};
+
+// ------------------------------------------------------------------ payment sheet
+const PaymentSheet = {
+  props: ["opts"], components: { Icon, CustomerPicker },
+  setup(props) {
+    const f = reactive({ customer: props.opts.customer || null, amount: "", mode: "Cash", order: props.opts.order || "" });
+    const orders = ref([]), saving = ref(false), error = ref(null), attempted = ref(false), done = ref(null);
+    const loadOrders = async () => {
+      orders.value = [];
+      if (!f.customer) return;
+      try { orders.value = (await call("customer", { name: f.customer.name })).orders.filter((o) => o.docstatus === 1 && o.per_billed < 100); } catch { /* optional */ }
+    };
+    watch(() => f.customer, loadOrders, { immediate: true });
+    const errs = computed(() => ({ customer: !f.customer ? t("err_pick_customer") : null, amount: !(+f.amount > 0) ? t("err_amount") : null }));
+    const close = () => (state.sheet = null);
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.querySelector(".sheet input")?.focus(), 50); });
+    onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+    async function save() {
+      attempted.value = true; error.value = null;
+      if (errs.value.customer || errs.value.amount) return;
+      saving.value = true;
+      try {
+        done.value = await call("record_payment", { customer: f.customer.name, amount: +f.amount, mode_of_payment: f.mode, sales_order: f.order || null }, true);
+        toast(t("p_done", done.value));
+      } catch (e) { error.value = e.message; }
+      saving.value = false;
+    }
+    return { f, orders, saving, error, attempted, errs, save, close, done, t, money, state };
+  },
+  template: `
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="pay-h">
+    <form class="sheet" novalidate @submit.prevent="save">
+      <div class="row"><h2 id="pay-h" style="flex:1">{{ t('p_title') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
+      <template v-if="done">
+        <div class="alert success"><Icon name="check" :size="16"/><span>{{ t('p_done', done) }}</span></div>
+        <div class="row wrap"><a class="btn primary" target="_blank" rel="noopener" :href="'/api/method/frappe.utils.print_format.download_pdf?doctype=Payment%20Entry&name='+encodeURIComponent(done)">{{ t('p_receipt') }}</a>
+          <button type="button" class="btn" @click="close">{{ t('close') }}</button></div>
+      </template>
+      <template v-else>
+        <div v-if="error" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ error }}</span></div>
+        <div class="field"><label for="p-c" class="req">{{ t('p_customer') }}</label>
+          <CustomerPicker v-model="f.customer" input-id="p-c" :invalid="attempted && !!errs.customer"/>
+          <span v-if="attempted && errs.customer" class="error-text">{{ errs.customer }}</span></div>
+        <div class="field"><label for="p-a" class="req">{{ t('p_amount') }} ({{ t('currency') }})</label>
+          <input id="p-a" class="input num" :class="{invalid: attempted && errs.amount}" type="text" inputmode="decimal" autocomplete="off" v-model="f.amount" placeholder="0.00" enterkeyhint="done">
+          <span v-if="attempted && errs.amount" class="error-text">{{ errs.amount }}</span></div>
+        <div class="field"><span class="label">{{ t('p_mode') }}</span>
+          <div class="seg" role="group" :aria-label="t('p_mode')"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="f.mode===m.value" @click="f.mode=m.value">{{ m.label }}</button></div></div>
+        <div class="field"><label for="p-o">{{ t('p_order') }}</label>
+          <select id="p-o" class="input" v-model="f.order"><option value="">{{ t('p_order_none') }}</option>
+            <option v-for="o in orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + money(o.grand_total - o.paid) }}</option></select></div>
+        <button type="submit" class="btn primary block lg" :disabled="saving">{{ saving ? t('of_saving') : t('p_save') }}</button>
+      </template>
+    </form>
+  </div>`,
+};
 
 // ------------------------------------------------------------------ money
 const MoneyPage = {
@@ -1541,7 +1636,7 @@ const SECTION_NAV = [
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -1590,7 +1685,7 @@ const App = {
         <SearchBox :class="{'desktop-only': route.name!=='home'}"/>
         <span class="cap desktop-only"><kbd>Ctrl</kbd> + <kbd>K</kbd></span>
         <div class="spacer desktop-only"></div>
-        <div class="row desktop-only" style="gap:8px">
+        <div v-if="route.name==='home'" class="row desktop-only" style="gap:8px">
           <a class="btn primary" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><Icon name="plus" :size="18"/>{{ t('new_order') }}</a>
           <button v-if="state.boot.can.payment" class="btn" @click="state.sheet={type:'payment'}"><Icon name="in" :size="18" style="color:var(--success)"/>{{ t('record_payment') }}</button>
           <button v-if="state.boot.can.expense" type="button" class="btn" @click="state.sheet={type:'expense'}"><Icon name="out" :size="18" style="color:var(--danger)"/>{{ t('record_expense') }}</button>
@@ -1601,7 +1696,7 @@ const App = {
         <OrdersPage v-else-if="route.name==='orders'"/>
         <OrderNew v-else-if="route.name==='order-new'" :key="state.path + state.query"/>
         <OrderView v-else-if="route.name==='order'" :id="route.id" :key="route.id"/>
-        <CustomerView v-else-if="route.name==='customer'" :id="route.id" :key="route.id"/>
+        <CustomerView v-else-if="route.name==='customer'" :id="route.id" :key="route.id + ':' + state.rev"/>
         <CustomerList v-else-if="route.name==='customers'"/>
         <MoneyPage v-else-if="route.name==='money'"/>
         <StockPage v-else-if="route.name==='stock'"/>
@@ -1621,6 +1716,7 @@ const App = {
 
     <PaymentSheet v-if="state.sheet && state.sheet.type==='payment'" :opts="state.sheet"/>
     <ExpenseSheet v-if="state.sheet && state.sheet.type==='expense'" :opts="state.sheet"/>
+    <CustomerSheet v-if="state.sheet && state.sheet.type==='customer'" :opts="state.sheet"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>
   </div>`,
 };

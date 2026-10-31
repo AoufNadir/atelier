@@ -38,6 +38,7 @@ def boot():
 		"modes": [{"value": v, "label": l} for v, l in MODES if frappe.db.exists("Mode of Payment", v)],
 		"can": {
 			"order": _can("Sales Order", "create"),
+			"customer": _can("Customer", "create"),
 			"payment": _can("Payment Entry", "create"),
 			"expense": _can("Journal Entry", "create"),
 			"finance": _can("GL Entry", "read"),
@@ -223,11 +224,116 @@ def search(q):
 
 
 @frappe.whitelist()
-def customers(q=None):
+def customers(q=None, full=0):
+	"""Picker search (q) or, with full=1, the customer list page with balances and order counts."""
 	filters = {"disabled": 0}
 	or_filters = {"customer_name": ["like", f"%{q}%"], "mobile_no": ["like", f"%{q}%"]} if q else None
-	return frappe.get_list("Customer", filters=filters, or_filters=or_filters,
-		fields=["name", "customer_name", "mobile_no"], order_by="modified desc", limit=20)
+	rows = frappe.get_list("Customer", filters=filters, or_filters=or_filters,
+		fields=["name", "customer_name", "mobile_no", "customer_type", "email_id"], order_by="modified desc",
+		limit=500 if cint(full) else 20)
+	if not cint(full) or not rows:
+		return rows
+	names = [r.name for r in rows]
+	open_orders, last_order = {}, {}
+	if _can("Sales Order"):
+		for so in frappe.get_list("Sales Order", filters={"customer": ["in", names], "docstatus": ["<", 2]},
+				fields=["customer", "status", "transaction_date"], limit=5000):
+			if so.status not in ("Closed", "Completed"):
+				open_orders[so.customer] = open_orders.get(so.customer, 0) + 1
+			if not last_order.get(so.customer) or str(so.transaction_date) > last_order[so.customer]:
+				last_order[so.customer] = str(so.transaction_date)
+	balances = None
+	if _can("GL Entry"):
+		balances = dict(frappe.db.sql(
+			"""select party, sum(debit - credit) from `tabGL Entry` where party_type='Customer' and is_cancelled=0
+			and company=%s and party in %s group by party""", (_company(), names)))
+	for r in rows:
+		r.open_orders = open_orders.get(r.name, 0)
+		r.last_order = last_order.get(r.name)
+		r.balance = flt(balances.get(r.name)) if balances is not None else None
+	return rows
+
+
+def _primary(doctype, customer, field):
+	name = frappe.db.get_value("Customer", customer, field)
+	if name:
+		return frappe.get_doc(doctype, name)
+	linked = frappe.get_all("Dynamic Link", {"link_doctype": "Customer", "link_name": customer, "parenttype": doctype}, pluck="parent", limit=1)
+	return frappe.get_doc(doctype, linked[0]) if linked else None
+
+
+def _address_parts(customer):
+	addr = _primary("Address", customer, "customer_primary_address")
+	return (addr.address_line1, addr.city if addr.city != "—" else "") if addr else ("", "")
+
+
+@frappe.whitelist()
+def customer_profile(name):
+	doc = frappe.get_doc("Customer", name)
+	doc.check_permission("read")
+	address, city = _address_parts(name)
+	return {"name": doc.name, "customer_name": doc.customer_name, "customer_type": doc.customer_type,
+		"mobile_no": doc.mobile_no or "", "email_id": doc.email_id or "", "tax_id": doc.tax_id or "",
+		"address": address, "city": city, "notes": doc.customer_details or ""}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_customer(data):
+	"""Create or edit a customer. Phone/email live on the primary Contact, the address on the primary Address,
+	as in ERPNext itself, so Desk, print formats and documents stay consistent."""
+	data = frappe.parse_json(data)
+	errors = {}
+	if not (data.get("customer_name") or "").strip():
+		errors["customer_name"] = _("اكتب اسم العميل")
+	email = (data.get("email_id") or "").strip()
+	if email and not frappe.utils.validate_email_address(email):
+		errors["email_id"] = _("البريد الإلكتروني غير صالح")
+	if errors:
+		frappe.local.response["errors"] = errors
+		frappe.throw(_("راجع الحقول المشار إليها"), title=_("بيانات ناقصة"))
+	phone = (data.get("mobile_no") or "").strip()
+	if data.get("name"):
+		doc = frappe.get_doc("Customer", data["name"])
+		doc.check_permission("write")
+	else:
+		if not _can("Customer", "create"):
+			frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+		doc = frappe.new_doc("Customer")
+	doc.customer_name = data["customer_name"].strip()
+	doc.customer_type = "Company" if data.get("customer_type") == "Company" else "Individual"
+	doc.tax_id = (data.get("tax_id") or "").strip() or None
+	doc.customer_details = (data.get("notes") or "").strip() or None
+	doc.save()
+
+	contact = _primary("Contact", doc.name, "customer_primary_contact")
+	if phone or email or contact:
+		if not contact:
+			contact = frappe.new_doc("Contact")
+			contact.first_name = doc.customer_name
+			contact.append("links", {"link_doctype": "Customer", "link_name": doc.name})
+		contact.phone_nos = [r for r in contact.phone_nos if not r.is_primary_mobile_no]
+		if phone:
+			contact.append("phone_nos", {"phone": phone, "is_primary_mobile_no": 1})
+		contact.email_ids = [r for r in contact.email_ids if not r.is_primary]
+		if email:
+			contact.append("email_ids", {"email_id": email, "is_primary": 1})
+		contact.save()
+		doc.db_set({"customer_primary_contact": contact.name, "mobile_no": phone or None, "email_id": email or None})
+
+	line = (data.get("address") or "").strip()
+	addr = _primary("Address", doc.name, "customer_primary_address")
+	if line or addr:
+		if not addr:
+			addr = frappe.new_doc("Address")
+			addr.address_title = doc.customer_name
+			addr.address_type = "Billing"
+			addr.country = frappe.db.get_value("Company", _company(), "country") or "Algeria"
+			addr.append("links", {"link_doctype": "Customer", "link_name": doc.name})
+		addr.address_line1 = line or addr.address_line1
+		addr.city = (data.get("city") or "").strip() or addr.city or "—"
+		addr.save()
+		doc.db_set("customer_primary_address", addr.name)
+	return doc.name
 
 
 @frappe.whitelist()
@@ -237,6 +343,9 @@ def customer(name):
 	company = _company()
 	res = {
 		"name": doc.name, "customer_name": doc.customer_name, "mobile_no": doc.mobile_no, "email_id": doc.email_id,
+		"customer_type": doc.customer_type, "tax_id": doc.tax_id, "notes": doc.customer_details,
+		"can_edit": bool(frappe.has_permission("Customer", "write", doc)),
+		**{k: v for k, v in zip(("address", "city"), _address_parts(name))},
 		"orders": _order_rows({"customer": name, "docstatus": ["<", 2]}, limit=50) if _can("Sales Order") else [],
 	}
 	if _can("GL Entry"):
