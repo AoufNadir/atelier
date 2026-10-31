@@ -223,13 +223,29 @@ def search(q):
 # ---------------------------------------------------------------- customer
 
 
+# Relation is ERPNext's own Customer Group, so price lists and sales reports by group work as-is.
+RELATIONS = {"final": "عميل نهائي", "subcontract": "مناولة"}
+
+
+def _group(relation):
+	name = RELATIONS.get(relation, RELATIONS["final"])
+	if not frappe.db.exists("Customer Group", name):
+		root = frappe.db.get_value("Customer Group", {"is_group": 1, "parent_customer_group": ["in", ["", None]]}) or "All Customer Groups"
+		frappe.get_doc({"doctype": "Customer Group", "customer_group_name": name, "parent_customer_group": root, "is_group": 0}).insert(ignore_permissions=True)
+	return name
+
+
+def _relation(group):
+	return "subcontract" if group == RELATIONS["subcontract"] else "final"
+
+
 @frappe.whitelist()
 def customers(q=None, full=0):
 	"""Picker search (q) or, with full=1, the customer list page with balances and order counts."""
 	filters = {"disabled": 0}
 	or_filters = {"customer_name": ["like", f"%{q}%"], "mobile_no": ["like", f"%{q}%"]} if q else None
 	rows = frappe.get_list("Customer", filters=filters, or_filters=or_filters,
-		fields=["name", "customer_name", "mobile_no", "customer_type", "email_id"], order_by="modified desc",
+		fields=["name", "customer_name", "mobile_no", "customer_type", "email_id", "customer_group"], order_by="modified desc",
 		limit=500 if cint(full) else 20)
 	if not cint(full) or not rows:
 		return rows
@@ -248,6 +264,7 @@ def customers(q=None, full=0):
 			"""select party, sum(debit - credit) from `tabGL Entry` where party_type='Customer' and is_cancelled=0
 			and company=%s and party in %s group by party""", (_company(), names)))
 	for r in rows:
+		r.relation = _relation(r.customer_group)
 		r.open_orders = open_orders.get(r.name, 0)
 		r.last_order = last_order.get(r.name)
 		r.balance = flt(balances.get(r.name)) if balances is not None else None
@@ -262,6 +279,14 @@ def _primary(doctype, customer, field):
 	return frappe.get_doc(doctype, linked[0]) if linked else None
 
 
+def _contact_person(doc):
+	"""For a company, the primary contact's name when it differs from the company name."""
+	if doc.customer_type != "Company" or not doc.customer_primary_contact:
+		return ""
+	full = " ".join(filter(None, frappe.db.get_value("Contact", doc.customer_primary_contact, ["first_name", "last_name"]) or []))
+	return "" if full.strip() == doc.customer_name else full.strip()
+
+
 def _address_parts(customer):
 	addr = _primary("Address", customer, "customer_primary_address")
 	return (addr.address_line1, addr.city if addr.city != "—" else "") if addr else ("", "")
@@ -273,6 +298,7 @@ def customer_profile(name):
 	doc.check_permission("read")
 	address, city = _address_parts(name)
 	return {"name": doc.name, "customer_name": doc.customer_name, "customer_type": doc.customer_type,
+		"relation": _relation(doc.customer_group), "contact_person": _contact_person(doc),
 		"mobile_no": doc.mobile_no or "", "email_id": doc.email_id or "", "tax_id": doc.tax_id or "",
 		"address": address, "city": city, "notes": doc.customer_details or ""}
 
@@ -301,16 +327,20 @@ def save_customer(data):
 		doc = frappe.new_doc("Customer")
 	doc.customer_name = data["customer_name"].strip()
 	doc.customer_type = "Company" if data.get("customer_type") == "Company" else "Individual"
-	doc.tax_id = (data.get("tax_id") or "").strip() or None
+	doc.customer_group = _group(data.get("relation"))
+	# Tax ID belongs to companies; an individual keeps none.
+	doc.tax_id = ((data.get("tax_id") or "").strip() or None) if doc.customer_type == "Company" else None
 	doc.customer_details = (data.get("notes") or "").strip() or None
 	doc.save()
 
 	contact = _primary("Contact", doc.name, "customer_primary_contact")
-	if phone or email or contact:
+	person = (data.get("contact_person") or "").strip() if doc.customer_type == "Company" else ""
+	if phone or email or contact or person:
 		if not contact:
 			contact = frappe.new_doc("Contact")
 			contact.first_name = doc.customer_name
 			contact.append("links", {"link_doctype": "Customer", "link_name": doc.name})
+		contact.first_name, contact.last_name = person or doc.customer_name, None
 		contact.phone_nos = [r for r in contact.phone_nos if not r.is_primary_mobile_no]
 		if phone:
 			contact.append("phone_nos", {"phone": phone, "is_primary_mobile_no": 1})
@@ -344,6 +374,7 @@ def customer(name):
 	res = {
 		"name": doc.name, "customer_name": doc.customer_name, "mobile_no": doc.mobile_no, "email_id": doc.email_id,
 		"customer_type": doc.customer_type, "tax_id": doc.tax_id, "notes": doc.customer_details,
+		"relation": _relation(doc.customer_group), "contact_person": _contact_person(doc),
 		"can_edit": bool(frappe.has_permission("Customer", "write", doc)),
 		**{k: v for k, v in zip(("address", "city"), _address_parts(name))},
 		"orders": _order_rows({"customer": name, "docstatus": ["<", 2]}, limit=50) if _can("Sales Order") else [],
@@ -479,7 +510,7 @@ def create_order(data):
 
 	if not customer:
 		customer = frappe.get_doc({
-			"doctype": "Customer", "customer_name": new_customer["name"].strip(), "customer_type": "Individual",
+			"doctype": "Customer", "customer_name": new_customer["name"].strip(), "customer_type": "Individual", "customer_group": _group("final"),
 			"mobile_no": (new_customer.get("phone") or "").strip() or None,
 		}).insert().name
 
