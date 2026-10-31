@@ -424,7 +424,7 @@ const Home = {
     <div class="quick mobile-only">
       <a class="btn primary" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><Icon name="plus"/>{{ t('new_order') }}</a>
       <button v-if="state.boot.can.payment" class="btn" @click="state.sheet={type:'payment'}"><Icon name="in" style="color:var(--success)"/>{{ t('record_payment') }}</button>
-      <a v-if="state.boot.can.expense" class="btn" href="/app/journal-entry/new"><Icon name="out" style="color:var(--danger)"/>{{ t('record_expense') }}</a>
+      <button v-if="state.boot.can.expense" type="button" class="btn" @click="state.sheet={type:'expense'}"><Icon name="out" style="color:var(--danger)"/>{{ t('record_expense') }}</button>
     </div>
 
     <LoadState :s="s" :rows="2" @retry="load">
@@ -1168,7 +1168,7 @@ const MoneyPage = {
     <div class="page-head"><div><h1>{{ t('nav_money') }}</h1><div class="sub">{{ t('m_sub') }}</div></div>
       <div class="row" style="gap:8px">
         <button v-if="state.boot.can.payment" type="button" class="btn" @click="state.sheet={type:'payment'}"><Icon name="in" :size="18" style="color:var(--success)"/>{{ t('record_payment') }}</button>
-        <a v-if="state.boot.can.expense" class="btn" href="/app/journal-entry/new" :title="t('expense_hint')"><Icon name="out" :size="18" style="color:var(--danger)"/>{{ t('record_expense') }}</a></div></div>
+        <button v-if="state.boot.can.expense" type="button" class="btn" @click="state.sheet={type:'expense'}"><Icon name="out" :size="18" style="color:var(--danger)"/>{{ t('record_expense') }}</button></div></div>
     <LoadState :s="s" :rows="3" @retry="load">
       <Kpis :items="kpis"/>
       <div class="alert info" style="margin-bottom:var(--s4)"><Icon name="alert" :size="16"/><span>{{ t('m_separate') }}</span></div>
@@ -1392,6 +1392,95 @@ const MorePage = {
     </div></section></div>`,
 };
 
+
+// ------------------------------------------------------------------ expense sheet
+const ExpenseSheet = {
+  props: ["opts"], components: { Icon },
+  setup(props) {
+    const f = reactive({ account: "", amount: "", mode: "Cash", description: "", order: props.opts.order || "", date: todayISO() });
+    const opts = ref(null), loadError = ref(null), saving = ref(false), error = ref(null), attempted = ref(false), done = ref(null), q = ref("");
+    onMounted(async () => {
+      try { opts.value = await call("expense_options"); } catch (e) { loadError.value = e.message; }
+    });
+    const label = (a) => (a.account_number ? a.account_number + " — " : "") + a.account_name;
+    const frequent = computed(() => (opts.value?.accounts || []).filter((a) => a.used).sort((a, b) => b.used - a.used).slice(0, 6));
+    const matches = computed(() => {
+      const n = q.value.trim().toLowerCase();
+      if (!n) return [];
+      return (opts.value?.accounts || []).filter((a) => label(a).toLowerCase().includes(n)).slice(0, 8);
+    });
+    const chosen = computed(() => (opts.value?.accounts || []).find((a) => a.name === f.account));
+    const pick = (a) => { f.account = a.name; q.value = ""; };
+    const errs = computed(() => ({
+      account: !f.account ? t("e_err_account") : null, amount: !(+f.amount > 0) ? t("err_amount") : null,
+      description: !f.description.trim() ? t("e_err_desc") : null,
+    }));
+    const close = () => (state.sheet = null);
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.getElementById("e-a")?.focus(), 50); });
+    onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+    async function save() {
+      attempted.value = true; error.value = null;
+      const first = ["account", "amount", "description"].find((k) => errs.value[k]);
+      if (first) { document.getElementById({ account: "e-q", amount: "e-a", description: "e-d" }[first])?.focus(); return; }
+      saving.value = true;
+      try {
+        done.value = await call("record_expense", { account: f.account, amount: +f.amount, mode_of_payment: f.mode, description: f.description,
+          sales_order: f.order || null, posting_date: f.date }, true);
+        toast(t("e_done", done.value.name));
+      } catch (e) { error.value = e.message; }
+      saving.value = false;
+    }
+    const again = () => { Object.assign(f, { account: "", amount: "", description: "", order: "" }); done.value = null; attempted.value = false; };
+    return { f, opts, loadError, saving, error, attempted, errs, save, close, done, again, q, frequent, matches, chosen, pick, label, t, money, state, date, dfw, parseDate };
+  },
+  template: `
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="exp-h">
+    <form class="sheet" novalidate @submit.prevent="save">
+      <div class="row"><h2 id="exp-h" style="flex:1">{{ t('e_title') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
+      <template v-if="done">
+        <div class="alert success"><Icon name="check" :size="16"/><span>{{ t('e_done', done.name) }}<template v-if="done.project"> · {{ t('e_on_order') }}</template></span></div>
+        <div class="row wrap"><button type="button" class="btn primary" @click="again">{{ t('e_another') }}</button>
+          <a class="btn" :href="'/app/journal-entry/'+encodeURIComponent(done.name)">{{ t('ov_open_erp') }}</a>
+          <button type="button" class="btn ghost" @click="close">{{ t('close') }}</button></div>
+      </template>
+      <div v-else-if="loadError" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ loadError }}</span></div>
+      <div v-else-if="!opts" class="meta">{{ t('loading') }}</div>
+      <template v-else>
+        <div v-if="error" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ error }}</span></div>
+        <div class="field"><label for="e-a" class="req">{{ t('p_amount') }} ({{ t('currency') }})</label>
+          <input id="e-a" class="input num" :class="{invalid: attempted && errs.amount}" type="text" inputmode="decimal" autocomplete="off" v-model="f.amount" placeholder="0.00" enterkeyhint="next">
+          <span v-if="attempted && errs.amount" class="error-text">{{ errs.amount }}</span></div>
+        <div class="field"><label for="e-d" class="req">{{ t('e_desc') }}</label>
+          <input id="e-d" class="input" :class="{invalid: attempted && errs.description}" type="text" v-model="f.description" :placeholder="t('e_desc_ph')" enterkeyhint="next">
+          <span v-if="attempted && errs.description" class="error-text">{{ errs.description }}</span></div>
+        <div class="field"><label for="e-q" class="req">{{ t('e_account') }}</label>
+          <div v-if="chosen" class="row" style="gap:8px"><span class="badge b-info" style="font-size:var(--fs-body);padding:6px 10px">{{ label(chosen) }}</span>
+            <button type="button" class="btn sm ghost" @click="f.account=''">{{ t('of_change') }}</button></div>
+          <template v-else>
+            <div v-if="frequent.length" class="chips" role="group" :aria-label="t('e_frequent')">
+              <button v-for="a in frequent" :key="a.name" type="button" class="chip" @click="pick(a)">{{ a.account_name }}</button></div>
+            <input id="e-q" class="input" :class="{invalid: attempted && errs.account}" type="search" v-model="q" :placeholder="t('e_account_ph')" autocomplete="off">
+            <div v-if="matches.length" class="list" style="border:1px solid var(--line);border-radius:10px">
+              <button v-for="a in matches" :key="a.name" type="button" class="list-item" @click="pick(a)"><span class="main-col"><span class="ellipsis">{{ label(a) }}</span></span></button></div>
+            <span v-else-if="q" class="meta">{{ t('search_none', q) }}</span>
+            <span v-if="attempted && errs.account" class="error-text">{{ errs.account }}</span>
+          </template></div>
+        <div class="field"><span class="label">{{ t('e_paid_from') }}</span>
+          <div class="seg" role="group" :aria-label="t('e_paid_from')"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="f.mode===m.value" @click="f.mode=m.value">{{ m.label }}</button></div></div>
+        <div class="field"><label for="e-o">{{ t('e_order') }} <span class="cap">({{ t('optional') }})</span></label>
+          <select id="e-o" class="input" v-model="f.order"><option value="">{{ t('e_order_none') }}</option>
+            <option v-for="o in opts.orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + o.customer_name }}</option></select>
+          <span class="hint">{{ f.order ? t('e_order_hint') : t('e_general_hint') }}</span></div>
+        <div class="field"><label for="e-dt">{{ t('c_date') }}</label>
+          <input id="e-dt" class="input" type="date" v-model="f.date" :max="new Date().toISOString().slice(0,10)">
+          <span v-if="f.date" class="hint">{{ dfw.format(parseDate(f.date)) }}</span></div>
+        <button type="submit" class="btn primary block lg" :disabled="saving">{{ saving ? t('of_saving') : t('e_save') }}</button>
+      </template>
+    </form>
+  </div>`,
+};
+
 // ------------------------------------------------------------------ shell
 const NAV = [
   { key: "home", path: "/", icon: "home", label: "nav_home", match: ["home"] },
@@ -1406,7 +1495,7 @@ const SECTION_NAV = [
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -1416,6 +1505,7 @@ const App = {
     onMounted(async () => {
       await loadBoot();
       if (state.query.get("action") === "payment" && state.boot?.can.payment) state.sheet = { type: "payment" };
+      if (state.query.get("action") === "expense" && state.boot?.can.expense) state.sheet = { type: "expense" };
       if ("serviceWorker" in navigator) navigator.serviceWorker.register("/atelier-sw.js", { scope: "/atelier" }).catch(() => {});
     });
     const isActive = (n) => n.match.includes(route.value.name);
@@ -1457,7 +1547,7 @@ const App = {
         <div class="row desktop-only" style="gap:8px">
           <a class="btn primary" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><Icon name="plus" :size="18"/>{{ t('new_order') }}</a>
           <button v-if="state.boot.can.payment" class="btn" @click="state.sheet={type:'payment'}"><Icon name="in" :size="18" style="color:var(--success)"/>{{ t('record_payment') }}</button>
-          <a v-if="state.boot.can.expense" class="btn" href="/app/journal-entry/new" :title="t('expense_hint')"><Icon name="out" :size="18" style="color:var(--danger)"/>{{ t('record_expense') }}</a>
+          <button v-if="state.boot.can.expense" type="button" class="btn" @click="state.sheet={type:'expense'}"><Icon name="out" :size="18" style="color:var(--danger)"/>{{ t('record_expense') }}</button>
         </div>
       </header>
       <main id="main" tabindex="-1" style="outline:none">
@@ -1484,6 +1574,7 @@ const App = {
     </nav>
 
     <PaymentSheet v-if="state.sheet && state.sheet.type==='payment'" :opts="state.sheet"/>
+    <ExpenseSheet v-if="state.sheet && state.sheet.type==='expense'" :opts="state.sheet"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>
   </div>`,
 };

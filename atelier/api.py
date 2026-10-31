@@ -578,3 +578,61 @@ def reports():
 			"revenue": revenue, "cost": cost, "internal": internal,
 			"result": revenue - cost - internal if revenue else None})
 	return {"orders": out, "period": _money()["period"]}
+
+
+# ---------------------------------------------------------------- expenses
+
+
+@frappe.whitelist()
+def expense_options():
+	"""Expense accounts (most used first) and open orders an expense can be charged to."""
+	if not _can("Journal Entry", "create"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	company = _company()
+	used = dict(frappe.db.sql(
+		"""select gle.account, count(*) from `tabGL Entry` gle join `tabAccount` acc on acc.name = gle.account
+		where gle.company=%s and gle.is_cancelled=0 and acc.root_type='Expense'
+		and gle.voucher_type in ('Journal Entry', 'Purchase Invoice') group by gle.account""", company))
+	accounts = frappe.get_all("Account", filters={"company": company, "root_type": "Expense", "is_group": 0, "disabled": 0},
+		fields=["name", "account_name", "account_number"], order_by="account_number asc")
+	for a in accounts:
+		a.used = used.get(a.name, 0)
+	orders = frappe.get_list("Sales Order", filters={"docstatus": ["<", 2], "project": ["is", "set"], "status": ["not in", ["Closed", "Completed"]]},
+		fields=["name", "project", "atelier_subject", "customer_name"], order_by="creation desc", limit=100)
+	return {"accounts": accounts, "orders": orders}
+
+
+@frappe.whitelist(methods=["POST"])
+def record_expense(account, amount, mode_of_payment, description, sales_order=None, posting_date=None):
+	"""One Journal Entry: debit the expense (tagged with the order's project), credit cash/bank."""
+	if not _can("Journal Entry", "create"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	amount = flt(amount)
+	if amount <= 0:
+		frappe.throw(_("المبلغ يجب أن يكون أكبر من صفر"))
+	if not (description or "").strip():
+		frappe.throw(_("اكتب بيان المصروف"))
+	company = _company()
+	if frappe.db.get_value("Account", account, ["company", "root_type", "is_group"]) != (company, "Expense", 0):
+		frappe.throw(_("اختر حساب مصروف صالحًا"))
+	project = None
+	if sales_order:
+		so = frappe.get_doc("Sales Order", sales_order)
+		so.check_permission("read")
+		project = so.project
+	paid_from = _cash_account(mode_of_payment, company)
+	is_bank = frappe.db.get_value("Account", paid_from, "account_type") == "Bank"
+	cost_center = frappe.db.get_value("Company", company, "cost_center")
+	date = posting_date or nowdate()
+	je = frappe.get_doc({
+		"doctype": "Journal Entry", "voucher_type": "Bank Entry" if is_bank else "Cash Entry", "company": company,
+		"posting_date": date, "user_remark": description.strip(), "mode_of_payment": mode_of_payment,
+		"cheque_no": "—" if is_bank else None, "cheque_date": date if is_bank else None,
+		"accounts": [
+			{"account": account, "debit_in_account_currency": amount, "project": project, "cost_center": cost_center},
+			{"account": paid_from, "credit_in_account_currency": amount, "cost_center": cost_center},
+		],
+	})
+	je.insert()
+	je.submit()
+	return {"name": je.name, "project": project}
