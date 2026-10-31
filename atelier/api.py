@@ -147,6 +147,10 @@ def _money():
 		"cash_balance": gl(f"""select sum(debit - credit) from `tabGL Entry` where company=%s and is_cancelled=0
 			and account in ({cash_accounts})""", company, company),
 		"receivable": gl("select sum(outstanding_amount) from `tabSales Invoice` where company=%s and docstatus=1", company),
+		"receivable_overdue": gl("""select sum(outstanding_amount) from `tabSales Invoice` where company=%s and docstatus=1
+			and due_date < %s""", company, nowdate()),
+		"payable_due": gl("""select sum(outstanding_amount) from `tabPurchase Invoice` where company=%s and docstatus=1
+			and due_date <= %s""", company, nowdate()),
 		"advances_held": gl("""select sum(unallocated_amount) from `tabPayment Entry` where company=%s and docstatus=1
 			and payment_type='Receive' and party_type='Customer'""", company)
 			+ gl("""select sum(advance_paid) from `tabSales Order` where company=%s and docstatus=1 and per_billed=0""", company),
@@ -180,7 +184,16 @@ def _order_rows(filters, limit=8):
 def _recent_orders():
 	if not _can("Sales Order"):
 		return []
-	return _order_rows({"docstatus": ["<", 2], "status": ["not in", ["Closed", "Completed"]]})
+	return _order_rows({"docstatus": ["<", 2], "status": ["not in", ["Closed", "Completed"]]}, limit=12)
+
+
+@frappe.whitelist()
+def orders(include_closed=0):
+	"""Order list for the orders page; filtering/sorting happens client-side on this set."""
+	filters = {"docstatus": ["<", 2]}
+	if not cint(include_closed):
+		filters["status"] = ["not in", ["Closed", "Completed"]]
+	return _order_rows(filters, limit=300)
 
 
 # ---------------------------------------------------------------- search

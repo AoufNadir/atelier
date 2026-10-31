@@ -65,6 +65,63 @@ def scenarios():
 	print("SCENARIOS_OK")
 
 
+AR_NAMES = {
+	"Item": {
+		"SRV-DESIGN-DEMO": "تصميم جرافيكي (تجريبي)", "SRV-PRINT-DEMO": "طباعة رقمية (تجريبي)",
+		"SRV-OFFSET-DEMO": "طباعة أوفست خارجية (تجريبي)", "SRV-FINISH-DEMO": "تشطيب وتغليف (تجريبي)",
+		"PAP-A4-80-DEMO": "ورق A4 ‏80غ (تجريبي)",
+	},
+	"Customer": {
+		"Client Alpha (DÉMO)": "مطبعة الأفق (تجريبي)", "Client Beta (DÉMO)": "مؤسسة النور للإشهار (تجريبي)",
+		"عميل تجريبي (DÉMO)": "مخبزة السعادة (تجريبي)",
+	},
+	"Supplier": {"Fournisseur Papier (DÉMO)": "مورد الورق (تجريبي)", "Imprimerie Offset Externe (DÉMO)": "مطبعة أوفست خارجية (تجريبي)"},
+}
+
+
+def arabize():
+	"""Arabic display names for all demo records (document ids stay unchanged)."""
+	for code, name in AR_NAMES["Item"].items():
+		frappe.db.set_value("Item", code, {"item_name": name, "description": name})
+		for dt in ("Sales Order Item", "Quotation Item", "Sales Invoice Item", "Delivery Note Item", "Purchase Order Item",
+				"Purchase Invoice Item", "Purchase Receipt Item", "Stock Entry Detail"):
+			frappe.db.sql(f"update `tab{dt}` set item_name=%s, description=%s where item_code=%s", (name, name, code))
+	for cust, name in AR_NAMES["Customer"].items():
+		frappe.db.set_value("Customer", cust, "customer_name", name)
+		for dt in ("Sales Order", "Sales Invoice", "Delivery Note", "Quotation"):
+			field = "customer_name"
+			frappe.db.sql(f"update `tab{dt}` set {field}=%s where {'party_name' if dt == 'Quotation' else 'customer'}=%s", (name, cust))
+		frappe.db.sql("update `tabPayment Entry` set party_name=%s where party=%s", (name, cust))
+	for sup, name in AR_NAMES["Supplier"].items():
+		frappe.db.set_value("Supplier", sup, "supplier_name", name)
+		for dt in ("Purchase Order", "Purchase Invoice", "Purchase Receipt"):
+			frappe.db.sql(f"update `tab{dt}` set supplier_name=%s where supplier=%s", (name, sup))
+	frappe.db.set_value("Customer", "Client Alpha (DÉMO)", "mobile_no", "0550 12 34 56")
+
+	# Long-text, multi-line order to test layouts.
+	from frappe.utils import add_days, nowdate
+
+	from atelier.api import create_order
+
+	subject = "حملة إشهارية كاملة لافتتاح الفرع الجديد: لافتات واجهة، مطويات، بطاقات، وملصقات سيارات (تجريبي)"
+	if not frappe.db.exists("Sales Order", {"atelier_subject": subject}):
+		create_order(frappe.as_json({
+			"customer": "Client Alpha (DÉMO)", "subject": subject, "delivery_date": add_days(nowdate(), 6),
+			"items": [
+				{"item_code": "SRV-DESIGN-DEMO", "qty": 1, "rate": 15000, "description": "هوية بصرية مختصرة ونماذج الطباعة"},
+				{"item_code": "SRV-PRINT-DEMO", "qty": 2000, "rate": 22, "description": "مطويات A4 ثلاث طيات، ورق لامع 135غ"},
+				{"item_code": "SRV-PRINT-DEMO", "qty": 500, "rate": 12, "description": "بطاقات زيارة وجهين"},
+				{"item_code": "SRV-OFFSET-DEMO", "qty": 5000, "rate": 6.5, "description": "ملصقات A3 أوفست"},
+				{"item_code": "SRV-FINISH-DEMO", "qty": 1, "rate": None, "description": "تركيب لافتة الواجهة 6×1.5 م — بانتظار المعاينة"},
+			],
+			"costs": [{"cost_type": "Sous-traitance", "description": "أوفست ملصقات", "qty": 5000, "rate": 4},
+				{"cost_type": "Finition", "description": "تركيب", "qty": 1}],
+			"advance": {"amount": 20000, "mode_of_payment": "Cash"},
+		}))
+	frappe.db.commit()
+	print("ARABIZE_OK")
+
+
 def setup_wizard():
 	if frappe.db.exists("Company", COMPANY):
 		return
