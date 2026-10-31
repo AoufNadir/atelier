@@ -20,6 +20,51 @@ def setup():
 	print("DEMO_SETUP_OK", COMPANY, DEMO_RATES)
 
 
+def scenarios():
+	"""Extra fictitious cases so every home-page state has data. Run after demo_cycle.run."""
+	from frappe.utils import add_days, nowdate
+
+	from atelier.api import create_order
+
+	frappe.db.set_value("Item", "PAP-A4-80-DEMO", "safety_stock", 1000)
+	for so in frappe.get_all("Sales Order", {"docstatus": 1, "per_delivered": 100}, pluck="name"):
+		frappe.db.set_value("Sales Order", so, "atelier_stage", "سُلّم")
+	if frappe.db.exists("Sales Order", {"atelier_subject": "بطاقات زيارة (تجريبي)"}):
+		return print("SCENARIOS_ALREADY")
+
+	r = create_order(frappe.as_json({
+		"customer": "Client Beta (DÉMO)", "subject": "بطاقات زيارة (تجريبي)", "delivery_date": add_days(nowdate(), 1),
+		"items": [{"item_code": "SRV-DESIGN-DEMO", "qty": 1, "rate": 3000}, {"item_code": "SRV-PRINT-DEMO", "qty": 500, "rate": 12}],
+		"costs": [{"cost_type": "Matière", "item": "PAP-A4-80-DEMO", "qty": 125}],
+		"advance": {"amount": 5000, "mode_of_payment": "Cash"},
+	}))
+	frappe.db.set_value("Sales Order", r["sales_order"], "atelier_stage", "جاهز للتسليم")
+
+	create_order(frappe.as_json({
+		"customer": "عميل تجريبي (DÉMO)", "subject": "لافتة 3×1 م وشعار (تجريبي)", "delivery_date": add_days(nowdate(), 4),
+		"items": [{"item_code": "SRV-DESIGN-DEMO", "qty": 1, "rate": 6000}, {"item_code": "SRV-PRINT-DEMO", "qty": 3, "rate": None,
+			"description": "لافتة فينيل 3×1 م"}],
+		"costs": [{"cost_type": "Sous-traitance", "description": "طباعة فينيل خارجية", "qty": 1}],
+	}))
+
+	si = frappe.get_doc({
+		"doctype": "Sales Invoice", "customer": "عميل تجريبي (DÉMO)", "company": COMPANY,
+		"posting_date": "2026-10-05", "set_posting_time": 1, "due_date": "2026-10-19",
+		"items": [{"item_code": "SRV-PRINT-DEMO", "qty": 600, "rate": 30}],
+	}).insert()
+	si.submit()
+
+	svg = ('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="#fff"/>'
+		'<text x="300" y="120" font-size="40" text-anchor="middle" font-family="sans-serif">BON DE COMMANDE — DÉMO</text>'
+		'<text x="300" y="200" font-size="28" text-anchor="middle" font-family="sans-serif">بون تجريبي — بيانات وهمية</text></svg>')
+	so_alpha = frappe.db.get_value("Sales Order", {"customer": "Client Alpha (DÉMO)"})
+	for fname, dt, dn in (("bon-commande-demo.svg", "Sales Order", so_alpha), ("maquette-flyer-demo.svg", "Customer", "Client Alpha (DÉMO)")):
+		frappe.get_doc({"doctype": "File", "file_name": fname, "attached_to_doctype": dt, "attached_to_name": dn,
+			"is_private": 1, "content": svg}).insert()
+	frappe.db.commit()
+	print("SCENARIOS_OK")
+
+
 def setup_wizard():
 	if frappe.db.exists("Company", COMPANY):
 		return

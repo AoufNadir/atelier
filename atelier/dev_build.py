@@ -81,8 +81,33 @@ def build():
 		],
 	)
 	_report("Rentabilite Commande", "Project")
+	custom_fields()
 	frappe.db.commit()
 	print("BUILD_OK")
+
+
+ORDER_STAGES = "جديد\nتصميم\nبانتظار موافقة العميل\nطباعة\nتشطيب\nجاهز للتسليم\nسُلّم"
+
+
+def custom_fields():
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	create_custom_fields(
+		{
+			"Sales Order": [
+				{"fieldname": "atelier_subject", "label": "موضوع الطلب", "fieldtype": "Data",
+					"insert_after": "customer", "in_list_view": 1, "module": MODULE},
+				{"fieldname": "atelier_stage", "label": "مرحلة التنفيذ", "fieldtype": "Select",
+					"options": ORDER_STAGES, "default": "جديد", "insert_after": "delivery_date",
+					"in_list_view": 1, "in_standard_filter": 1, "module": MODULE},
+			],
+			"Sales Order Item": [
+				{"fieldname": "atelier_price_pending", "label": "بانتظار التسعير", "fieldtype": "Check",
+					"insert_after": "rate", "in_list_view": 1, "module": MODULE,
+					"description": "السعر غير محدد بعد. لا يعني أن البند مجاني."},
+			],
+		}
+	)
 
 
 def _report(name, ref_doctype):

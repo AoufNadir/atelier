@@ -1,0 +1,91 @@
+// Arabic UI strings. Every visible text goes through t(key); add another language as a file with the same keys.
+export default {
+  app_name: "الورشة",
+  demo_banner: "بيانات تجريبية — الأسماء والأرقام وهمية",
+  nav_home: "الرئيسية", nav_orders: "الطلبات", nav_customers: "العملاء", nav_money: "المال", nav_stock: "المخزون",
+  nav_machines: "الماكينات", nav_reports: "التقارير", nav_more: "المزيد", nav_erpnext: "النظام الكامل (ERPNext)",
+  soon: "عبر ERPNext",
+  search_ph: "ابحث عن عميل أو طلب…", search_label: "بحث", search_none: "لا نتائج لـ «{0}»", search_min: "اكتب حرفين على الأقل",
+  type_customer: "عميل", type_order: "طلب",
+
+  new_order: "طلب جديد", record_payment: "تسجيل دفعة", record_expense: "تسجيل مصروف",
+  expense_hint: "يُفتح في ERPNext إلى أن تُبنى شاشته المبسطة",
+
+  hello: "صباح الخير", today_is: "اليوم {0}",
+  todo_title: "يحتاج إجراء", todo_none: "لا شيء عاجل اليوم", todo_none_hint: "كل الطلبات في موعدها ولا فواتير متأخرة.",
+  todo_more: "عرض الكل ({0})", todo_less: "عرض أقل",
+  kind_late: "متأخر", kind_due: "تسليم قريب", kind_price: "بانتظار التسعير", kind_invoice: "للفوترة",
+  kind_overdue: "دين متأخر", kind_supplier: "للمورد", kind_stock: "مخزون",
+
+  money_title: "المال", money_period: "هذا الشهر · {0}",
+  m_receivable: "مستحقات على العملاء", m_receivable_hint: "فواتير معتمدة لم تُدفع بعد",
+  m_payable: "مستحقات الموردين", m_payable_hint: "فواتير موردين لم تُدفع بعد",
+  m_cash: "السيولة الآن", m_cash_hint: "رصيد الصندوق والبنك",
+  m_advances: "تسبيقات محتفظ بها", m_advances_hint: "مال العملاء قبل الفوترة — ليس ربحًا",
+  m_sales: "المبيعات المفوترة", m_sales_hint: "دون الضريبة، دون التسبيقات",
+  m_in: "المقبوضات", m_in_hint: "كل ما دخل الصندوق والبنك",
+  m_out: "المدفوعات", m_out_hint: "كل ما خرج من الصندوق والبنك",
+  m_result: "النتيجة المحاسبية للشهر", m_result_hint: "إيرادات − مصاريف مسجلة · تقديرية قبل الإقفال",
+  money_hidden: "الأرقام المالية مخفية حسب صلاحياتك",
+  g_now: "الآن", g_month: "خلال الشهر",
+
+  orders_title: "الطلبات الجارية", orders_none: "لا طلبات جارية", all_orders: "كل الطلبات",
+  col_order: "الطلب", col_customer: "العميل", col_stage: "مرحلة التنفيذ", col_due: "التسليم", col_billing: "الفوترة", col_payment: "الدفع", col_total: "المبلغ",
+  bill_none: "غير مفوتر", bill_part: "مفوتر جزئيًا", bill_full: "مفوتر",
+  pay_none: "لا دفع", pay_part: "مدفوع {0}", pay_full: "مدفوع بالكامل", pay_advance: "تسبيق {0}",
+  price_pending: "بانتظار التسعير", draft: "مسودة",
+  due_today: "اليوم", due_tomorrow: "غدًا", due_late: "متأخر {0} ي", due_in: "بعد {0} أيام",
+
+  // order form
+  of_title: "طلب جديد", of_customer: "العميل", of_customer_ph: "ابحث بالاسم أو الهاتف", of_new_customer: "عميل جديد", of_existing_customer: "عميل مسجل",
+  of_new_name: "اسم العميل", of_new_phone: "الهاتف", of_change: "تغيير", of_customer_balance: "عليه {0}", of_customer_credit: "له {0}",
+  of_details: "الطلب", of_subject: "موضوع الطلب", of_subject_ph: "مثال: 1000 فلاير A5 وجهين", of_due: "موعد التسليم",
+  of_items: "البنود", of_item: "الخدمة أو المنتج", of_item_ph: "اختر…", of_desc: "تفاصيل (اختياري)", of_desc_ph: "المقاس، الورق، الألوان…",
+  of_qty: "الكمية", of_rate: "سعر الوحدة (د.ج)", of_amount: "المبلغ", of_no_price: "السعر لاحقًا",
+  of_no_price_hint: "يبقى البند «بانتظار التسعير» ولا يُعتبر مجانيًا. لا يُعتمد الطلب حتى يُسعّر.",
+  of_add_item: "إضافة بند", of_remove: "حذف",
+  of_cost: "التكلفة التقديرية", of_cost_hint: "اختياري. تساعد على التسعير ومقارنة الربح بعد التنفيذ.",
+  of_cost_type: "النوع", of_cost_desc: "البيان", of_cost_qty: "الكمية", of_cost_rate: "التكلفة للوحدة", of_waste: "هدر المواد %",
+  of_add_cost: "إضافة تكلفة", of_cost_missing: "تكلفة غير معروفة",
+  ct_material: "مواد", ct_machine: "ماكينة", ct_labour: "عمل وتصميم", ct_external: "طباعة خارجية", ct_finish: "تشطيب", ct_other: "أخرى",
+  of_advance: "التسبيق", of_advance_amount: "المبلغ المقبوض الآن", of_mode: "طريقة الدفع",
+  of_advance_hint: "التسبيق دَين للعميل حتى الفوترة، لا يُحسب ربحًا، ويُخصم من الفاتورة تلقائيًا.",
+  of_summary: "الملخص", of_total: "سعر البيع", of_est_cost: "التكلفة التقديرية", of_margin: "الهامش التقديري",
+  of_incomplete: "غير مكتمل", of_items_pending: "{0} بند بانتظار التسعير", of_costs_missing: "{0} تكلفة غير معروفة",
+  of_remaining: "الباقي بعد التسبيق", of_save: "حفظ الطلب", of_saving: "جارٍ الحفظ…", of_cancel: "إلغاء",
+  of_draft_restored: "استرجعنا ما أدخلته سابقًا.", of_discard: "بدء طلب فارغ",
+  of_will_create: "سيُنشأ عند الحفظ", of_will_so: "طلب بيع مرتبط بمشروع", of_will_so_draft: "طلب بيع كمسودة (بسبب بنود غير مسعّرة)",
+  of_will_ce: "بطاقة تكلفة تقديرية", of_will_pe: "وصل تسبيق {0}",
+  err_fix: "راجع الحقول المشار إليها بالأحمر.",
+  err_customer: "اختر عميلًا أو أدخل اسم عميل جديد", err_subject: "اكتب موضوع الطلب", err_due: "حدد موعد التسليم",
+  err_due_past: "موعد التسليم في الماضي", err_items: "أضف بندًا واحدًا على الأقل", err_item: "اختر الخدمة أو المنتج",
+  err_qty: "الكمية يجب أن تكون أكبر من صفر", err_rate: "أدخل السعر أو اختر «السعر لاحقًا»", err_mode: "اختر طريقة الدفع",
+  ok_title: "حُفظ الطلب", ok_open_order: "فتح الطلب", ok_open_customer: "ملف العميل", ok_receipt: "وصل التسبيق PDF", ok_another: "طلب آخر",
+  ok_draft_note: "الطلب محفوظ كمسودة لأن فيه بنودًا بانتظار التسعير. التسبيق سُجّل في حساب العميل.",
+
+  // order view
+  ov_stage: "مرحلة التنفيذ", ov_stage_saved: "حُدّثت المرحلة", ov_money: "الحساب", ov_items: "البنود", ov_estimate: "التكلفة التقديرية",
+  ov_open_erp: "فتح في ERPNext", ov_profit: "تقرير ربحية الطلب", ov_paid: "المدفوع", ov_left: "المتبقي",
+
+  // customer
+  c_title: "العملاء", c_orders: "الطلبات", c_ledger: "الحركات", c_docs: "الوثائق", c_files: "المرفقات",
+  c_owes: "عليه", c_credit: "له (رصيد دائن)", c_settled: "الحساب خالص", c_invoiced: "إجمالي المفوتر", c_received: "إجمالي المقبوض",
+  c_outstanding: "فواتير غير مدفوعة", c_statement: "كشف الحساب", c_new_order: "طلب لهذا العميل",
+  c_date: "التاريخ", c_doc: "المستند", c_debit: "مدين (عليه)", c_credit_col: "دائن (له)", c_balance: "الرصيد",
+  c_no_orders: "لا طلبات لهذا العميل بعد", c_no_ledger: "لا حركات مالية بعد", c_no_docs: "لا وثائق", c_no_files: "لا مرفقات",
+  c_preview: "معاينة", c_download: "تنزيل", c_private: "خاص", c_attached_to: "مرفق بـ {0}", c_call: "اتصال",
+  c_list_ph: "ابحث بالاسم أو الهاتف", c_none: "لا عملاء",
+  dt_quotation: "عرض سعر", dt_sales_invoice: "فاتورة", dt_delivery_note: "بون تسليم", dt_payment_entry: "وصل دفع",
+  dt_sales_order: "طلب", dt_journal_entry: "قيد", dt_customer: "العميل",
+
+  // payment sheet
+  p_title: "تسجيل دفعة من عميل", p_customer: "العميل", p_amount: "المبلغ (د.ج)", p_mode: "طريقة الدفع", p_order: "عن طلب (اختياري)",
+  p_order_none: "بدون طلب محدد (يبقى رصيدًا للعميل)", p_save: "تسجيل الدفعة", p_done: "سُجّلت الدفعة {0}", p_receipt: "الوصل PDF",
+  err_amount: "أدخل مبلغًا أكبر من صفر", err_pick_customer: "اختر العميل الذي دفع",
+
+  // generic
+  loading: "جارٍ التحميل…", retry: "إعادة المحاولة", error_load: "تعذر تحميل البيانات.", error_net: "لا اتصال بالخادم. تحقق من الشبكة.",
+  error_perm: "ليست لديك صلاحية لهذا الإجراء.", close: "إغلاق", back: "رجوع", save: "حفظ", optional: "اختياري",
+  offline: "أنت غير متصل — البيانات المعروضة قد لا تكون محدثة", install: "تثبيت التطبيق",
+  currency: "د.ج",
+};

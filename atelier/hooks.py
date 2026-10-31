@@ -30,6 +30,15 @@ app_license = "gpl-3.0"
 # `mount_on` on that same record, and its entries are appended to the host's rail. Mounting keeps
 # the companion off the apps screen, so it takes precedence over any add_to_apps_screen above.
 
+add_to_apps_screen = [
+	{"name": "atelier", "logo": "/assets/atelier/atelier/icon.svg", "title": "الورشة", "route": "/atelier"}
+]
+
+# The daily app is a SPA under /atelier (www/atelier.html); deep links fall back to it.
+website_route_rules = [{"from_route": "/atelier/<path:app_path>", "to_route": "atelier"}]
+
+fixtures = [{"dt": "Custom Field", "filters": [["module", "=", "Atelier"]]}]
+
 # Includes in <head>
 # ------------------
 
