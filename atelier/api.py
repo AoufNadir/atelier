@@ -465,3 +465,116 @@ def record_payment(customer, amount, mode_of_payment, sales_order=None):
 		frappe.throw(_("المبلغ يجب أن يكون أكبر من صفر"))
 	so = frappe.get_doc("Sales Order", sales_order) if sales_order else None
 	return _receive(customer, flt(amount), mode_of_payment, so if so and so.docstatus == 1 else None)
+
+
+# ---------------------------------------------------------------- sections (money, stock, machines, reports)
+
+
+def _require(doctype):
+	if not _can(doctype):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+
+
+@frappe.whitelist()
+def money():
+	"""Cash/bank balances, recent receipts/payments and expenses — all read from the ledger."""
+	_require("GL Entry")
+	company = _company()
+	accounts = frappe.db.sql(
+		"""select acc.name, acc.account_name, acc.account_type, coalesce(sum(gle.debit - gle.credit), 0) balance
+		from `tabAccount` acc left join `tabGL Entry` gle on gle.account = acc.name and gle.is_cancelled = 0
+		where acc.company=%s and acc.is_group=0 and acc.account_type in ('Cash','Bank')
+		group by acc.name order by acc.account_type, acc.account_name""",
+		company, as_dict=True,
+	)
+	payments = frappe.get_list(
+		"Payment Entry", filters={"docstatus": 1, "company": company},
+		fields=["name", "posting_date", "payment_type", "party_type", "party", "party_name", "paid_amount", "mode_of_payment", "unallocated_amount"],
+		order_by="posting_date desc, creation desc", limit=30,
+	)
+	expenses = frappe.db.sql(
+		"""select gle.voucher_type, gle.voucher_no, gle.posting_date, acc.account_name, gle.project,
+		sum(gle.debit - gle.credit) amount, max(gle.remarks) remarks
+		from `tabGL Entry` gle join `tabAccount` acc on acc.name = gle.account
+		where gle.company=%s and gle.is_cancelled=0 and acc.root_type='Expense'
+		group by gle.voucher_no, gle.account order by gle.posting_date desc, gle.creation desc limit 30""",
+		company, as_dict=True,
+	)
+	return {"summary": _money(), "accounts": accounts, "payments": payments, "expenses": expenses}
+
+
+@frappe.whitelist()
+def stock():
+	"""Stock items with quantity per warehouse, value, reserved quantity and low-stock flag."""
+	_require("Bin")
+	rows = frappe.db.sql(
+		"""select item.item_code, item.item_name, item.item_group, item.stock_uom, item.safety_stock,
+		bin.warehouse, bin.actual_qty, bin.reserved_qty, bin.stock_value
+		from `tabItem` item left join `tabBin` bin on bin.item_code = item.name
+		where item.is_stock_item=1 and item.disabled=0 order by item.item_group, item.item_name""",
+		as_dict=True,
+	)
+	items = {}
+	for r in rows:
+		it = items.setdefault(r.item_code, {"item_code": r.item_code, "item_name": r.item_name, "group": r.item_group,
+			"uom": r.stock_uom, "safety_stock": flt(r.safety_stock), "qty": 0, "reserved": 0, "value": 0, "warehouses": []})
+		if r.warehouse:
+			it["qty"] += flt(r.actual_qty); it["reserved"] += flt(r.reserved_qty); it["value"] += flt(r.stock_value)
+			it["warehouses"].append({"warehouse": r.warehouse, "qty": flt(r.actual_qty)})
+	for it in items.values():
+		it["low"] = bool(it["safety_stock"]) and it["qty"] < it["safety_stock"]
+	moves = frappe.get_list(
+		"Stock Ledger Entry", filters={"is_cancelled": 0},
+		fields=["posting_date", "item_code", "warehouse", "actual_qty", "voucher_type", "voucher_no", "stock_value_difference"],
+		order_by="posting_date desc, creation desc", limit=20,
+	)
+	names = {i["item_code"]: i["item_name"] for i in items.values()}
+	for m in moves:
+		m.item_name = names.get(m.item_code, m.item_code)
+	return {"items": list(items.values()), "moves": moves, "can_value": _can("GL Entry")}
+
+
+@frappe.whitelist()
+def machines():
+	"""Machines are ERPNext Assets; maintenance tasks come from Asset Maintenance when set up."""
+	_require("Asset")
+	assets = frappe.get_list(
+		"Asset", filters={"docstatus": ["<", 2]},
+		fields=["name", "asset_name", "item_name", "status", "location", "purchase_date", "gross_purchase_amount",
+			"value_after_depreciation", "docstatus"],
+		order_by="asset_name asc", limit=200,
+	)
+	tasks = []
+	if frappe.db.exists("DocType", "Asset Maintenance Task") and _can("Asset Maintenance"):
+		tasks = frappe.db.sql(
+			"""select am.asset_name, t.maintenance_task, t.next_due_date, t.periodicity, t.maintenance_status
+			from `tabAsset Maintenance Task` t join `tabAsset Maintenance` am on am.name = t.parent
+			order by t.next_due_date asc limit 50""",
+			as_dict=True,
+		)
+	repairs = []
+	if _can("Asset Repair"):
+		repairs = frappe.get_list("Asset Repair", fields=["name", "asset_name", "failure_date", "repair_status", "repair_cost"],
+			order_by="failure_date desc", limit=20)
+	return {"assets": assets, "tasks": tasks, "repairs": repairs}
+
+
+@frappe.whitelist()
+def reports():
+	"""Per-order profitability: estimated margin vs. actual result from the ledger, plus cash received."""
+	_require("GL Entry")
+	from atelier.atelier.report.rentabilite_commande import rentabilite_commande as rc
+
+	out = []
+	for so in frappe.get_list(
+		"Sales Order", filters={"docstatus": ["<", 2], "project": ["is", "set"]},
+		fields=["name", "project", "customer_name", "atelier_subject", "atelier_stage", "grand_total", "per_billed", "advance_paid"],
+		order_by="creation desc", limit=100,
+	):
+		est = rc.estimate(so.project)
+		gl = rc.gl_totals(so.project)
+		revenue, cost, internal = sum(gl["Income"].values()), sum(gl["Expense"].values()), rc.internal_cost(so.project)
+		out.append({**so, "est_cost": est["total_cost"], "est_margin": est["margin"], "est_missing": est["missing"],
+			"revenue": revenue, "cost": cost, "internal": internal,
+			"result": revenue - cost - internal if revenue else None})
+	return {"orders": out, "period": _money()["period"]}

@@ -332,3 +332,10 @@ details.collapse[open] > summary .chev { transform: rotate(-90deg); }
   .page-head { margin-bottom: var(--s3); }
   .topbar { padding: 6px var(--s3); }
 }
+
+/* sections */
+.list-item.static { cursor: default; }
+.list-item.static:hover { background: transparent; }
+.kpis.static .kpi { cursor: default; }
+.t-danger { color: var(--danger); } .t-success { color: var(--success); } .t-warning { color: var(--warning); }
+.kpis.static { margin-bottom: var(--s4); }

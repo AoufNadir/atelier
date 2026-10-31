@@ -134,6 +134,7 @@ const route = computed(() => {
   if ((m = p.match(/^\/orders\/(.+)$/))) return { name: "order", id: decodeURIComponent(m[1]) };
   if (p === "/customers") return { name: "customers" };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
+  if (["/money", "/stock", "/machines", "/reports", "/more"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
@@ -1055,21 +1056,357 @@ const PaymentSheet = {
   </div>`,
 };
 
+// ------------------------------------------------------------------ sections: shared table
+// Columns: { k, label, type: "money" | "num" | "date" | "text", sort: bool, cls }. Custom cells via the #cell slot.
+const DataTable = {
+  props: { rows: Array, cols: Array, rowKey: String, searchKeys: Array, filters: Array, title: String, empty: String, initialSort: String, desc: Boolean },
+  components: { Icon },
+  setup(props) {
+    const q = ref(""), filter = ref("all"), sortKey = ref(props.initialSort || null), sortDir = ref(props.desc ? -1 : 1);
+    const allFilters = computed(() => (props.filters ? [["all", "f_all", () => true], ...props.filters] : []));
+    const counts = computed(() => Object.fromEntries(allFilters.value.map(([k, , fn]) => [k, (props.rows || []).filter(fn).length])));
+    const shown = computed(() => {
+      const fn = allFilters.value.find((f) => f[0] === filter.value)?.[2] || (() => true);
+      const needle = q.value.trim().toLowerCase();
+      let r = (props.rows || []).filter(fn).filter((x) => !needle || (props.searchKeys || []).some((k) => String(x[k] ?? "").toLowerCase().includes(needle)));
+      if (sortKey.value) {
+        const k = sortKey.value;
+        r = [...r].sort((a, b) => { const x = a[k] ?? "", y = b[k] ?? ""; return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "ar")) * sortDir.value; });
+      }
+      return r;
+    });
+    const sortBy = (k) => { if (sortKey.value === k) sortDir.value *= -1; else { sortKey.value = k; sortDir.value = 1; } };
+    const ariaSort = (k) => (sortKey.value === k ? (sortDir.value > 0 ? "ascending" : "descending") : "none");
+    const fmt = (c, v) => (c.type === "money" ? money(v) : c.type === "num" ? num(v) : c.type === "date" ? date(v, true) : v ?? "—");
+    const uid = Math.random().toString(36).slice(2, 7);
+    return { q, filter, allFilters, counts, shown, sortBy, ariaSort, fmt, uid, t };
+  },
+  template: `
+  <section class="card">
+    <div v-if="title" class="card-h"><h2>{{ title }}</h2><slot name="actions"></slot></div>
+    <div v-if="searchKeys || allFilters.length" class="table-toolbar">
+      <div v-if="searchKeys" class="search"><label class="sr-only" :for="'dq-'+uid">{{ t('search_label') }}</label>
+        <Icon name="search" class="s-icon" :size="16"/><input :id="'dq-'+uid" class="input" type="search" v-model="q" :placeholder="t('search_in_table')" style="min-height:34px"></div>
+      <div v-if="allFilters.length" class="chips" role="group">
+        <button v-for="f in allFilters" :key="f[0]" type="button" v-show="f[0]==='all' || counts[f[0]]" class="chip" :aria-pressed="filter===f[0]" @click="filter=f[0]">
+          {{ t(f[1]) }} <span class="count num">{{ counts[f[0]] }}</span></button>
+      </div>
+    </div>
+    <div v-if="!shown.length" class="empty">{{ (rows||[]).length ? t('none_filter') : (empty || t('none')) }}</div>
+    <template v-else>
+      <div class="desktop-only table-wrap">
+        <table class="t">
+          <thead><tr>
+            <th v-for="c in cols" :key="c.k" :class="[{n: c.type==='money'||c.type==='num', sortable: c.sort}]" :aria-sort="c.sort ? ariaSort(c.k) : null">
+              <button v-if="c.sort" type="button" @click="sortBy(c.k)">{{ c.label }}<Icon name="sort" :size="12"/></button><template v-else>{{ c.label }}</template></th>
+          </tr></thead>
+          <tbody><tr v-for="r in shown" :key="r[rowKey]">
+            <td v-for="c in cols" :key="c.k" :class="[{n: c.type==='money'||c.type==='num'}, c.cls]">
+              <slot name="cell" :row="r" :col="c"><span :class="{money: c.type==='money'}">{{ fmt(c, r[c.k]) }}</span></slot></td>
+          </tr></tbody>
+        </table>
+      </div>
+      <div class="mobile-only list">
+        <div v-for="r in shown" :key="r[rowKey]" class="list-item static">
+          <span class="main-col">
+            <span class="row" style="justify-content:space-between;gap:8px;align-items:flex-start">
+              <span class="medium clamp2"><slot name="cell" :row="r" :col="cols[0]">{{ fmt(cols[0], r[cols[0].k]) }}</slot></span>
+              <span v-if="cols.find(c=>c.main)" class="money medium" style="flex-shrink:0"><slot name="cell" :row="r" :col="cols.find(c=>c.main)">{{ fmt(cols.find(c=>c.main), r[cols.find(c=>c.main).k]) }}</slot></span></span>
+            <span class="row wrap meta" style="gap:4px 12px">
+              <span v-for="c in cols.slice(1).filter(c=>!c.main)" :key="c.k"><span class="muted">{{ c.label }}:</span> <slot name="cell" :row="r" :col="c">{{ fmt(c, r[c.k]) }}</slot></span></span>
+          </span>
+        </div>
+      </div>
+    </template>
+  </section>`,
+};
+
+const Kpis = {
+  props: { items: Array },
+  template: `<div class="kpis static" role="group"><div v-for="k in items" :key="k.label" class="kpi" :class="k.tone ? 'tone-'+k.tone : ''">
+    <span class="k-label">{{ k.label }}</span><span class="k-value" :class="{money: k.money !== false}">{{ k.value }}</span><span class="k-hint">{{ k.hint }}</span></div></div>`,
+};
+
+const deskLink = (doctype, name) => `/app/${doctype.toLowerCase().replace(/ /g, "-")}/${encodeURIComponent(name)}`;
+
+// ------------------------------------------------------------------ money
+const MoneyPage = {
+  components: { Icon, LoadState, DataTable, Kpis },
+  setup() {
+    const { s, load } = useLoad(() => call("money"));
+    onMounted(load);
+    const tab = ref("payments"), allAccounts = ref(false);
+    const kpis = computed(() => {
+      const m = s.data?.summary; if (!m) return [];
+      return [
+        { label: t("k_cash"), value: money(m.cash_balance), hint: t("k_cash_hint") },
+        { label: t("d_in"), value: money(m.cash_in), hint: t("d_period", date(m.period.from), date(m.period.to)) },
+        { label: t("d_out"), value: money(m.cash_out), hint: t("d_period", date(m.period.from), date(m.period.to)) },
+        { label: t("k_receivable"), value: money(m.receivable), hint: t("k_receivable_hint"), tone: m.receivable_overdue > 0 ? "danger" : "" },
+        { label: t("k_payable"), value: money(m.payable), hint: t("k_payable_hint") },
+      ];
+    });
+    const accounts = computed(() => (s.data?.accounts || []).filter((a) => allAccounts.value || Math.abs(a.balance) > 0.005));
+    const hiddenAccounts = computed(() => (s.data?.accounts || []).length - accounts.value.length);
+    const payments = computed(() => (s.data?.payments || []).map((p) => ({ ...p, dir: p.payment_type === "Receive" ? "in" : p.payment_type === "Pay" ? "out" : "transfer" })));
+    const expenses = computed(() => (s.data?.expenses || []).map((e, i) => ({ ...e, key: e.voucher_no + i })));
+    const payCols = [
+      { k: "posting_date", label: t("c_date"), type: "date", sort: true }, { k: "party_name", label: t("m_party"), sort: true },
+      { k: "dir", label: t("m_direction") }, { k: "mode_of_payment", label: t("p_mode") },
+      { k: "name", label: t("c_doc") }, { k: "paid_amount", label: t("p_amount"), type: "money", sort: true, main: true },
+    ];
+    const expCols = [
+      { k: "posting_date", label: t("c_date"), type: "date", sort: true }, { k: "account_name", label: t("m_account"), sort: true },
+      { k: "project", label: t("m_project") }, { k: "voucher_no", label: t("c_doc") },
+      { k: "amount", label: t("p_amount"), type: "money", sort: true, main: true },
+    ];
+    const payFilters = [["in", "m_in", (p) => p.dir === "in"], ["out", "m_out", (p) => p.dir === "out"], ["adv", "pay_advance", (p) => p.unallocated_amount > 0]];
+    return { s, load, tab, kpis, accounts, hiddenAccounts, allAccounts, payments, expenses, payCols, expCols, payFilters, t, money, date, state, deskLink };
+  },
+  template: `
+  <div class="page">
+    <div class="page-head"><div><h1>{{ t('nav_money') }}</h1><div class="sub">{{ t('m_sub') }}</div></div>
+      <div class="row" style="gap:8px">
+        <button v-if="state.boot.can.payment" type="button" class="btn" @click="state.sheet={type:'payment'}"><Icon name="in" :size="18" style="color:var(--success)"/>{{ t('record_payment') }}</button>
+        <a v-if="state.boot.can.expense" class="btn" href="/app/journal-entry/new" :title="t('expense_hint')"><Icon name="out" :size="18" style="color:var(--danger)"/>{{ t('record_expense') }}</a></div></div>
+    <LoadState :s="s" :rows="3" @retry="load">
+      <Kpis :items="kpis"/>
+      <div class="alert info" style="margin-bottom:var(--s4)"><Icon name="alert" :size="16"/><span>{{ t('m_separate') }}</span></div>
+      <div class="home-grid">
+        <section class="card side" aria-labelledby="acc-h">
+          <div class="card-h"><h2 id="acc-h">{{ t('m_accounts') }}</h2></div>
+          <div v-if="!accounts.length" class="empty">{{ t('m_no_balance') }}</div>
+          <div class="list"><div v-for="a in accounts" :key="a.name" class="list-item static">
+            <Icon :name="a.account_type==='Cash' ? 'money' : 'invoice'" :size="18" class="muted"/>
+            <span class="main-col"><span class="medium ellipsis">{{ a.account_name }}</span><span class="meta">{{ t(a.account_type==='Cash' ? 'm_cash' : 'm_bank') }}</span></span>
+            <span class="money medium" :class="{'t-danger': a.balance < 0}">{{ money(a.balance) }}</span></div></div>
+          <div v-if="hiddenAccounts || allAccounts" class="card-f"><button type="button" class="btn sm ghost" @click="allAccounts=!allAccounts">
+            {{ allAccounts ? t('m_hide_zero') : t('m_show_zero', hiddenAccounts) }}</button></div>
+        </section>
+        <div class="mainc stack">
+          <div class="tabs" role="tablist">
+            <button type="button" role="tab" id="tab-payments" :aria-selected="tab==='payments'" @click="tab='payments'">{{ t('m_payments') }}</button>
+            <button type="button" role="tab" id="tab-expenses" :aria-selected="tab==='expenses'" @click="tab='expenses'">{{ t('m_expenses') }}</button></div>
+          <DataTable v-if="tab==='payments'" :rows="payments" :cols="payCols" row-key="name" :search-keys="['party_name','name','mode_of_payment']" :filters="payFilters" :empty="t('m_no_payments')">
+            <template #cell="{row, col}">
+              <span v-if="col.k==='dir'" class="badge" :class="row.dir==='in' ? 'b-success' : row.dir==='out' ? 'b-danger' : 'b-info'">
+                <Icon :name="row.dir==='out' ? 'out' : 'in'" :size="13"/>{{ t('m_'+row.dir) }}</span>
+              <a v-else-if="col.k==='name'" class="num" :href="deskLink('Payment Entry', row.name)">{{ row.name }}</a>
+              <template v-else-if="col.k==='mode_of_payment'">{{ (state.boot.modes.find(m=>m.value===row.mode_of_payment)||{}).label || row.mode_of_payment || '—' }}</template>
+              <template v-else-if="col.k==='party_name'">{{ row.party_name || row.party || '—' }}<span v-if="row.unallocated_amount>0" class="badge b-info" style="margin-inline-start:6px">{{ t('pay_advance') }}</span></template>
+              <span v-else-if="col.type==='money'" class="money" :class="row.dir==='out' ? 't-danger' : ''">{{ money(row[col.k]) }}</span>
+              <template v-else>{{ col.type==='date' ? date(row[col.k], true) : row[col.k] }}</template>
+            </template>
+          </DataTable>
+          <DataTable v-else :rows="expenses" :cols="expCols" row-key="key" :search-keys="['account_name','voucher_no','project','remarks']" :empty="t('m_no_expenses')">
+            <template #cell="{row, col}">
+              <a v-if="col.k==='voucher_no'" class="num" :href="deskLink(row.voucher_type, row.voucher_no)">{{ row.voucher_no }}</a>
+              <span v-else-if="col.k==='project'" class="num">{{ row.project || t('m_general') }}</span>
+              <span v-else-if="col.type==='money'" class="money">{{ money(row.amount) }}</span>
+              <template v-else>{{ col.type==='date' ? date(row[col.k], true) : row[col.k] }}</template>
+            </template>
+          </DataTable>
+        </div>
+      </div>
+    </LoadState>
+  </div>`,
+};
+
+// ------------------------------------------------------------------ stock
+const StockPage = {
+  components: { Icon, LoadState, DataTable, Kpis },
+  setup() {
+    const { s, load } = useLoad(() => call("stock"));
+    onMounted(load);
+    const items = computed(() => (s.data?.items || []).map((i) => ({ ...i, available: i.qty - i.reserved })));
+    const kpis = computed(() => {
+      if (!s.data) return [];
+      const k = [
+        { label: t("s_items"), value: num(items.value.length), hint: t("s_items_hint"), money: false },
+        { label: t("s_low"), value: num(items.value.filter((i) => i.low).length), hint: t("s_low_hint"), money: false, tone: items.value.some((i) => i.low) ? "danger" : "" },
+      ];
+      if (s.data.can_value) k.push({ label: t("s_value"), value: money(items.value.reduce((a, i) => a + i.value, 0)), hint: t("s_value_hint") });
+      return k;
+    });
+    const cols = computed(() => [
+      { k: "item_name", label: t("s_item"), sort: true }, { k: "group", label: t("s_group"), sort: true },
+      { k: "qty", label: t("s_qty"), type: "num", sort: true, main: true }, { k: "reserved", label: t("s_reserved"), type: "num" },
+      { k: "available", label: t("s_available"), type: "num", sort: true }, { k: "safety_stock", label: t("s_min"), type: "num" },
+      ...(s.data?.can_value ? [{ k: "value", label: t("s_value"), type: "money", sort: true }] : []), { k: "low", label: t("s_status") },
+    ]);
+    const filters = [["low", "s_f_low", (i) => i.low], ["zero", "s_f_zero", (i) => i.qty <= 0]];
+    const moveCols = [
+      { k: "posting_date", label: t("c_date"), type: "date" }, { k: "item_name", label: t("s_item") },
+      { k: "actual_qty", label: t("s_move_qty"), type: "num", main: true }, { k: "voucher_type", label: t("s_move_type") }, { k: "voucher_no", label: t("c_doc") },
+    ];
+    const moves = computed(() => (s.data?.moves || []).map((m, i) => ({ ...m, key: m.voucher_no + i })));
+    const vt = (v) => t({ "Stock Entry": "s_vt_entry", "Purchase Receipt": "s_vt_receipt", "Delivery Note": "dt_delivery_note", "Stock Reconciliation": "s_vt_recon", "Purchase Invoice": "s_vt_pinv" }[v] || v);
+    return { s, load, items, kpis, cols, filters, moveCols, moves, vt, t, num, money, date, deskLink, signed: (v) => LRI + (v > 0 ? "+" : "") + nfq.format(v) + PDI };
+  },
+  template: `
+  <div class="page">
+    <div class="page-head"><div><h1>{{ t('nav_stock') }}</h1><div class="sub">{{ t('s_sub') }}</div></div>
+      <div class="row" style="gap:8px"><a class="btn" href="/app/stock-entry/new"><Icon name="box" :size="18"/>{{ t('s_new_entry') }}</a>
+        <a class="btn" href="/app/purchase-receipt/new"><Icon name="in" :size="18" style="color:var(--success)"/>{{ t('s_new_receipt') }}</a></div></div>
+    <LoadState :s="s" :rows="4" @retry="load">
+      <Kpis :items="kpis"/>
+      <div class="stack">
+        <DataTable :rows="items" :cols="cols" row-key="item_code" :search-keys="['item_name','item_code','group']" :filters="filters" :title="t('s_items')" initial-sort="item_name" :empty="t('s_none')">
+          <template #cell="{row, col}">
+            <span v-if="col.k==='item_name'" class="title-cell"><a :href="deskLink('Item', row.item_code)" class="medium clamp2">{{ row.item_name }}</a>
+              <span class="cap num">{{ row.item_code }}<template v-if="row.warehouses.length"> · {{ row.warehouses.map(w => w.warehouse.replace(/ - [^-]+$/, '')).join('، ') }}</template></span></span>
+            <span v-else-if="col.k==='low'" class="badge" :class="row.low ? 'b-danger' : row.qty<=0 ? 'b-warning' : 'b-success'">
+              <Icon :name="row.low ? 'alert' : 'check'" :size="13"/>{{ row.low ? t('s_low_badge') : row.qty<=0 ? t('s_f_zero') : t('s_ok') }}</span>
+            <span v-else-if="col.type==='num'" class="num" :class="{'t-danger': col.k==='qty' && row.low}">{{ num(row[col.k]) }} <span v-if="['qty','available'].includes(col.k)" class="cap">{{ row.uom }}</span></span>
+            <span v-else-if="col.type==='money'" class="money">{{ money(row[col.k]) }}</span>
+            <template v-else>{{ row[col.k] }}</template>
+          </template>
+        </DataTable>
+        <DataTable :rows="moves" :cols="moveCols" row-key="key" :title="t('s_moves')" :empty="t('s_no_moves')">
+          <template #cell="{row, col}">
+            <span v-if="col.k==='actual_qty'" class="num medium" :class="row.actual_qty<0 ? 't-danger' : 't-success'">{{ signed(row.actual_qty) }}</span>
+            <template v-else-if="col.k==='voucher_type'">{{ vt(row.voucher_type) }}</template>
+            <a v-else-if="col.k==='voucher_no'" class="num" :href="deskLink(row.voucher_type, row.voucher_no)">{{ row.voucher_no }}</a>
+            <template v-else-if="col.type==='date'">{{ date(row.posting_date, true) }}</template>
+            <template v-else>{{ row[col.k] }}</template>
+          </template>
+        </DataTable>
+        <div class="hint">{{ t('s_note') }}</div>
+      </div>
+    </LoadState>
+  </div>`,
+};
+
+// ------------------------------------------------------------------ machines
+const MachinesPage = {
+  components: { Icon, LoadState, DataTable },
+  setup() {
+    const { s, load } = useLoad(() => call("machines"));
+    onMounted(load);
+    const cols = [
+      { k: "asset_name", label: t("mc_name"), sort: true }, { k: "status", label: t("mc_status") }, { k: "location", label: t("mc_location") },
+      { k: "purchase_date", label: t("mc_bought"), type: "date", sort: true }, { k: "gross_purchase_amount", label: t("mc_cost"), type: "money" },
+      { k: "value_after_depreciation", label: t("mc_value"), type: "money", main: true },
+    ];
+    const taskCols = [
+      { k: "asset_name", label: t("mc_name") }, { k: "maintenance_task", label: t("mc_task") },
+      { k: "next_due_date", label: t("mc_next"), type: "date", sort: true, main: true }, { k: "periodicity", label: t("mc_every") },
+    ];
+    const tasks = computed(() => (s.data?.tasks || []).map((x, i) => ({ ...x, key: i })));
+    return { s, load, cols, taskCols, tasks, t, money, deskLink, daysFromToday, date };
+  },
+  template: `
+  <div class="page">
+    <div class="page-head"><div><h1>{{ t('nav_machines') }}</h1><div class="sub">{{ t('mc_sub') }}</div></div>
+      <div class="row" style="gap:8px"><a class="btn primary" href="/app/asset/new"><Icon name="plus" :size="18"/>{{ t('mc_add') }}</a>
+        <a class="btn" href="/app/asset-repair/new"><Icon name="gear" :size="18"/>{{ t('mc_repair') }}</a></div></div>
+    <LoadState :s="s" :rows="3" @retry="load">
+      <section v-if="!s.data.assets.length" class="card"><div class="empty" style="padding:var(--s6) var(--s4)">
+        <Icon name="gear" :size="30" class="muted"/><span class="medium" style="color:var(--ink)">{{ t('mc_none') }}</span>
+        <span class="meta" style="max-width:520px">{{ t('mc_none_hint') }}</span>
+        <a class="btn primary" href="/app/asset/new" style="margin-top:var(--s3)"><Icon name="plus" :size="18"/>{{ t('mc_add') }}</a></div></section>
+      <div v-else class="stack">
+        <DataTable :rows="s.data.assets" :cols="cols" row-key="name" :search-keys="['asset_name','item_name','location']" :title="t('nav_machines')">
+          <template #cell="{row, col}">
+            <span v-if="col.k==='asset_name'" class="title-cell"><a :href="deskLink('Asset', row.name)" class="medium">{{ row.asset_name }}</a><span class="cap num">{{ row.name }}</span></span>
+            <span v-else-if="col.type==='money'" class="money">{{ money(row[col.k]) }}</span>
+            <template v-else-if="col.type==='date'">{{ date(row[col.k], true) }}</template>
+            <template v-else>{{ row[col.k] || '—' }}</template>
+          </template>
+        </DataTable>
+      </div>
+      <div class="stack" style="margin-top:var(--s4)">
+        <DataTable :rows="tasks" :cols="taskCols" row-key="key" :title="t('mc_tasks')" :empty="t('mc_no_tasks')" initial-sort="next_due_date">
+          <template #cell="{row, col}">
+            <span v-if="col.k==='next_due_date'" :class="row.next_due_date && daysFromToday(row.next_due_date) < 0 ? 't-danger medium' : ''">{{ date(row.next_due_date, true) }}</span>
+            <template v-else>{{ row[col.k] || '—' }}</template>
+          </template>
+        </DataTable>
+        <div class="hint">{{ t('mc_note') }}</div>
+      </div>
+    </LoadState>
+  </div>`,
+};
+
+// ------------------------------------------------------------------ reports
+const ReportsPage = {
+  components: { Icon, LoadState, DataTable, Kpis },
+  setup() {
+    const { s, load } = useLoad(() => call("reports"));
+    onMounted(load);
+    const rows = computed(() => (s.data?.orders || []).map((o) => ({ ...o, margin_sort: o.est_margin ?? -1e15, result_sort: o.result ?? -1e15 })));
+    const kpis = computed(() => {
+      const r = rows.value, done = r.filter((o) => o.result !== null);
+      return [
+        { label: t("r_orders"), value: num(r.length), hint: t("r_orders_hint"), money: false },
+        { label: t("r_revenue"), value: money(done.reduce((a, o) => a + o.revenue, 0)), hint: t("r_revenue_hint") },
+        { label: t("r_result"), value: money(done.reduce((a, o) => a + o.result, 0)), hint: t("r_result_hint", done.length) },
+      ];
+    });
+    const cols = [
+      { k: "atelier_subject", label: t("col_order"), sort: true }, { k: "atelier_stage", label: t("col_stage") },
+      { k: "margin_sort", label: t("r_est_margin"), type: "money", sort: true }, { k: "revenue", label: t("r_revenue"), type: "money", sort: true },
+      { k: "cost", label: t("r_cost"), type: "money" }, { k: "result_sort", label: t("r_actual"), type: "money", sort: true, main: true },
+    ];
+    const filters = [["done", "r_f_billed", (o) => o.result !== null], ["open", "r_f_open", (o) => o.result === null], ["missing", "r_f_missing", (o) => o.est_missing > 0 || o.est_cost === null]];
+    const reportLink = (o) => `/app/query-report/Rentabilite Commande?project=${encodeURIComponent(o.project)}`;
+    return { s, load, rows, kpis, cols, filters, reportLink, t, money, go };
+  },
+  template: `
+  <div class="page">
+    <div class="page-head"><div><h1>{{ t('nav_reports') }}</h1><div class="sub">{{ t('r_sub') }}</div></div>
+      <div class="row wrap" style="gap:8px">
+        <a class="btn" href="/app/query-report/Profit and Loss Statement"><Icon name="ext" :size="16"/>{{ t('r_pl') }}</a>
+        <a class="btn" href="/app/query-report/Accounts Receivable"><Icon name="ext" :size="16"/>{{ t('r_ar') }}</a></div></div>
+    <LoadState :s="s" :rows="4" @retry="load">
+      <Kpis :items="kpis"/>
+      <div class="alert info" style="margin-bottom:var(--s4)"><Icon name="alert" :size="16"/><span>{{ t('r_explain') }}</span></div>
+      <DataTable :rows="rows" :cols="cols" row-key="name" :search-keys="['atelier_subject','customer_name','name']" :filters="filters" :title="t('r_title')" :empty="t('orders_none')">
+        <template #cell="{row, col}">
+          <span v-if="col.k==='atelier_subject'" class="title-cell"><a :href="'/atelier/orders/'+row.name" @click.prevent="go('/orders/'+encodeURIComponent(row.name))" class="medium clamp2">{{ row.atelier_subject || row.name }}</a>
+            <span class="cap">{{ row.customer_name }} · <a :href="reportLink(row)">{{ t('r_detail') }}</a></span></span>
+          <template v-else-if="col.k==='margin_sort'"><span v-if="row.est_margin!==null" class="money">{{ money(row.est_margin) }}</span>
+            <span v-else class="cap">{{ row.est_cost===null ? t('why_margin_none') : t('why_margin_price') }}</span>
+            <div v-if="row.est_missing" class="cap t-warning">{{ t('r_missing', row.est_missing) }}</div></template>
+          <template v-else-if="col.k==='result_sort'"><span v-if="row.result!==null" class="money medium" :class="row.result<0 ? 't-danger' : 't-success'">{{ money(row.result) }}</span>
+            <span v-else class="cap">{{ t('r_not_billed') }}</span></template>
+          <template v-else-if="col.type==='money'"><span v-if="row[col.k]" class="money">{{ money(row[col.k]) }}</span><span v-else class="cap">—</span>
+            <div v-if="col.k==='cost' && row.internal" class="cap">{{ t('r_internal', money(row.internal)) }}</div></template>
+          <template v-else>{{ row[col.k] || '—' }}</template>
+        </template>
+      </DataTable>
+    </LoadState>
+  </div>`,
+};
+
+// ------------------------------------------------------------------ more (phone)
+const MorePage = {
+  components: { Icon },
+  setup() { return { t, go, SECTION_NAV, state }; },
+  template: `
+  <div class="page"><div class="page-head"><h1>{{ t('nav_more') }}</h1></div>
+    <section class="card"><div class="list">
+      <a v-for="n in SECTION_NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="list-item" :href="'/atelier'+n.path" @click.prevent="go(n.path)"><Icon :name="n.icon" class="muted"/>
+        <span class="main-col"><span class="medium">{{ t(n.label) }}</span></span><Icon name="chev" :size="16" class="muted"/></a>
+      <a class="list-item" href="/app"><Icon name="ext" class="muted"/><span class="main-col"><span class="medium">{{ t('nav_erpnext') }}</span></span></a>
+    </div></section></div>`,
+};
+
 // ------------------------------------------------------------------ shell
 const NAV = [
   { key: "home", path: "/", icon: "home", label: "nav_home", match: ["home"] },
   { key: "orders", path: "/orders", icon: "orders", label: "nav_orders", match: ["order", "order-new", "orders"] },
   { key: "customers", path: "/customers", icon: "users", label: "nav_customers", match: ["customer", "customers"] },
 ];
-const DESK_NAV = [
-  { href: "/app/accounting", icon: "money", label: "nav_money" },
-  { href: "/app/stock", icon: "box", label: "nav_stock" },
-  { href: "/app/asset", icon: "gear", label: "nav_machines" },
-  { href: "/app/query-report/Rentabilite Commande", icon: "chart", label: "nav_reports" },
+const SECTION_NAV = [
+  { key: "money", path: "/money", icon: "money", label: "nav_money", match: ["money"], need: "finance" },
+  { key: "stock", path: "/stock", icon: "box", label: "nav_stock", match: ["stock"] },
+  { key: "machines", path: "/machines", icon: "gear", label: "nav_machines", match: ["machines"] },
+  { key: "reports", path: "/reports", icon: "chart", label: "nav_reports", match: ["reports"], need: "finance" },
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -1082,9 +1419,10 @@ const App = {
       if ("serviceWorker" in navigator) navigator.serviceWorker.register("/atelier-sw.js", { scope: "/atelier" }).catch(() => {});
     });
     const isActive = (n) => n.match.includes(route.value.name);
-    const titles = { "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title" };
+    const titles = { "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
+      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
-    return { state, route, NAV, DESK_NAV, isActive, bootErr, loadBoot, t, go, titles, back };
+    return { state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back };
   },
   template: `
   <div v-if="bootErr" class="page"><div class="alert error" role="alert"><span style="flex:1">{{ bootErr }}</span><button class="btn sm" @click="loadBoot">{{ t('retry') }}</button></div></div>
@@ -1099,8 +1437,9 @@ const App = {
       <a v-for="n in NAV" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+(n.path==='/'?'':n.path)" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null" :title="state.collapsed ? t(n.label) : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="sep"></div>
-      <div class="group">{{ t('nav_group_erp') }}</div>
-      <a v-for="n in DESK_NAV" :key="n.href" class="nav" :href="n.href" :title="state.collapsed ? t(n.label) : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span><Icon name="ext" :size="14" class="ext"/></a>
+      <div class="group">{{ t('nav_group_sections') }}</div>
+      <a v-for="n in SECTION_NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
+        :aria-current="isActive(n) ? 'page' : null" :title="state.collapsed ? t(n.label) : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
       <a class="nav" href="/app" :title="state.collapsed ? t('nav_erpnext') : null"><Icon name="ext"/><span class="lbl">{{ t('nav_erpnext') }}</span></a>
       <div class="cap who" style="padding:6px 12px">{{ state.boot.full_name }}</div>
@@ -1128,6 +1467,11 @@ const App = {
         <OrderView v-else-if="route.name==='order'" :id="route.id" :key="route.id"/>
         <CustomerView v-else-if="route.name==='customer'" :id="route.id" :key="route.id"/>
         <CustomerList v-else-if="route.name==='customers'"/>
+        <MoneyPage v-else-if="route.name==='money'"/>
+        <StockPage v-else-if="route.name==='stock'"/>
+        <MachinesPage v-else-if="route.name==='machines'"/>
+        <ReportsPage v-else-if="route.name==='reports'"/>
+        <MorePage v-else-if="route.name==='more'"/>
       </main>
     </div>
 
@@ -1136,7 +1480,7 @@ const App = {
       <a href="/atelier/orders" :class="{active: ['orders','order'].includes(route.name)}" @click.prevent="go('/orders')"><Icon name="orders"/>{{ t('nav_orders') }}</a>
       <a class="fab" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><span class="fab-circle"><Icon name="plus" :size="22"/></span><span class="lbl">{{ t('new_order') }}</span></a>
       <a href="/atelier/customers" :class="{active: ['customer','customers'].includes(route.name)}" @click.prevent="go('/customers')"><Icon name="users"/>{{ t('nav_customers') }}</a>
-      <a href="/app"><Icon name="more"/>{{ t('nav_more') }}</a>
+      <a href="/atelier/more" :class="{active: ['more','money','stock','machines','reports'].includes(route.name)}" @click.prevent="go('/more')"><Icon name="more"/>{{ t('nav_more') }}</a>
     </nav>
 
     <PaymentSheet v-if="state.sheet && state.sheet.type==='payment'" :opts="state.sheet"/>
