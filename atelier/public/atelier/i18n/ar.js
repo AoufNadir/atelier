@@ -63,7 +63,7 @@ export default {
   sb_not_final: "غير نهائي · {0} بند دون سعر",
   sum_cost_complete: "التكلفة التقديرية", sum_cost_known: "التكلفة المعروفة",
   sum_cost_missing: "ينقص {0} تكلفة غير معروفة، فالتكلفة الكاملة أعلى من هذا الرقم.",
-  sum_margin: "الهامش التقديري", sum_margin_na: "غير محسوب",
+  sum_margin: "الربح المتوقع", sum_margin_na: "غير محسوب",
   why_margin_price: "يُحسب بعد تسعير كل البنود", why_margin_cost: "يُحسب بعد معرفة كل التكاليف", why_margin_none: "أضف التكاليف لحسابه",
   sum_advance: "التسبيق", sum_remaining: "الباقي على العميل", why_remaining: "يُحسب بعد تسعير كل البنود",
   sum_lines: "{0} بنود", sum_line: "بند واحد",
@@ -192,5 +192,8 @@ export default {
   nav_workspace: "مساحة العمل", nav_finance: "المالية", nav_settings: "الإعدادات", nav_group_admin: "إدارة المطبعة",
   crumb_root: "مساحة العمل", crumb_today: "نظرة اليوم", notifications: "الإشعارات", role_manager: "مدير المطبعة",
   ok_title_draft: "حُفظ الطلب كمسودة — سعّر البنود المعلّقة لاعتماده",
+  of_intro: "املأ ما تعرفه الآن، والباقي يُكمل لاحقًا. ما تكتبه يُحفظ تلقائيًا.", of_recent: "آخر العملاء:",
+  of_prices_from_company: "الأسعار من قائمة المؤسسات", of_prices_from_individual: "الأسعار من قائمة الأفراد",
+  of_rate_ph_pending: "بلا سعر — أدخله", of_priced_later: "يُسعَّر لاحقًا",
   offline: "أنت غير متصل — البيانات المعروضة قد لا تكون محدثة",
 };
