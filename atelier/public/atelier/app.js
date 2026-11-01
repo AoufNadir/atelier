@@ -409,6 +409,9 @@ const dueText = (o) => {
   if (d === 1) return { text: "غدًا", late: false };
   return { text: date(o.delivery_date), late: false };
 };
+// Who handles the current step: a person in-house, or the supplier for an external step.
+const stepWho = (o) => (o.step ? (o.step.mode === "خارجي" ? (o.step.supplier_name || o.step.supplier || "مورد") : (o.step.owner || "—")) : "—");
+const stepLabel = (o) => (o.step ? o.step.kind : o.atelier_stage);
 const fig = (v) => `${LRI}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(+v || 0))}${PDI}`;
 
 const Home = {
@@ -445,7 +448,7 @@ const Home = {
     const ACTION_ICON = { late: "alert", overdue: "invoice", price: "tag", invoice: "invoice", supplier: "out", stock: "box" };
     const ACTION_BTN = { late: "مراجعة الطلب", overdue: "تسجيل دفعة", price: "تسعير", invoice: "فوترة", supplier: "مراجعة", stock: "تجديد المخزون" };
     return { s, load, tab, scope, TABS, counts, shown, late, soon, pick, selected, sel, detail, step, STEPS, nextStep, firstItem, actions, m,
-      greet, today, monthLabel, open, dueText, thumbTone, darkTone, firstName, STAGE_TONE, ACTION_ICON, ACTION_BTN, fig, money, num, plain, t, go, state };
+      greet, today, monthLabel, open, dueText, thumbTone, darkTone, firstName, STAGE_TONE, ACTION_ICON, ACTION_BTN, fig, money, num, plain, t, go, state, stepWho, stepLabel };
   },
   template: `
   <div class="page ws">
@@ -489,11 +492,11 @@ const Home = {
           <button v-for="o in shown" :key="o.name" type="button" class="ws-tr" :class="{sel: o.name===selected}" @click="pick(o)" @dblclick="open(o)">
             <span class="ws-order">
               <span class="ws-thumb" :style="{background: thumbTone(o.customer_name), color: darkTone(thumbTone(o.customer_name)) ? '#fff' : '#2B2B2B'}">{{ firstName(o.customer_name).slice(0, 5) }}</span>
-              <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span></span></span>
+              <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span><span v-for="tg in o.tags" :key="tg" class="tag-chip">{{ tg }}</span></span></span>
             </span>
-            <span><span class="ws-stage" :class="'st-' + (STAGE_TONE[o.atelier_stage] || 'design')"><i></i>{{ o.atelier_stage }}</span></span>
+            <span><span class="ws-stage" :class="'st-' + (STAGE_TONE[o.atelier_stage] || 'design')"><i></i>{{ stepLabel(o) }}</span><span v-if="o.step && o.step.mode==='خارجي'" class="ext-tag">خارجي</span></span>
             <span :class="{'ws-late': dueText(o).late}">{{ dueText(o).text }}</span>
-            <span><span class="ws-avatar" :title="o.owner_name">{{ (o.owner_name || '؟').slice(0, 1) }}</span></span>
+            <span class="ws-who">{{ stepWho(o) }}</span>
           </button>
           <div class="ws-tfoot"><span>عرض {{ shown.length }} من {{ counts.all }} طلبات</span><span>مرتب حسب موعد التسليم</span></div>
         </div>
@@ -520,6 +523,7 @@ const Home = {
         <span class="ws-stage st-print" style="align-self:flex-start" :class="'st-' + (STAGE_TONE[sel.atelier_stage] || 'design')"><i></i>قيد {{ sel.atelier_stage }}</span>
         <dl class="ws-facts">
           <div><dt>الكمية</dt><dd>{{ firstItem ? num(firstItem.qty) + ' ' + (firstItem.uom === 'Nos' ? 'قطعة' : firstItem.uom) : '—' }}</dd></div>
+          <div><dt>المرحلة الحالية</dt><dd>{{ stepLabel(sel) }}<template v-if="sel.step"> · {{ stepWho(sel) }}</template></dd></div>
           <div><dt>الخامة</dt><dd>{{ firstItem && plain(firstItem.description) !== firstItem.item_name ? plain(firstItem.description).slice(0, 24) || '—' : '—' }}</dd></div>
           <div><dt>موعد التسليم</dt><dd>{{ dueText(sel).text }}</dd></div>
           <div><dt>قيمة الطلب</dt><dd class="money">{{ money(sel.grand_total) }}</dd></div>
@@ -527,7 +531,7 @@ const Home = {
         <ol class="ws-steps" aria-label="مراحل الطلب">
           <li v-for="(st, i) in STEPS" :key="st" :class="{done: i < step, cur: i === step}"><span class="ws-dot"></span><span class="ws-step-l">{{ st }}</span></li>
         </ol>
-        <div class="ws-next"><span class="strong">{{ nextStep }}</span><span class="ws-order-meta">المسؤول: {{ firstName(sel.owner_name) || '—' }} · الموعد {{ dueText(sel).text }}</span></div>
+        <div class="ws-next"><span class="strong">{{ nextStep }}</span><span class="ws-order-meta">المسؤول: {{ stepWho(sel) }} · الموعد {{ dueText(sel).text }}</span></div>
         <a class="ws-link" href="#" @click.prevent="open(sel)">فتح الطلب <Icon name="chev" :size="16"/></a>
       </aside>
     </div>
@@ -602,14 +606,14 @@ const OrdersPage = {
     function exportCsv() {
       const head = ["الطلب", "العميل", "المرحلة", "التسليم", "الفوترة", "الدفع", "المبلغ", "المدفوع", "المسؤول"];
       const lines = shown.value.map((o) => [o.atelier_subject || o.name, o.customer_name, o.atelier_stage, o.delivery_date || "", billState(o).text, payState(o).text,
-        o.grand_total.toFixed(2), (o.paid || 0).toFixed(2), o.owner_name || ""]);
+        o.grand_total.toFixed(2), (o.paid || 0).toFixed(2), stepWho(o)]);
       const csv = "﻿" + [head, ...lines].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
       a.download = `الطلبات-${todayISO()}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     }
     return { s, load, closed, view, card, cards, stage, STAGE_CHIPS, stageCounts, customer, customers, period, PERIODS, shown, total, sortBy, arrow, board,
-      open, exportCsv, dueText, billState, payState, thumbTone, darkTone, firstName, STAGE_TONE, money, fig, t, go };
+      open, exportCsv, dueText, billState, payState, thumbTone, darkTone, firstName, STAGE_TONE, money, fig, t, go, stepWho, stepLabel };
   },
   template: `
   <div class="page ws">
@@ -661,14 +665,14 @@ const OrdersPage = {
         <a v-for="o in shown" :key="o.name" class="op-tr" :href="'/atelier/orders/'+o.name" @click.prevent="open(o)">
           <span class="ws-order">
             <span class="ws-thumb" :style="{background: thumbTone(o.customer_name), color: darkTone(thumbTone(o.customer_name)) ? '#fff' : '#2B2B2B'}">{{ firstName(o.customer_name).slice(0, 5) }}</span>
-            <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span></span></span>
+            <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span><span v-for="tg in o.tags" :key="tg" class="tag-chip">{{ tg }}</span></span></span>
           </span>
-          <span><span class="ws-stage" :class="'st-' + (STAGE_TONE[o.atelier_stage] || 'design')"><i></i>{{ o.atelier_stage }}</span></span>
+          <span><span class="ws-stage" :class="'st-' + (STAGE_TONE[o.atelier_stage] || 'design')"><i></i>{{ stepLabel(o) }}</span><span v-if="o.step && o.step.mode==='خارجي'" class="ext-tag">خارجي</span></span>
           <span :class="{'ws-late': dueText(o).late}">{{ dueText(o).text }}</span>
           <span class="op-state" :class="billState(o).cls">{{ billState(o).text }}</span>
           <span class="op-state" :class="payState(o).cls">{{ payState(o).text }}</span>
           <span class="op-amount"><span class="money">{{ money(o.grand_total) }}</span><span v-if="o.price_pending" class="op-pending">بند بانتظار التسعير</span></span>
-          <span class="op-owner">{{ firstName(o.owner_name) || '—' }}</span>
+          <span class="op-owner">{{ stepWho(o) }}</span>
         </a>
       </template>
       <div v-else class="op-board">
@@ -1023,22 +1027,35 @@ const OrderView = {
     const prodStep = computed(() => STEP_OF[d.value.atelier_stage] ?? 0);   // 0 design · 1 print · 2 finish · 3 ready/delivered
 
     // One track for the whole life of the order: production and paperwork in the order they happen.
+    const steps = computed(() => d.value.steps || []);
     const track = computed(() => {
       const o = d.value; if (!o.name) return [];
       const confirmed = o.docstatus === 1, made = prodStep.value >= 3 || o.per_delivered > 0;
       const paid = o.per_billed >= 100 && o.outstanding < 0.01;
+      const production = steps.value.length
+        ? steps.value.map((st) => ({ key: "step:" + st.name, step: st, label: st.kind, done: confirmed && (st.done || o.per_delivered >= 100),
+            hint: st.mode === "خارجي" ? "عند " + (st.supplier_name || "مورد") : (st.owner || "داخلي") }))
+        : [{ key: "design", label: "تصميم", done: confirmed && prodStep.value >= 1 }, { key: "make", label: "طباعة وتشطيب", done: confirmed && made }];
       return [
         { key: "confirm", label: "مسعّر ومعتمد", done: confirmed },
-        { key: "design", label: "تصميم", done: confirmed && prodStep.value >= 1 },
-        { key: "make", label: "طباعة وتشطيب", done: confirmed && made },
+        ...production,
         { key: "deliver", label: "تسليم", done: o.per_delivered >= 100, hint: o.per_delivered < 100 && o.delivery_date ? "الموعد " + date(o.delivery_date) : "" },
         { key: "invoice", label: "فاتورة", done: o.per_billed >= 100 },
         { key: "pay", label: "تحصيل", done: paid },
       ];
     });
     const current = computed(() => track.value.find((x) => !x.done)?.key || "done");
+    const curStep = computed(() => track.value.find((x) => x.key === current.value)?.step);
     const next = computed(() => {
       const o = d.value;
+      const st = curStep.value;
+      if (st && st.mode === "خارجي") return st.po
+        ? { title: `${st.kind} عند ${st.supplier_name} — بانتظار الاستلام`, text: `أُرسل طلب الشراء ${st.po} بمبلغ ${money(st.cost)}. عند استلام العمل من المورد اضغط «استلمت».`,
+            btn: "استلمت ✓", act: () => stepAct(st, "done"), alt: st.po_state && !st.po_state.billed && o.can.payment ? { label: "تسجيل فاتورة المورد", act: () => supplierInvoice(st) } : null }
+        : { title: `${st.kind} عند ${st.supplier_name || "مورد"}`, text: "أرسل طلب الشراء للمورد بالتكلفة المتفق عليها، فتُحسب تلقائيًا في ربح هذا الطلب.", kind: "po" };
+      if (st) return { title: `${st.kind}${st.owner ? " — " + st.owner : ""}`,
+        text: st.started ? "جارٍ العمل عليها في الورشة. اضغط «انتهت» عند الإنجاز لينتقل الطلب إلى المرحلة التالية." : "مرحلة داخلية في الورشة. اضغط «انتهت» عند الإنجاز، أو «بدء العمل» ليعرف الفريق أنها جارية.",
+        btn: "انتهت ✓", act: () => stepAct(st, "done"), alt: st.started ? null : { label: "بدء العمل", act: () => stepAct(st, "start") } };
       switch (current.value) {
         case "confirm": return pendingRows.value.length
           ? { title: `سعّر ${pendingRows.value.length === 1 ? "البند المتبقي" : pendingRows.value.length + " بنود"} لاعتماد الطلب`, text: "أدخل الأسعار المعروفة. لا يمكن تسليم الطلب أو فوترته قبل أن تُسعَّر كل البنود.", kind: "price" }
@@ -1068,6 +1085,25 @@ const OrderView = {
       catch (e) { actionError.value = e.message; }
       finally { busy.value = null; }
     };
+    const stepAct = (st, action) => run("step", async () => { await call("step_action", { task: st.name, action }, true); toast(action === "done" ? `انتهت مرحلة ${st.kind}` : `بدأت مرحلة ${st.kind}`); });
+    const poCost = ref("");
+    const orderSupplier = () => {
+      if (!(+poCost.value > 0)) { actionError.value = "أدخل تكلفة المورد"; return; }
+      return run("po", async () => { const r = await call("step_order_supplier", { task: curStep.value.name, cost: +poCost.value }, true); toast(`أُرسل طلب الشراء ${r}`); poCost.value = ""; });
+    };
+    const supplierInvoice = (st) => run("pinv", async () => { const r = await call("step_supplier_invoice", { task: st.name }, true); toast(`سُجّلت فاتورة المورد ${r}`); });
+    // step editor
+    const editing = ref(null);
+    const editSteps = () => { editing.value = steps.value.map((x) => ({ name: x.name, kind: x.kind, mode: x.mode, supplier: x.supplier || "", owner: x.owner || "", done: x.done, locked: x.done || !!x.po }));
+      if (!editing.value.length) editing.value.push({ kind: "تصميم", mode: "داخلي", supplier: "", owner: "" }); panel.value = "steps"; };
+    const addStep = () => editing.value.push({ kind: "طباعة رقمية", mode: "داخلي", supplier: "", owner: "" });
+    const moveStep = (i, dir) => { const l = editing.value, j = i + dir; if (j < 0 || j >= l.length) return; [l[i], l[j]] = [l[j], l[i]]; };
+    const saveSteps = () => run("steps", async () => { await call("save_steps", { name: props.id, steps: JSON.stringify(editing.value) }, true); toast("حُفظت المراحل"); });
+    // tags
+    const newTag = ref("");
+    const saveTags = (tags) => run("tags", async () => { await call("set_tags", { name: props.id, tags: JSON.stringify(tags) }, true); });
+    const addTag = () => { const v = newTag.value.trim(); if (v && !(d.value.tags || []).includes(v)) saveTags([...(d.value.tags || []), v]); newTag.value = ""; };
+    const removeTag = (tg) => saveTags((d.value.tags || []).filter((x) => x !== tg));
     const setStage = (stage) => run("stage", async () => { await call("set_stage", { name: props.id, stage }, true); toast(t("ov_stage_saved")); });
     const savePrices = () => {
       const payload = Object.fromEntries(pendingRows.value.filter((i) => rates[i.row] !== undefined && rates[i.row] !== "").map((i) => [i.row, +rates[i.row]]));
@@ -1086,7 +1122,8 @@ const OrderView = {
     const unbilled = computed(() => Math.max(0, (d.value.grand_total || 0) * (1 - (d.value.per_billed || 0) / 100)));
     const paidPct = computed(() => (d.value.grand_total ? Math.min(100, Math.round((d.value.paid / d.value.grand_total) * 100)) : 0));
     const DOC_ICON = { "Delivery Note": "truck", "Sales Invoice": "invoice", "Payment Entry": "in" };
-    return { s, load, d, track, current, next, others, busy, panel, rates, qtys, actionError, pendingRows, toDeliver, unbilled, paidPct,
+    return { steps, curStep, poCost, orderSupplier, editing, editSteps, addStep, moveStep, saveSteps, newTag, addTag, removeTag,
+      s, load, d, track, current, next, others, busy, panel, rates, qtys, actionError, pendingRows, toDeliver, unbilled, paidPct,
       savePrices, deliver, invoice, setStage, pdfUrl, DOC_ICON, DT_KEY, thumbTone, darkTone, firstName, uom, t, money, num, date, go, state, plain };
   },
   template: `
@@ -1097,7 +1134,10 @@ const OrderView = {
     <div class="ov-head">
       <span class="ws-thumb ov-thumb" :style="{background: thumbTone(d.customer_name), color: darkTone(thumbTone(d.customer_name)) ? '#fff' : '#2B2B2B'}">{{ firstName(d.customer_name).slice(0, 5) }}</span>
       <div class="ov-head-txt"><h1 class="ws-title ov-title">{{ d.atelier_subject || d.name }}</h1>
-        <div class="ws-sub"><a :href="'/atelier/customers/'+d.customer" @click.prevent="go('/customers/'+encodeURIComponent(d.customer))">{{ d.customer_name }}</a> · طلب <span class="num">#{{ d.name.split('-').pop() }}</span> · سُجّل {{ date(d.transaction_date) }}</div></div>
+        <div class="ws-sub"><a :href="'/atelier/customers/'+d.customer" @click.prevent="go('/customers/'+encodeURIComponent(d.customer))">{{ d.customer_name }}</a> · طلب <span class="num">#{{ d.name.split('-').pop() }}</span> · سُجّل {{ date(d.transaction_date) }}</div>
+        <div class="tags-row"><span v-for="tg in d.tags" :key="tg" class="tag-chip lg">{{ tg }}<button type="button" :aria-label="'إزالة الوسم ' + tg" @click="removeTag(tg)">×</button></span>
+          <form v-if="d.can.edit" class="tag-add" @submit.prevent="addTag"><label class="sr-only" for="tag-new">وسم جديد</label>
+            <input id="tag-new" class="input" v-model="newTag" list="tag-list" placeholder="+ وسم (عاجل، عميل مهم…)"><datalist id="tag-list"><option v-for="tg in state.boot.tags" :key="tg" :value="tg"></option><option value="عاجل"></option><option value="عميل مهم"></option><option value="ينتظر ملفات"></option></datalist></form></div></div>
       <a class="btn ws-btn" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, d.print_format)"><Icon name="file" :size="18"/>بون الطلب PDF</a>
     </div>
 
@@ -1124,6 +1164,28 @@ const OrderView = {
         </div>
         <button type="button" class="btn primary" :disabled="!!busy" @click="savePrices">{{ busy==='price' ? t('of_saving') : t('cy_save_prices') }}</button>
       </div>
+      <div v-if="next.kind==='po'" class="ov-panel">
+        <div class="ov-panel-row"><label for="po-cost"><span class="strong">تكلفة {{ curStep.kind }} عند {{ curStep.supplier_name }}</span></label>
+          <div class="unit-wrap"><input id="po-cost" class="input num" type="text" inputmode="decimal" autocomplete="off" v-model="poCost" placeholder="0.00"><span class="u">دج</span></div></div>
+        <button type="button" class="btn primary" :disabled="!!busy" @click="orderSupplier">{{ busy==='po' ? t('of_saving') : 'إرسال الطلب للمورد' }}</button>
+      </div>
+      <div v-if="panel==='steps'" class="ov-panel">
+        <span class="strong">مراحل إنتاج هذا الطلب</span>
+        <div v-for="(st, i) in editing" :key="i" class="step-row">
+          <span class="step-n" :class="{opt: st.done}">{{ st.done ? '✓' : i + 1 }}</span>
+          <select class="input" v-model="st.kind" :disabled="st.locked" :aria-label="'نوع المرحلة ' + (i+1)"><option v-for="k in state.boot.step_kinds" :key="k" :value="k">{{ k }}</option></select>
+          <div class="seg" role="group" :aria-label="'مكان التنفيذ ' + (i+1)"><button v-for="m in state.boot.step_modes" :key="m" type="button" :disabled="st.locked" :aria-pressed="st.mode===m" @click="st.mode=m">{{ m }}</button></div>
+          <select v-if="st.mode==='خارجي'" class="input" v-model="st.supplier" :disabled="st.locked" :aria-label="'المورد ' + (i+1)"><option value="">اختر المورد…</option><option v-for="sp in state.boot.suppliers" :key="sp.name" :value="sp.name">{{ sp.supplier_name }}</option></select>
+          <input v-else class="input" v-model="st.owner" list="team-list" :aria-label="'المسؤول ' + (i+1)" placeholder="المسؤول">
+          <span class="step-tools"><button type="button" class="btn sm ghost icon-btn" :aria-label="'تقديم ' + st.kind" @click="moveStep(i, -1)"><Icon name="up" :size="16"/></button>
+            <button type="button" class="btn sm ghost icon-btn" :aria-label="'تأخير ' + st.kind" @click="moveStep(i, 1)"><Icon name="down" :size="16"/></button>
+            <button v-if="!st.locked" type="button" class="btn sm ghost icon-btn danger" :aria-label="'حذف ' + st.kind" @click="editing.splice(i, 1)"><Icon name="trash" :size="16"/></button></span>
+        </div>
+        <datalist id="team-list"><option v-for="p in state.boot.team" :key="p" :value="p"></option></datalist>
+        <div class="row wrap" style="gap:8px"><button type="button" class="btn chip dashed" @click="addStep">+ إضافة مرحلة</button><span class="spacer"></span>
+          <button type="button" class="btn ghost" @click="panel=null">{{ t('close') }}</button><button type="button" class="btn primary" :disabled="!!busy" @click="saveSteps">{{ busy==='steps' ? t('of_saving') : 'حفظ المراحل' }}</button></div>
+        <span class="hint">المرحلة الخارجية تُرسل كطلب شراء للمورد، وتكلفتها تُحسب في ربح الطلب. المراحل المنتهية لا تُحذف.</span>
+      </div>
       <div v-if="panel==='deliver'" class="ov-panel">
         <span class="strong">ماذا تسلّم الآن؟</span>
         <div v-for="i in toDeliver" :key="i.row" class="ov-panel-row">
@@ -1141,12 +1203,11 @@ const OrderView = {
         <div class="row" style="gap:8px"><button type="button" class="btn primary" :disabled="!!busy" @click="invoice">{{ busy==='invoice' ? t('of_saving') : t('cy_invoice_do') }}</button>
           <button type="button" class="btn ghost" @click="panel=null">{{ t('close') }}</button></div>
       </div>
-      <div v-if="others.length || d.docstatus===1" class="ov-others">
+      <div v-if="others.length || d.can.edit" class="ov-others">
         <template v-if="others.length">أعمال أخرى متاحة الآن:
           <template v-for="(o, i) in others" :key="o.label"><span v-if="i"> · </span><a href="#" @click.prevent="o.act">{{ o.label }}</a></template></template>
         <span class="spacer"></span>
-        <label v-if="d.docstatus===1" class="ov-stage-pick">مرحلة التنفيذ:
-          <select class="input op-select" :value="d.atelier_stage" @change="setStage($event.target.value)"><option v-for="st in state.boot.stages" :key="st" :value="st">{{ st }}</option></select></label>
+        <button v-if="d.can.edit && d.project" type="button" class="btn sm" @click="editSteps"><Icon name="edit" :size="16"/>تعديل المراحل</button>
       </div>
     </section>
 

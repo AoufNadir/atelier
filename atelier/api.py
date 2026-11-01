@@ -5,6 +5,10 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, get_first_day, get_last_day, getdate, nowdate
 
+from atelier import production
+# Production-step endpoints live in production.py and are exposed under atelier.api like the rest.
+from atelier.production import save_steps, set_service_steps, set_tags, step_action, step_order_supplier, step_supplier_invoice  # noqa: F401
+
 MODES = [("Cash", "نقدًا"), ("Wire Transfer", "تحويل بنكي"), ("Cheque", "صك")]
 STAGES = ["جديد", "تصميم", "بانتظار موافقة العميل", "طباعة", "تشطيب", "جاهز للتسليم", "سُلّم"]
 
@@ -69,6 +73,7 @@ def boot():
 		"is_demo": "DÉMO" in (company or "") or "تجريبي" in (company or ""),
 		"items": _with_prices(items),
 		"stages": STAGES,
+		**production.boot_info(),
 		"modes": [{"value": v, "label": l} for v, l in MODES if frappe.db.exists("Mode of Payment", v)],
 		"can": {
 			"order": _can("Sales Order", "create"),
@@ -200,7 +205,7 @@ def _order_rows(filters, limit=8):
 		"Sales Order",
 		filters=filters,
 		fields=["name", "customer", "customer_name", "atelier_subject", "atelier_stage", "transaction_date",
-			"delivery_date", "grand_total", "per_billed", "per_delivered", "advance_paid", "docstatus", "status", "owner"],
+			"delivery_date", "grand_total", "per_billed", "per_delivered", "advance_paid", "docstatus", "status", "owner", "project", "_user_tags"],
 		order_by="creation desc", limit=limit,
 	)
 	if not rows:
@@ -212,7 +217,10 @@ def _order_rows(filters, limit=8):
 		join (select distinct parent, sales_order from `tabSales Invoice Item`) sii on sii.parent = si.name
 		where si.docstatus=1 and sii.sales_order in %s group by sii.sales_order""", [names]))
 	names_cache = {}
+	steps = production.current_steps([r.project for r in rows if r.project])
 	for r in rows:
+		r.tags = [x for x in (r.pop("_user_tags", None) or "").split(",") if x]
+		r.step = steps.get(r.project)
 		r.owner_name = names_cache.setdefault(r.owner, frappe.utils.get_fullname(r.owner))
 		r.price_pending = r.name in pending
 		r.paid = max(flt(r.advance_paid), flt(paid_on_invoices.get(r.name)))
@@ -510,6 +518,8 @@ def order(name):
 		for i in so.items
 	]
 	row["project"] = so.project
+	row["steps"] = production.steps_for_view(so.project)
+	row["tags"] = [x for x in (so.get("_user_tags") or "").split(",") if x]
 	img = frappe.get_all("File", {"attached_to_doctype": "Sales Order", "attached_to_name": name, "is_folder": 0},
 		["file_url", "file_name"], order_by="creation desc")
 	row["image"] = next((f.file_url for f in img if (f.file_name or "").lower().rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp", "gif")), None)
@@ -598,6 +608,7 @@ def create_order(data):
 		],
 	})
 	so.insert()
+	production.create_default_steps(so)
 	price_pending = any(i.atelier_price_pending for i in so.items)
 	if not price_pending and data.get("confirm", True):
 		so.submit()
