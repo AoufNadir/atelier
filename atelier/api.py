@@ -64,6 +64,7 @@ def boot():
 		"user": frappe.session.user,
 		"full_name": frappe.utils.get_fullname(frappe.session.user),
 		"company": company,
+		"company_label": (frappe.db.get_value("Company", company, "company_name") or company or "").replace("Atelier Démo تجريبي", "مطبعة الرؤية"),
 		"currency": frappe.db.get_value("Company", company, "default_currency"),
 		"is_demo": "DÉMO" in (company or "") or "تجريبي" in (company or ""),
 		"items": _with_prices(items),
@@ -199,7 +200,7 @@ def _order_rows(filters, limit=8):
 		"Sales Order",
 		filters=filters,
 		fields=["name", "customer", "customer_name", "atelier_subject", "atelier_stage", "transaction_date",
-			"delivery_date", "grand_total", "per_billed", "per_delivered", "advance_paid", "docstatus", "status"],
+			"delivery_date", "grand_total", "per_billed", "per_delivered", "advance_paid", "docstatus", "status", "owner"],
 		order_by="creation desc", limit=limit,
 	)
 	if not rows:
@@ -210,7 +211,9 @@ def _order_rows(filters, limit=8):
 		"""select sii.sales_order, sum(si.grand_total - si.outstanding_amount) from `tabSales Invoice` si
 		join (select distinct parent, sales_order from `tabSales Invoice Item`) sii on sii.parent = si.name
 		where si.docstatus=1 and sii.sales_order in %s group by sii.sales_order""", [names]))
+	names_cache = {}
 	for r in rows:
+		r.owner_name = names_cache.setdefault(r.owner, frappe.utils.get_fullname(r.owner))
 		r.price_pending = r.name in pending
 		r.paid = max(flt(r.advance_paid), flt(paid_on_invoices.get(r.name)))
 	return rows
@@ -495,6 +498,9 @@ def order(name):
 		for i in so.items
 	]
 	row["project"] = so.project
+	img = frappe.get_all("File", {"attached_to_doctype": "Sales Order", "attached_to_name": name, "is_folder": 0},
+		["file_url", "file_name"], order_by="creation desc")
+	row["image"] = next((f.file_url for f in img if (f.file_name or "").lower().rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp", "gif")), None)
 	row["docs"] = _order_docs(so)
 	row["outstanding"] = sum(flt(d.get("outstanding_amount")) for d in row["docs"] if d["doctype"] == "Sales Invoice")
 	row["print_format"] = PRINT_FORMAT

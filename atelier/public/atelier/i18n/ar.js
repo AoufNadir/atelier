@@ -189,5 +189,7 @@ export default {
   ds_status: "الحالات والتنبيهات", ds_data: "المؤشرات والجداول",
   ds_money_rule: "كل مبلغ بهذه الصيغة، والأرقام لاتينية دائمًا",
   ds_status_rule: "قاعدة: كل حالة = لون + أيقونة + نص، لا اللون وحده.",
+  nav_workspace: "مساحة العمل", nav_finance: "المالية", nav_settings: "الإعدادات", nav_group_admin: "إدارة المطبعة",
+  crumb_root: "مساحة العمل", crumb_today: "نظرة اليوم", notifications: "الإشعارات", role_manager: "مدير المطبعة",
   offline: "أنت غير متصل — البيانات المعروضة قد لا تكون محدثة",
 };

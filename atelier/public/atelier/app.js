@@ -171,6 +171,11 @@ const ICONS = {
   trash: "M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15",
   wifi: "M2 8.8a15 15 0 0 1 20 0M5 12.6a10 10 0 0 1 14 0M8.5 16.4a5 5 0 0 1 7 0M12 20h.01",
   panel: "M3 4h18v16H3zM15 4v16",
+  grid: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+  wallet: "M3 7h15a3 3 0 0 1 3 3v8H3zM3 7l2-3h11v3M16 13h2",
+  calendar: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4",
+  printer: "M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z",
+  bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4",
   edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z",
 };
 const Icon = (props) => h("svg", { width: props.size || 20, height: props.size || 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
@@ -388,90 +393,154 @@ const OrdersTable = {
 };
 
 // ------------------------------------------------------------------ home
+// Production stages as the workspace shows them: the seven order stages folded into four steps.
+const STEP_OF = { "جديد": 0, "تصميم": 0, "بانتظار موافقة العميل": 0, "طباعة": 1, "تشطيب": 2, "جاهز للتسليم": 3, "سُلّم": 3 };
+const STEPS = ["تصميم", "طباعة", "تشطيب", "تسليم"];
+const STAGE_TONE = { "جديد": "design", "تصميم": "design", "بانتظار موافقة العميل": "design", "طباعة": "print", "تشطيب": "finish", "جاهز للتسليم": "ready", "سُلّم": "ready" };
+const THUMB_TONES = ["#3E4C63", "#F2D45C", "#DCE9C8", "#F3DCC4", "#E3DDF3", "#2F4A6A", "#E6F0D8"];
+const thumbTone = (s) => THUMB_TONES[[...String(s || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % THUMB_TONES.length];
+const darkTone = (hex) => ["#3E4C63", "#2F4A6A"].includes(hex);
+const firstName = (n) => String(n || "").split(" ")[0];
+const dueText = (o) => {
+  if (!o.delivery_date) return { text: "—", late: false };
+  const d = daysFromToday(o.delivery_date);
+  if (o.per_delivered < 100 && d < 0) return { text: d === -1 ? "متأخر يومًا" : d === -2 ? "متأخر يومين" : `متأخر ${-d} أيام`, late: true };
+  if (d === 0) return { text: "اليوم", late: false };
+  if (d === 1) return { text: "غدًا", late: false };
+  return { text: date(o.delivery_date), late: false };
+};
+const fig = (v) => `${LRI}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(+v || 0))}${PDI}`;
+
 const Home = {
-  components: { Icon, Badge, LoadState, OrdersTable },
+  components: { Icon },
   setup() {
     const { s, load } = useLoad(() => call("home"));
     onMounted(load);
-    const showAll = ref(false), openKpi = ref(null);
-    const actions = computed(() => s.data?.actions || []);
-    const visible = computed(() => (showAll.value ? actions.value : actions.value.slice(0, 6)));
-    const m = computed(() => s.data?.money);
-    const kpis = computed(() => {
-      if (!m.value) return [];
-      const p = m.value.period;
-      return [
-        { key: "receivable", label: t("k_receivable"), value: m.value.receivable, hint: t("k_receivable_hint"), tone: m.value.receivable_overdue > 0 ? "danger" : "",
-          rows: [[t("d_total"), m.value.receivable], [t("d_overdue"), m.value.receivable_overdue]],
-          link: "/app/query-report/Accounts Receivable" },
-        { key: "cash", label: t("k_cash"), value: m.value.cash_balance, hint: t("k_cash_hint"),
-          rows: [[t("d_in"), m.value.cash_in], [t("d_out"), m.value.cash_out]], note: t("d_cash_note"), link: "/app/query-report/General Ledger" },
-        { key: "payable", label: t("k_payable"), value: m.value.payable, hint: t("k_payable_hint"),
-          rows: [[t("d_total"), m.value.payable], [t("d_due_now"), m.value.payable_due]], link: "/app/query-report/Accounts Payable" },
-        { key: "advances", label: t("k_advances"), value: m.value.advances_held, hint: t("k_advances_hint"), rows: [], note: t("d_advances_note") },
-        { key: "result", label: t("k_result"), value: m.value.result, hint: t("k_result_hint"),
-          rows: [[t("d_sales"), m.value.sales], [t("d_result"), m.value.result]], note: t("d_result_note") + " " + t("d_period", date(p.from), date(p.to)),
-          link: "/app/query-report/Profit and Loss Statement" },
-      ];
+    const tab = ref("all"), scope = ref("all"), selected = ref(null), detail = ref(null);
+    const orders = computed(() => (s.data?.orders || []).slice().sort((a, b) => (a.delivery_date || "9").localeCompare(b.delivery_date || "9")));
+    const TABS = [["all", "الكل", () => true], ["design", "تصميم", (o) => STAGE_TONE[o.atelier_stage] === "design"],
+      ["make", "طباعة وتشطيب", (o) => ["print", "finish"].includes(STAGE_TONE[o.atelier_stage])], ["ready", "جاهز للتسليم", (o) => STAGE_TONE[o.atelier_stage] === "ready"]];
+    const counts = computed(() => Object.fromEntries(TABS.map(([k, , fn]) => [k, orders.value.filter(fn).length])));
+    const shown = computed(() => {
+      const fn = TABS.find((x) => x[0] === tab.value)[2];
+      return orders.value.filter(fn).filter((o) => scope.value === "all" || (o.delivery_date && daysFromToday(o.delivery_date) <= 0));
     });
-    const detail = computed(() => kpis.value.find((k) => k.key === openKpi.value));
-    const toggle = (k) => (openKpi.value = openKpi.value === k ? null : k);
+    const late = computed(() => orders.value.filter((o) => dueText(o).late));
+    const soon = computed(() => orders.value.filter((o) => o.delivery_date && [0, 1].includes(daysFromToday(o.delivery_date))));
+    const pick = async (o) => {
+      selected.value = o.name; detail.value = null;
+      try { detail.value = await call("order", { name: o.name }); } catch { /* panel shows the row data */ }
+    };
+    watch(orders, (l) => { if (l.length && !selected.value) pick(l.find((o) => !dueText(o).late) || l[0]); }, { immediate: true });
+    const sel = computed(() => orders.value.find((o) => o.name === selected.value));
+    const step = computed(() => (sel.value ? STEP_OF[sel.value.atelier_stage] ?? 0 : 0));
+    const nextStep = computed(() => (sel.value ? (STEPS[step.value + 1] ? `التالي: ${STEPS[step.value + 1]}` : "التالي: التسليم للعميل") : ""));
+    const firstItem = computed(() => detail.value?.items?.[0]);
+    const actions = computed(() => (s.data?.actions || []).filter((a) => a.kind !== "due").slice(0, 3));
+    const m = computed(() => s.data?.money);
+    const greet = computed(() => firstName(state.boot?.full_name));
     const today = dfw.format(new Date());
-    return { s, load, showAll, actions, visible, kpis, detail, openKpi, toggle, KIND, t, money, go, today, state };
+    const monthLabel = new Intl.DateTimeFormat("ar-DZ-u-nu-latn", { month: "long", year: "numeric" }).format(new Date());
+    const open = (o) => go("/orders/" + encodeURIComponent(o.name));
+    const ACTION_ICON = { late: "alert", overdue: "invoice", price: "tag", invoice: "invoice", supplier: "out", stock: "box" };
+    const ACTION_BTN = { late: "مراجعة الطلب", overdue: "تسجيل دفعة", price: "تسعير", invoice: "فوترة", supplier: "مراجعة", stock: "تجديد المخزون" };
+    return { s, load, tab, scope, TABS, counts, shown, late, soon, pick, selected, sel, detail, step, STEPS, nextStep, firstItem, actions, m,
+      greet, today, monthLabel, open, dueText, thumbTone, darkTone, firstName, STAGE_TONE, ACTION_ICON, ACTION_BTN, fig, money, num, plain, t, go, state };
   },
   template: `
-  <div class="page">
-    <div class="page-head"><div><h1>{{ t('nav_home') }}</h1><div class="sub">{{ today }}</div></div></div>
-    <div class="quick mobile-only">
-      <a class="btn primary" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><Icon name="plus"/>{{ t('new_order') }}</a>
-      <button v-if="state.boot.can.payment" class="btn" @click="state.sheet={type:'payment'}"><Icon name="in" style="color:var(--success)"/>{{ t('record_payment') }}</button>
-      <button v-if="state.boot.can.expense" type="button" class="btn" @click="state.sheet={type:'expense'}"><Icon name="out" style="color:var(--danger)"/>{{ t('record_expense') }}</button>
-    </div>
-
-    <LoadState :s="s" :rows="2" @retry="load">
-      <div v-if="!s.data.money" class="alert info">{{ t('money_hidden') }}</div>
-      <template v-else>
-        <div class="kpis" role="group" :aria-label="t('nav_money')">
-          <button v-for="k in kpis" :key="k.key" class="kpi" :class="k.tone ? 'tone-'+k.tone : ''" :aria-expanded="openKpi===k.key" aria-controls="kpi-detail" @click="toggle(k.key)">
-            <span class="k-label">{{ k.label }}<Icon :name="openKpi===k.key ? 'up' : 'down'" :size="14" class="muted"/></span>
-            <span class="k-value money">{{ money(k.value) }}</span><span class="k-hint">{{ k.hint }}</span>
-          </button>
-        </div>
-        <section v-if="detail" id="kpi-detail" class="card kpi-detail">
-          <div class="card-h"><h2>{{ detail.label }}</h2><button class="btn sm ghost" @click="openKpi=null">{{ t('k_close') }}</button></div>
-          <div class="card-b stack">
-            <dl v-if="detail.rows.length" class="kv"><template v-for="r in detail.rows" :key="r[0]"><dt>{{ r[0] }}</dt><dd class="money medium">{{ money(r[1]) }}</dd></template></dl>
-            <div v-if="detail.note" class="hint">{{ detail.note }}</div>
-            <a v-if="detail.link" class="btn sm" :href="detail.link" style="align-self:flex-start"><Icon name="ext" :size="16"/>{{ t('k_open_report') }}</a>
-          </div>
-        </section>
-      </template>
-    </LoadState>
-
-    <div class="home-grid">
-      <section class="card side" style="order:0" aria-labelledby="todo-h">
-        <div class="card-h"><h2 id="todo-h">{{ t('todo_title') }}</h2>
-          <span v-if="actions.length" class="badge b-danger num">{{ actions.length }}</span></div>
-        <LoadState :s="s" :rows="4" @retry="load">
-          <div v-if="!actions.length" class="empty"><Icon name="check" :size="26" style="color:var(--success)"/>
-            <span class="medium" style="color:var(--ink)">{{ t('todo_none') }}</span><span class="meta">{{ t('todo_none_hint') }}</span></div>
-          <div v-else class="list">
-            <button v-for="(a,i) in visible" :key="i" class="list-item" @click="go(a.route)">
-              <span class="dot" :style="{background: KIND[a.kind].dot}"></span>
-              <span class="main-col"><span class="medium clamp2">{{ a.title }}</span><span class="meta ellipsis">{{ a.detail }}</span></span>
-              <span class="end-col">
-                <span class="badge" :class="KIND[a.kind].badge"><Icon :name="KIND[a.kind].icon" :size="13"/>{{ t('kind_'+a.kind) }}</span>
-                <span v-if="a.doc && a.doc.amount" class="money meta">{{ money(a.doc.amount) }}</span>
-              </span>
-            </button>
-          </div>
-          <div v-if="actions.length>6" class="card-f"><button class="btn sm ghost" @click="showAll=!showAll">{{ showAll ? t('todo_less') : t('todo_more', actions.length) }}</button></div>
-        </LoadState>
-      </section>
-      <div class="mainc">
-        <LoadState :s="s" @retry="load"><OrdersTable :rows="s.data.orders" :limit="12" more-link/></LoadState>
+  <div class="page ws">
+    <div class="ws-head">
+      <div><h1 class="ws-title">كل طلب، في وقته.</h1><div class="ws-sub">صباح الخير {{ greet }}، هذه حركة مطبعتك اليوم.</div></div>
+      <div class="ws-head-actions">
+        <span class="ws-date"><Icon name="calendar" :size="18"/>{{ today }}</span>
+        <button v-if="state.boot.can.payment" type="button" class="btn ws-btn" @click="state.sheet={type:'payment'}"><Icon name="wallet" :size="18"/>تسجيل دفعة</button>
+        <a class="btn primary ws-btn" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><Icon name="plus" :size="18"/>طلب جديد</a>
       </div>
     </div>
+
+    <div v-if="s.data" class="ws-alert">
+      <Icon name="clock" :size="20"/>
+      <span class="strong">{{ late.length ? (late.length === 1 ? 'طلب واحد متأخر يحتاج قرارك' : late.length + ' طلبات متأخرة تحتاج قرارك') : 'لا طلبات متأخرة' }}</span>
+      <span class="ws-alert-sep"></span>
+      <span>{{ soon.length }} طلبات للتسليم اليوم وغدًا</span>
+      <span class="spacer"></span>
+      <a v-if="late.length" href="#" @click.prevent="open(late[0])">مراجعة المتأخر <Icon name="chev" :size="16"/></a>
+    </div>
+
+    <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
+    <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
+    <template v-else>
+    <div class="ws-grid">
+      <section class="ws-prod" aria-labelledby="prod-h">
+        <div class="ws-prod-head">
+          <h2 id="prod-h">حركة الإنتاج <span class="ws-count">{{ counts.all }} طلبات</span></h2>
+          <div class="ws-toggle" role="group" aria-label="النطاق">
+            <button type="button" :aria-pressed="scope==='all'" @click="scope='all'">كل الطلبات</button>
+            <button type="button" :aria-pressed="scope==='today'" @click="scope='today'">تسليم اليوم</button>
+          </div>
+        </div>
+        <div class="ws-tabs" role="tablist">
+          <button v-for="tb in TABS" :key="tb[0]" type="button" role="tab" :aria-selected="tab===tb[0]" @click="tab=tb[0]">
+            <span v-if="tab===tb[0]" class="ws-tab-dot"></span>{{ tb[1] }}<span class="ws-tab-n">{{ counts[tb[0]] }}</span></button>
+        </div>
+        <div class="ws-table">
+          <div class="ws-tr ws-th"><span>الطلب / العميل</span><span>المرحلة</span><span>التسليم</span><span>المسؤول</span></div>
+          <div v-if="!shown.length" class="empty">لا طلبات هنا</div>
+          <button v-for="o in shown" :key="o.name" type="button" class="ws-tr" :class="{sel: o.name===selected}" @click="pick(o)" @dblclick="open(o)">
+            <span class="ws-order">
+              <span class="ws-thumb" :style="{background: thumbTone(o.customer_name), color: darkTone(thumbTone(o.customer_name)) ? '#fff' : '#2B2B2B'}">{{ firstName(o.customer_name).slice(0, 5) }}</span>
+              <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span></span></span>
+            </span>
+            <span><span class="ws-stage" :class="'st-' + (STAGE_TONE[o.atelier_stage] || 'design')"><i></i>{{ o.atelier_stage }}</span></span>
+            <span :class="{'ws-late': dueText(o).late}">{{ dueText(o).text }}</span>
+            <span><span class="ws-avatar" :title="o.owner_name">{{ (o.owner_name || '؟').slice(0, 1) }}</span></span>
+          </button>
+          <div class="ws-tfoot"><span>عرض {{ shown.length }} من {{ counts.all }} طلبات</span><span>مرتب حسب موعد التسليم</span></div>
+        </div>
+
+        <div class="ws-needs">
+          <h2>يحتاج تدخلك <span class="ws-needs-n">{{ actions.length ? actions.length + ' إجراءات معلّقة' : 'لا شيء معلّق' }}</span></h2>
+          <div v-for="(a, i) in actions" :key="i" class="ws-need">
+            <span class="ws-need-ic" :class="'k-' + a.kind"><Icon :name="ACTION_ICON[a.kind] || 'alert'" :size="18"/></span>
+            <span class="ws-need-txt"><span class="strong">{{ a.title }}</span><span class="ws-order-meta">{{ a.detail }}</span></span>
+            <button type="button" class="btn sm" @click="go(a.route)">{{ ACTION_BTN[a.kind] || 'فتح' }}</button>
+          </div>
+        </div>
+      </section>
+
+      <aside v-if="sel" class="ws-sel" aria-labelledby="sel-h">
+        <div class="ws-sel-head"><h2 id="sel-h">الطلب المختار</h2><span class="num">#{{ sel.name.split('-').pop() }}</span></div>
+        <div class="ws-art">
+          <img v-if="detail && detail.image" :src="detail.image" alt="">
+          <span v-else class="ws-art-empty"><Icon name="image" :size="28"/>معاينة التصميم</span>
+          <span class="ws-art-cap">Artwork preview · PDF</span>
+        </div>
+        <div class="ws-sel-title">{{ sel.atelier_subject || sel.name }}</div>
+        <div class="ws-order-meta">{{ sel.customer_name }} · {{ firstItem ? firstItem.item_name : 'طلب' }}</div>
+        <span class="ws-stage st-print" style="align-self:flex-start" :class="'st-' + (STAGE_TONE[sel.atelier_stage] || 'design')"><i></i>قيد {{ sel.atelier_stage }}</span>
+        <dl class="ws-facts">
+          <div><dt>الكمية</dt><dd>{{ firstItem ? num(firstItem.qty) + ' ' + (firstItem.uom === 'Nos' ? 'قطعة' : firstItem.uom) : '—' }}</dd></div>
+          <div><dt>الخامة</dt><dd>{{ firstItem && plain(firstItem.description) !== firstItem.item_name ? plain(firstItem.description).slice(0, 24) || '—' : '—' }}</dd></div>
+          <div><dt>موعد التسليم</dt><dd>{{ dueText(sel).text }}</dd></div>
+          <div><dt>قيمة الطلب</dt><dd class="money">{{ money(sel.grand_total) }}</dd></div>
+        </dl>
+        <ol class="ws-steps" aria-label="مراحل الطلب">
+          <li v-for="(st, i) in STEPS" :key="st" :class="{done: i < step, cur: i === step}"><span class="ws-dot"></span><span class="ws-step-l">{{ st }}</span></li>
+        </ol>
+        <div class="ws-next"><span class="strong">{{ nextStep }}</span><span class="ws-order-meta">المسؤول: {{ firstName(sel.owner_name) || '—' }} · الموعد {{ dueText(sel).text }}</span></div>
+        <a class="ws-link" href="#" @click.prevent="open(sel)">فتح الطلب <Icon name="chev" :size="16"/></a>
+      </aside>
+    </div>
+
+    <section v-if="m" class="ws-money" aria-labelledby="money-h">
+      <div class="ws-money-h"><h2 id="money-h">الوضع المالي</h2><span>{{ monthLabel }}</span></div>
+      <div><span class="ws-money-l">السيولة المتاحة</span><span class="ws-money-v">{{ fig(m.cash_balance) }}<small>دج</small></span></div>
+      <div><span class="ws-money-l">مستحقات العملاء</span><span class="ws-money-v neg">{{ fig(m.receivable) }}<small>دج</small></span></div>
+      <div><span class="ws-money-l">تسبيقات العملاء</span><span class="ws-money-v">{{ fig(m.advances_held) }}<small>دج</small></span></div>
+      <div><span class="ws-money-l">نتيجة الشهر التقديرية</span><span class="ws-money-v pos">{{ fig(m.result) }}<small>دج</small></span></div>
+    </section>
+    <div class="ws-foot"><span>{{ state.boot.is_demo ? 'بيانات تجريبية · جميع الأسماء والطلبات والأرقام للعرض فقط' : '' }}</span><span>نَسَق — من أول فكرة، إلى آخر طبعة.</span></div>
+    </template>
   </div>`,
 };
 
@@ -1954,13 +2023,13 @@ const ExpenseSheet = {
 
 // ------------------------------------------------------------------ shell
 const NAV = [
-  { key: "home", path: "/", icon: "home", label: "nav_home", match: ["home"] },
+  { key: "home", path: "/", icon: "grid", label: "nav_workspace", match: ["home"] },
   { key: "orders", path: "/orders", icon: "orders", label: "nav_orders", match: ["order", "order-new", "orders"] },
   { key: "customers", path: "/customers", icon: "users", label: "nav_customers", match: ["customer", "customers"] },
+  { key: "money", path: "/money", icon: "wallet", label: "nav_finance", match: ["money"], need: "finance" },
+  { key: "stock", path: "/stock", icon: "box", label: "nav_stock", match: ["stock"] },
 ];
 const SECTION_NAV = [
-  { key: "money", path: "/money", icon: "money", label: "nav_money", match: ["money"], need: "finance" },
-  { key: "stock", path: "/stock", icon: "box", label: "nav_stock", match: ["stock"] },
   { key: "machines", path: "/machines", icon: "gear", label: "nav_machines", match: ["machines"] },
   { key: "prices", path: "/prices", icon: "tag", label: "nav_prices", match: ["prices"], need: "prices" },
   { key: "reports", path: "/reports", icon: "chart", label: "nav_reports", match: ["reports"], need: "finance" },
@@ -1973,6 +2042,7 @@ const App = {
     const loadBoot = async () => {
       bootErr.value = null;
       try { state.boot = await call("boot"); } catch (e) { bootErr.value = e.message; }
+      call("orders").then((l) => (state.openOrders = l.length)).catch(() => {});
     };
     onMounted(async () => {
       await loadBoot();
@@ -1981,45 +2051,43 @@ const App = {
       if ("serviceWorker" in navigator) navigator.serviceWorker.register("/atelier-sw.js", { scope: "/atelier" }).catch(() => {});
     });
     const isActive = (n) => n.match.includes(route.value.name);
-    const titles = { "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
+    const titles = { ds: "ds_title", "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
       money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
-    return { state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back };
+    const initials = (n) => String(n || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join(" ");
+    return { state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials };
   },
   template: `
   <div v-if="bootErr" class="page"><div class="alert error" role="alert"><span style="flex:1">{{ bootErr }}</span><button class="btn sm" @click="loadBoot">{{ t('retry') }}</button></div></div>
   <div v-else-if="!state.boot" class="boot">{{ t('loading') }}</div>
   <div v-else class="shell" :class="{editing: state.editing}">
     <a href="#main" class="skip">{{ t('skip') }}</a>
-    <nav class="sidebar" :class="{collapsed: state.collapsed}" :aria-label="t('app_name')">
-      <div class="brand"><img src="/assets/atelier/atelier/icon.svg" alt=""><span class="name">{{ t('app_name') }}<small>{{ t('app_tagline') }}</small></span>
-        <button type="button" class="btn ghost sm icon-btn collapse-btn" :aria-label="state.collapsed ? t('expand') : t('collapse')" :title="state.collapsed ? t('expand') : t('collapse')"
-          :aria-expanded="!state.collapsed" @click="state.collapsed=!state.collapsed"><Icon name="panel" :size="18"/></button></div>
-      <div class="group">{{ t('nav_group_daily') }}</div>
-      <a v-for="n in NAV" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+(n.path==='/'?'':n.path)" @click.prevent="go(n.path)"
-        :aria-current="isActive(n) ? 'page' : null" :title="state.collapsed ? t(n.label) : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
-      <div class="sep"></div>
-      <div class="group">{{ t('nav_group_sections') }}</div>
-      <a v-for="n in SECTION_NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
-        :aria-current="isActive(n) ? 'page' : null" :title="state.collapsed ? t(n.label) : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
+    <nav class="sidebar" :aria-label="t('app_name')">
+      <div class="brand">
+        <svg class="brand-mark" width="44" height="44" viewBox="0 0 44 44" aria-hidden="true"><rect x="8" y="6" width="28" height="9" rx="1" fill="#D4F06A"/><rect x="8" y="6" width="9" height="32" rx="1" fill="#9B87F5"/><rect x="17" y="20" width="16" height="7" rx="1" fill="#D4F06A"/><rect x="24" y="30" width="12" height="8" rx="1" fill="#9B87F5"/></svg>
+        <span class="name"><span class="brand-word">{{ t('app_name') }}</span><small>{{ t('app_tagline') }}</small></span>
+      </div>
+      <button type="button" class="ws-org"><Icon name="printer" :size="18"/><span class="lbl">{{ state.boot.company_label }}</span><Icon name="down" :size="16"/></button>
+      <a v-for="n in NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+(n.path==='/'?'':n.path)" @click.prevent="go(n.path)"
+        :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span><span v-if="n.key==='orders' && state.openOrders" class="nav-n">{{ state.openOrders }}</span></a>
+      <div class="group">{{ t('nav_group_admin') }}</div>
+      <a v-for="n in SECTION_NAV.filter(n => n.key !== 'machines' && (!n.need || state.boot.can[n.need]))" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
+        :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
-      <div class="cap who" style="padding:6px 12px">{{ state.boot.full_name }}</div>
+      <a class="nav" :class="{active: route.name==='ds'}" href="/atelier/ds" @click.prevent="go('/ds')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
+      <div class="who-row"><span class="who-av">{{ initials(state.boot.full_name) }}</span><span class="who-txt"><span class="who-name">{{ state.boot.full_name }}</span><span class="who-role">{{ t('role_manager') }}</span></span></div>
     </nav>
 
     <div class="main">
-      <div v-if="state.boot.is_demo" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
+      <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
       <header class="topbar">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
-        <SearchBox :class="{'desktop-only': route.name!=='home'}"/>
-        <span class="cap desktop-only"><kbd>Ctrl</kbd> + <kbd>K</kbd></span>
+        <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
         <div class="spacer desktop-only"></div>
-        <div v-if="route.name==='home'" class="row desktop-only" style="gap:8px">
-          <a class="btn primary" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><Icon name="plus" :size="18"/>{{ t('new_order') }}</a>
-          <button v-if="state.boot.can.payment" class="btn" @click="state.sheet={type:'payment'}"><Icon name="in" :size="18" style="color:var(--success)"/>{{ t('record_payment') }}</button>
-          <button v-if="state.boot.can.expense" type="button" class="btn" @click="state.sheet={type:'expense'}"><Icon name="out" :size="18" style="color:var(--danger)"/>{{ t('record_expense') }}</button>
-        </div>
+        <SearchBox :class="{'desktop-only': route.name!=='home'}"/>
+        <button type="button" class="btn ghost icon-btn desktop-only" :aria-label="t('notifications')"><Icon name="bell" :size="20"/></button>
       </header>
       <main id="main" tabindex="-1" style="outline:none">
         <Home v-if="route.name==='home'" :key="state.path"/>
