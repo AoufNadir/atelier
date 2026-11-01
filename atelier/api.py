@@ -300,7 +300,15 @@ def customers(q=None, full=0):
 		balances = dict(frappe.db.sql(
 			"""select party, sum(debit - credit) from `tabGL Entry` where party_type='Customer' and is_cancelled=0
 			and company=%s and party in %s group by party""", (_company(), names)))
+	sales, overdue = {}, {}
+	if _can("Sales Invoice"):
+		for si in frappe.db.sql("""select customer, sum(grand_total) total,
+				max(case when outstanding_amount > 0 and due_date < curdate() then datediff(curdate(), due_date) else 0 end) late
+				from `tabSales Invoice` where docstatus=1 and customer in %s group by customer""", [names], as_dict=True):
+			sales[si.customer], overdue[si.customer] = flt(si.total), int(si.late or 0)
 	for r in rows:
+		r.sales = sales.get(r.name, 0)
+		r.overdue_days = overdue.get(r.name, 0)
 		r.relation = _relation(r.customer_group)
 		r.open_orders = open_orders.get(r.name, 0)
 		r.last_order = last_order.get(r.name)
@@ -414,6 +422,10 @@ def customer(name):
 		"name": doc.name, "customer_name": doc.customer_name, "mobile_no": doc.mobile_no, "email_id": doc.email_id,
 		"customer_type": doc.customer_type, "tax_id": doc.tax_id, "notes": doc.customer_details,
 		"relation": _relation(doc.customer_group), "contact_person": _contact_person(doc),
+		"since": str(doc.creation)[:10],
+		"last_payment": frappe.db.get_value("Payment Entry", {"party_type": "Customer", "party": name, "docstatus": 1, "payment_type": "Receive"}, "posting_date", order_by="posting_date desc"),
+		"overdue_days": int(frappe.db.sql("""select coalesce(max(datediff(curdate(), due_date)), 0) from `tabSales Invoice`
+			where customer=%s and docstatus=1 and outstanding_amount > 0 and due_date < curdate()""", name)[0][0] or 0),
 		"can_edit": bool(frappe.has_permission("Customer", "write", doc)),
 		**{k: v for k, v in zip(("address", "city"), _address_parts(name))},
 		"orders": _order_rows({"customer": name, "docstatus": ["<", 2]}, limit=50) if _can("Sales Order") else [],
@@ -1044,3 +1056,37 @@ def create_item(data):
 		if data.get(key) not in (None, ""):
 			set_price(item.name, kind, data[key])
 	return _with_prices([frappe._dict(item_code=item.name, item_name=item.item_name, stock_uom=uom, is_stock_item=item.is_stock_item, standard_rate=0)])[0]
+
+
+@frappe.whitelist()
+def statement_pdf(name, from_date=None, to_date=None):
+	"""Customer statement (opening balance, every movement, closing balance) as an Arabic PDF."""
+	from frappe.utils import add_months, formatdate
+	from frappe.utils.pdf import get_pdf
+
+	if not _can("GL Entry"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	doc = frappe.get_doc("Customer", name)
+	doc.check_permission("read")
+	company = _company()
+	to_date = getdate(to_date or nowdate())
+	from_date = getdate(from_date or add_months(to_date, -12))
+	opening = flt(frappe.db.sql("""select sum(debit - credit) from `tabGL Entry` where party_type='Customer' and party=%s
+		and company=%s and is_cancelled=0 and posting_date < %s""", (name, company, from_date))[0][0])
+	rows, running = [], opening
+	for e in frappe.get_all("GL Entry", filters={"party_type": "Customer", "party": name, "company": company, "is_cancelled": 0,
+			"posting_date": ["between", [from_date, to_date]]}, fields=["posting_date", "voucher_type", "voucher_no", "debit", "credit"],
+			order_by="posting_date asc, creation asc"):
+		running += flt(e.debit) - flt(e.credit)
+		rows.append({**e, "balance": running})
+	from atelier.printing import TITLES, print_context
+
+	ctx = print_context(frappe._dict(doctype="Statement", company=company, customer=name, posting_date=to_date))
+	html = frappe.render_template("templates/print/atelier_statement.html", {
+		"c": ctx, "rows": rows, "opening": opening, "closing": running, "titles": TITLES,
+		"from_date": formatdate(from_date, "dd/MM/yyyy"), "to_date": formatdate(to_date, "dd/MM/yyyy"),
+		"debit": sum(flt(r["debit"]) for r in rows), "credit": sum(flt(r["credit"]) for r in rows),
+	})
+	frappe.local.response.filename = f"كشف حساب {doc.customer_name}.pdf"
+	frappe.local.response.filecontent = get_pdf(html)
+	frappe.local.response.type = "pdf"

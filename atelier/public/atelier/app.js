@@ -1198,8 +1198,10 @@ const CustomerView = {
     const preview = ref(null);
     const bal = computed(() => {
       const b = s.data?.balance ?? 0;
-      if (Math.abs(b) < 0.01) return { label: t("c_settled"), value: 0, cls: "b-success", icon: "check" };
-      return b > 0 ? { label: t("c_owes"), value: b, cls: "b-danger", icon: "alert" } : { label: t("c_credit"), value: -b, cls: "b-info", icon: "money" };
+      if (Math.abs(b) < 0.01) return { label: t("c_settled"), value: 0, cls: "b-success", icon: "check", tone: "ok", why: "الحساب خالص" };
+      const late = s.data?.overdue_days;
+      return b > 0 ? { label: t("c_owes"), value: b, cls: "b-danger", icon: "alert", tone: "bad", why: late ? `عليه · فاتورة متأخرة ${late} يومًا` : "عليه" }
+        : { label: t("c_credit"), value: -b, cls: "b-info", icon: "money", tone: "credit", why: "له رصيد · يُخصم من فاتورته القادمة" };
     });
     const pdf = (dt, name) => `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(dt)}&name=${encodeURIComponent(name)}`;
     const tabs = computed(() => [
@@ -1216,42 +1218,53 @@ const CustomerView = {
       else return;
       e.preventDefault(); setTimeout(() => document.getElementById("tab-" + tab.value)?.focus(), 0);
     };
-    return { s, load, tab, tabs, onTabKey, bal, preview, pdf, DT_KEY, isImage, fileSize, t, money, date, go, state };
+    const openOrders = computed(() => (s.data?.orders || []).filter((o) => !["Completed", "Closed"].includes(o.status)));
+    const since = computed(() => (s.data?.since ? new Intl.DateTimeFormat("ar-DZ-u-nu-latn", { month: "long", year: "numeric" }).format(parseDate(s.data.since)) : "—"));
+    return { s, load, tab, tabs, onTabKey, bal, preview, pdf, DT_KEY, isImage, fileSize, t, money, date, go, state,
+      openOrders, since, fig, thumbTone, darkTone, STAGE_TONE, dueText, payState };
   },
   template: `
   <div class="page">
     <LoadState :s="s" :rows="6" @retry="load"><template v-if="s.data">
-      <div class="page-head">
-        <div class="stack" style="gap:2px;min-width:0;flex:1"><h1 class="wrap-any">{{ s.data.customer_name }}</h1>
-          <span class="badge" :class="s.data.customer_type==='Company' ? 'b-info' : 'b-neutral'" style="align-self:flex-start"><Icon name="tag" :size="13"/>{{ t(s.data.customer_type==='Company' ? 'pr_company_prices' : 'pr_individual_prices') }}</span>
-          <a v-if="s.data.mobile_no" class="meta num" dir="ltr" :href="'tel:'+s.data.mobile_no" style="align-self:flex-start">{{ s.data.mobile_no }}</a></div>
-        <div class="row wrap" style="gap:6px">
-          <a class="btn primary" :href="'/atelier/orders/new?customer='+encodeURIComponent(s.data.name)" @click.prevent="go('/orders/new?customer='+encodeURIComponent(s.data.name))"><Icon name="plus" :size="18"/>{{ t('c_new_order') }}</a>
-          <button v-if="state.boot.can.payment" class="btn" @click="state.sheet={type:'payment', customer:{name:s.data.name, customer_name:s.data.customer_name}}"><Icon name="in" :size="18"/>{{ t('record_payment') }}</button>
-          <a v-if="s.data.ledger" class="btn ghost" href="#tab-ledger" @click.prevent="tab='ledger'"><Icon name="file" :size="18"/>{{ t('c_statement') }}</a>
-          <button v-if="s.data.can_edit" type="button" class="btn ghost" @click="state.sheet={type:'customer', name:s.data.name}"><Icon name="edit" :size="18"/>{{ t('cs_edit') }}</button>
+      <div class="ov-head">
+        <span class="cu-av lg" :style="{background: thumbTone(s.data.customer_name), color: darkTone(thumbTone(s.data.customer_name)) ? '#fff' : '#2B2B2B'}">{{ (s.data.customer_name || '؟').slice(0, 1) }}</span>
+        <div class="ov-head-txt"><h1 class="ws-title ov-title">{{ s.data.customer_name }}</h1>
+          <div class="ws-sub"><span class="cu-kind" :class="{co: s.data.customer_type==='Company'}">{{ s.data.customer_type==='Company' ? 'مؤسسة · أسعار المؤسسات' : 'فرد · أسعار الأفراد' }}</span>
+            <template v-if="s.data.contact_person"> · المسؤول: {{ s.data.contact_person }}</template>
+            <template v-if="s.data.mobile_no"> · <a class="num" dir="ltr" :href="'tel:'+s.data.mobile_no">{{ s.data.mobile_no }}</a></template>
+            · عميل منذ {{ since }}</div></div>
+        <button v-if="s.data.can_edit" type="button" class="btn ws-btn" @click="state.sheet={type:'customer', name:s.data.name}"><Icon name="edit" :size="18"/>{{ t('cs_edit') }}</button>
+        <a class="btn primary ws-btn" :href="'/atelier/orders/new?customer='+encodeURIComponent(s.data.name)" @click.prevent="go('/orders/new?customer='+encodeURIComponent(s.data.name))"><Icon name="plus" :size="18"/>{{ t('c_new_order') }}</a>
+      </div>
+
+      <div class="cu-stats">
+        <div v-if="s.data.ledger" class="cu-bal" :class="bal.tone">
+          <span class="op-card-l">الرصيد الحالي</span>
+          <span class="cu-bal-v"><bdi>{{ fig(bal.value) }}</bdi> <small>دج</small></span>
+          <span class="cu-bal-s">{{ bal.why }}</span>
+          <div class="row wrap" style="gap:8px;margin-top:6px">
+            <button v-if="state.boot.can.payment" type="button" class="btn" :class="bal.tone==='bad' ? 'danger-solid' : 'primary'" @click="state.sheet={type:'payment', customer:{name:s.data.name, customer_name:s.data.customer_name}}">{{ t('record_payment') }}</button>
+            <a class="btn" target="_blank" rel="noopener" :href="'/api/method/atelier.api.statement_pdf?name='+encodeURIComponent(s.data.name)"><Icon name="file" :size="16"/>كشف الحساب PDF</a>
+          </div>
         </div>
+        <div v-if="s.data.ledger" class="op-card cu-stat"><span class="op-card-l">مجموع المشتريات</span><span class="op-card-v"><bdi>{{ fig(s.data.invoiced) }}</bdi> <small>دج</small></span>
+          <span class="op-card-s">{{ s.data.documents.filter(x => x.doctype==='Sales Invoice' && x.docstatus===1).length }} فاتورة</span></div>
+        <div v-if="s.data.ledger" class="op-card cu-stat"><span class="op-card-l">دفع حتى الآن</span><span class="op-card-v"><bdi>{{ fig(s.data.received) }}</bdi> <small>دج</small></span>
+          <span class="op-card-s">آخر دفعة: {{ s.data.last_payment ? date(s.data.last_payment) : '—' }}</span></div>
+        <div class="op-card cu-stat"><span class="op-card-l">طلبات جارية</span><span class="op-card-v">{{ openOrders.length }}</span>
+          <span class="op-card-s ellipsis">{{ openOrders.length ? (openOrders[0].atelier_subject || openOrders[0].name) : 'لا طلبات مفتوحة' }}</span></div>
       </div>
 
       <div class="split">
-        <aside class="side stack" style="order:-1">
-          <section v-if="s.data.ledger" class="card"><div class="card-h"><h2>{{ t('c_balance_title') }}</h2>
-            <span class="badge" :class="bal.cls"><Icon :name="bal.icon" :size="13"/>{{ bal.label }}</span></div>
-            <div class="card-b stack">
-              <span class="money" style="font-size:24px;font-weight:600">{{ money(bal.value) }}</span>
-              <dl class="kv"><dt>{{ t('c_outstanding') }}</dt><dd class="money">{{ money(s.data.outstanding) }}</dd>
-                <dt>{{ t('c_invoiced') }}</dt><dd class="money">{{ money(s.data.invoiced) }}</dd>
-                <dt>{{ t('c_received') }}</dt><dd class="money">{{ money(s.data.received) }}</dd></dl>
-            </div></section>
+        <aside class="side stack">
           <section class="card"><div class="card-h"><h2>{{ t('cs_info') }}</h2></div>
             <div class="card-b"><dl class="kv">
-              <dt>{{ t('cs_type') }}</dt><dd>{{ t(s.data.customer_type==='Company' ? 'c_type_company' : 'c_type_person') }}</dd>
               <template v-if="s.data.contact_person"><dt>{{ t('cs_contact_person') }}</dt><dd>{{ s.data.contact_person }}</dd></template>
               <dt>{{ t('c_phone') }}</dt><dd><a v-if="s.data.mobile_no" class="num" dir="ltr" :href="'tel:'+s.data.mobile_no">{{ s.data.mobile_no }}</a><span v-else class="muted">—</span></dd>
               <dt>{{ t('cs_email') }}</dt><dd><a v-if="s.data.email_id" :href="'mailto:'+s.data.email_id" dir="ltr">{{ s.data.email_id }}</a><span v-else class="muted">—</span></dd>
               <dt>{{ t('cs_address') }}</dt><dd>{{ [s.data.address, s.data.city].filter(Boolean).join('، ') || '—' }}</dd>
               <template v-if="s.data.customer_type==='Company'"><dt>{{ t('cs_tax_id') }}</dt><dd class="num">{{ s.data.tax_id || '—' }}</dd></template>
-            </dl><p v-if="s.data.notes" class="hint" style="margin-top:8px;white-space:pre-line">{{ s.data.notes }}</p></div></section>
+            </dl><p v-if="s.data.notes" class="cu-note">{{ s.data.notes }}</p></div></section>
         </aside>
 
         <section class="card" style="min-width:0">
@@ -1262,7 +1275,12 @@ const CustomerView = {
 
           <div v-if="tab==='orders'" id="panel-orders" role="tabpanel" aria-labelledby="tab-orders">
             <div v-if="!s.data.orders.length" class="empty">{{ t('c_no_orders') }}</div>
-            <OrdersTable v-else :rows="s.data.orders" hide-customer :title="t('c_orders')" style="border:0;box-shadow:none"/>
+            <a v-for="o in s.data.orders" :key="o.name" class="op-tr cu-order" :href="'/atelier/orders/'+o.name" @click.prevent="go('/orders/'+encodeURIComponent(o.name))">
+              <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta"><span class="num">#{{ o.name.split('-').pop() }}</span> · {{ date(o.transaction_date) }}</span></span>
+              <span><span class="ws-stage" :class="'st-' + (STAGE_TONE[o.atelier_stage] || 'design')"><i></i>{{ o.atelier_stage }}</span></span>
+              <span :class="{'ws-late': dueText(o).late}">{{ o.per_billed >= 100 ? payState(o).text : dueText(o).text }}</span>
+              <span class="op-amount"><span class="money">{{ money(o.grand_total) }}</span><span v-if="o.price_pending" class="op-pending">بند بانتظار التسعير</span></span>
+            </a>
           </div>
 
           <div v-if="tab==='ledger'" id="panel-ledger" role="tabpanel" aria-labelledby="tab-ledger">
@@ -1399,45 +1417,98 @@ const Kpis = {
 const deskLink = () => undefined;
 
 const CustomerList = {
-  components: { Icon, LoadState, DataTable },
+  components: { Icon },
   setup() {
     const { s, load } = useLoad(() => call("customers", { full: 1 }));
     onMounted(load);
     watch(() => state.rev, load);
-    const finance = computed(() => (s.data || []).some((c) => c.balance !== null && c.balance !== undefined));
-    const cols = computed(() => [
-      { k: "customer_name", label: t("col_customer"), sort: true }, { k: "mobile_no", label: t("c_phone") },
-      { k: "open_orders", label: t("c_open_orders"), type: "num", sort: true }, { k: "last_order", label: t("c_last_order"), type: "date", sort: true },
-      ...(finance.value ? [{ k: "balance", label: t("c_balance"), type: "money", sort: true, main: true }] : []),
-    ]);
-    const filters = computed(() => [
-      ...(finance.value ? [["owes", "c_f_owes", (c) => c.balance > 0.005], ["credit", "c_f_credit", (c) => c.balance < -0.005]] : []),
-      ["active", "c_f_active", (c) => c.open_orders > 0],
-      ["company", "c_type_company_short", (c) => c.customer_type === "Company"], ["person", "c_type_person", (c) => c.customer_type !== "Company"],
-    ]);
+    const q = ref(""), card = ref("all"), kind = ref("all"), sortKey = ref("name"), sortDir = ref(1);
+    const rows = computed(() => s.data || []);
+    const finance = computed(() => rows.value.some((c) => c.balance !== null && c.balance !== undefined));
+    const CARDS = [["all", (c) => true], ["owes", (c) => c.balance > 0.005], ["credit", (c) => c.balance < -0.005], ["active", (c) => c.open_orders > 0]];
+    const cards = computed(() => {
+      const l = rows.value, f = (k) => l.filter(CARDS.find((c) => c[0] === k)[1]);
+      const owes = f("owes"), credit = f("credit"), active = f("active");
+      const maxLate = Math.max(0, ...owes.map((c) => c.overdue_days || 0));
+      return [
+        { k: "all", label: "كل العملاء", value: String(l.length), sub: `${l.filter((c) => c.customer_type === "Company").length} مؤسسات · ${l.filter((c) => c.customer_type !== "Company").length} أفراد` },
+        ...(finance.value ? [
+          { k: "owes", label: "عليهم دين", value: fig(owes.reduce((a, c) => a + c.balance, 0)), money: true, tone: owes.length ? "bad" : "",
+            sub: owes.length ? `${owes.length} عميل${maxLate ? ` · أقدم تأخير ${maxLate} يومًا` : ""}` : "لا ديون" },
+          { k: "credit", label: "لهم رصيد (تسبيقات)", value: fig(-credit.reduce((a, c) => a + c.balance, 0)), money: true, sub: "يُخصم من فواتيرهم القادمة" },
+        ] : []),
+        { k: "active", label: "لهم طلبات جارية", value: String(active.length), sub: `${active.reduce((a, c) => a + c.open_orders, 0)} طلبات مفتوحة` },
+      ];
+    });
+    const shown = computed(() => {
+      const needle = q.value.trim().toLowerCase();
+      const key = { name: (c) => c.customer_name || "", last: (c) => c.last_order || "", sales: (c) => c.sales || 0, balance: (c) => c.balance || 0 }[sortKey.value];
+      return rows.value.filter(CARDS.find((c) => c[0] === card.value)[1])
+        .filter((c) => kind.value === "all" || (kind.value === "company") === (c.customer_type === "Company"))
+        .filter((c) => !needle || [c.customer_name, c.mobile_no, c.email_id].some((v) => String(v || "").toLowerCase().includes(needle)))
+        .sort((a, b) => { const x = key(a), y = key(b); return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), "ar")) * sortDir.value; });
+    });
+    const kinds = computed(() => ({ company: rows.value.filter((c) => c.customer_type === "Company").length, person: rows.value.filter((c) => c.customer_type !== "Company").length }));
+    const sortBy = (k) => { if (sortKey.value === k) sortDir.value *= -1; else { sortKey.value = k; sortDir.value = k === "name" ? 1 : -1; } };
+    const arrow = (k) => (sortKey.value === k ? (sortDir.value > 0 ? " ↑" : " ↓") : "");
     const open = (c) => go("/customers/" + encodeURIComponent(c.name));
-    return { s, load, cols, filters, open, t, money, num, date, state };
+    const lastText = (d) => (!d ? "—" : daysFromToday(d) === 0 ? "اليوم" : daysFromToday(d) === -1 ? "أمس" : date(d));
+    return { s, load, q, card, cards, kind, kinds, shown, finance, sortBy, arrow, open, lastText, thumbTone, darkTone, money, fig, t, state };
   },
   template: `
-  <div class="page">
-    <div class="page-head"><div><h1>{{ t('c_title') }}</h1><div class="sub">{{ t('c_sub') }}</div></div>
-      <button v-if="state.boot.can.customer" type="button" class="btn primary" @click="state.sheet={type:'customer'}"><Icon name="plus" :size="18"/>{{ t('c_add') }}</button></div>
-    <LoadState :s="s" :rows="6" @retry="load">
-      <DataTable :rows="s.data" :cols="cols" row-key="name" :search-keys="['customer_name','mobile_no','email_id']" :filters="filters"
-        initial-sort="customer_name" :empty="t('c_none')">
-        <template #cell="{row, col}">
-          <span v-if="col.k==='customer_name'" class="title-cell"><a :href="'/atelier/customers/'+encodeURIComponent(row.name)" @click.prevent="open(row)" class="medium clamp2">{{ row.customer_name }}</a>
-            <span class="row wrap" style="gap:4px"><span class="badge" :class="row.customer_type==='Company' ? 'b-info' : 'b-neutral'">{{ t(row.customer_type==='Company' ? 'pr_company_prices' : 'pr_individual_prices') }}</span></span></span>
-          <a v-else-if="col.k==='mobile_no'" class="num" dir="ltr" :href="row.mobile_no ? 'tel:'+row.mobile_no : null">{{ row.mobile_no || '—' }}</a>
-          <span v-else-if="col.k==='open_orders'" class="num">{{ row.open_orders || '—' }}</span>
-          <template v-else-if="col.k==='last_order'">{{ row.last_order ? date(row.last_order, true) : '—' }}</template>
-          <template v-else-if="col.k==='balance'">
-            <span v-if="Math.abs(row.balance) < 0.005" class="cap">{{ t('c_settled') }}</span>
-            <span v-else class="money medium" :class="row.balance > 0 ? 't-danger' : 't-success'">{{ money(Math.abs(row.balance)) }}
-              <span class="cap">{{ row.balance > 0 ? t('c_owes') : t('c_credit_short') }}</span></span></template>
-        </template>
-      </DataTable>
-    </LoadState>
+  <div class="page ws">
+    <div class="ws-head">
+      <div><h1 class="ws-title">العملاء</h1><div class="ws-sub">من يطلب، ومن عليه دين، ومن له رصيد.</div></div>
+      <button v-if="state.boot.can.customer" type="button" class="btn primary ws-btn" @click="state.sheet={type:'customer'}"><Icon name="plus" :size="18"/>{{ t('c_add') }}</button>
+    </div>
+    <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
+    <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
+    <template v-else>
+    <div class="op-cards cu-cards" role="group" aria-label="مرشحات سريعة">
+      <button v-for="c in cards" :key="c.k" type="button" class="op-card" :aria-pressed="card===c.k" @click="card=c.k">
+        <span class="op-card-l">{{ c.label }}</span>
+        <span class="op-card-v" :class="c.tone"><template v-if="c.money"><bdi>{{ c.value }}</bdi> <small>دج</small></template><template v-else>{{ c.value }}</template></span>
+        <span class="op-card-s">{{ c.sub }}</span>
+      </button>
+    </div>
+    <section class="op-panel">
+      <div class="op-tools">
+        <div class="search" style="max-width:340px"><label class="sr-only" for="cu-q">{{ t('search_label') }}</label>
+          <Icon name="search" class="s-icon" :size="16"/><input id="cu-q" class="input" type="search" v-model="q" :placeholder="t('c_list_ph')"></div>
+        <div class="chips" role="group" aria-label="النوع">
+          <button type="button" class="chip" :aria-pressed="kind==='all'" @click="kind='all'">الكل</button>
+          <button type="button" class="chip" :aria-pressed="kind==='company'" @click="kind='company'">مؤسسات <span class="count num">{{ kinds.company }}</span></button>
+          <button type="button" class="chip" :aria-pressed="kind==='person'" @click="kind='person'">أفراد <span class="count num">{{ kinds.person }}</span></button>
+        </div>
+      </div>
+      <div v-if="!shown.length" class="empty">{{ (s.data||[]).length ? 'لا عملاء يطابقون البحث' : t('c_none') }}</div>
+      <template v-else>
+        <div class="op-tr op-th cu-tr desktop-only">
+          <button type="button" class="op-sort" @click="sortBy('name')">العميل{{ arrow('name') }}</button><span>الهاتف</span><span>طلبات جارية</span>
+          <button type="button" class="op-sort" @click="sortBy('last')">آخر طلب{{ arrow('last') }}</button>
+          <button type="button" class="op-sort" @click="sortBy('sales')">مجموع المشتريات{{ arrow('sales') }}</button>
+          <button v-if="finance" type="button" class="op-sort n" @click="sortBy('balance')">الرصيد{{ arrow('balance') }}</button>
+        </div>
+        <a v-for="c in shown" :key="c.name" class="op-tr cu-tr" :href="'/atelier/customers/'+encodeURIComponent(c.name)" @click.prevent="open(c)">
+          <span class="ws-order">
+            <span class="cu-av" :style="{background: thumbTone(c.customer_name), color: darkTone(thumbTone(c.customer_name)) ? '#fff' : '#2B2B2B'}">{{ (c.customer_name || '؟').slice(0, 1) }}</span>
+            <span class="ws-order-txt"><span class="ws-order-name">{{ c.customer_name }}</span>
+              <span><span class="cu-kind" :class="{co: c.customer_type==='Company'}">{{ c.customer_type==='Company' ? 'مؤسسة' : 'فرد' }}</span></span></span>
+          </span>
+          <span class="num" dir="ltr" style="text-align:end">{{ c.mobile_no || '—' }}</span>
+          <span>{{ c.open_orders || '—' }}</span>
+          <span>{{ lastText(c.last_order) }}</span>
+          <span class="money">{{ c.sales ? money(c.sales) : '—' }}</span>
+          <span v-if="finance" class="op-amount">
+            <template v-if="Math.abs(c.balance) < 0.005"><span class="op-state">الحساب خالص</span></template>
+            <template v-else><span class="money" :class="c.balance > 0 ? 'ws-late' : 'cu-credit'">{{ money(Math.abs(c.balance)) }}</span>
+              <span class="op-state" :class="c.balance > 0 ? 'bad' : ''">{{ c.balance > 0 ? ('عليه' + (c.overdue_days ? ' · متأخر ' + c.overdue_days + ' يومًا' : '')) : 'له رصيد' }}</span></template>
+          </span>
+        </a>
+      </template>
+      <div class="ws-tfoot"><span>عرض {{ shown.length }} من {{ (s.data||[]).length }} عملاء</span><span>النقر على العميل يفتح ملفه</span></div>
+    </section>
+    </template>
   </div>`,
 };
 

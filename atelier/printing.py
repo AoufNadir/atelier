@@ -4,7 +4,7 @@ import frappe
 from frappe.utils import flt, formatdate, get_url
 
 TITLES = {"Quotation": "عرض سعر", "Sales Order": "بون طلب", "Delivery Note": "بون تسليم",
-	"Sales Invoice": "فاتورة", "Payment Entry": "وصل دفع"}
+	"Sales Invoice": "فاتورة", "Payment Entry": "وصل دفع", "Statement": "كشف حساب", "Journal Entry": "قيد"}
 
 ONES = ["", "واحد", "اثنان", "ثلاثة", "أربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة", "عشرة",
 	"أحد عشر", "اثنا عشر", "ثلاثة عشر", "أربعة عشر", "خمسة عشر", "ستة عشر", "سبعة عشر", "ثمانية عشر", "تسعة عشر"]

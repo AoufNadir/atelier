@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<link href="{{ c.font_url }}" rel="stylesheet">
+<style>
+  body { direction: rtl; font-family: "IBM Plex Sans Arabic", "Noto Sans Arabic", "DejaVu Sans", sans-serif; font-size: 12px; color: #1D1630; margin: 24px; line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; }
+  .num { direction: ltr; unicode-bidi: embed; display: inline-block; }
+  .brand { font-size: 18px; font-weight: 600; color: #2B1B4A; }
+  .muted { color: #5C5670; font-size: 11px; }
+  .title { font-size: 20px; font-weight: 600; text-align: left; }
+  .box { border: 1px solid #DCD6E8; border-radius: 6px; padding: 8px 10px; margin: 12px 0; }
+  .lines th { background: #F4F2F8; font-weight: 600; font-size: 11px; color: #3F3856; padding: 6px 8px; border-bottom: 1px solid #DCD6E8; text-align: right; }
+  .lines td { padding: 6px 8px; border-bottom: 1px solid #ECE9F3; }
+  .lines .n { text-align: left; white-space: nowrap; }
+  .lines tr.sum td { font-weight: 600; border-top: 2px solid #1D1630; }
+  .demo { background: #FFF4E5; color: #8A4B00; text-align: center; padding: 4px; margin-bottom: 10px; font-size: 11px; }
+  .closing { font-size: 15px; font-weight: 600; margin-top: 12px; }
+</style>
+</head>
+<body>
+{% if c.is_demo %}<div class="demo">وثيقة تجريبية — الأسماء والأرقام وهمية</div>{% endif %}
+<table><tr>
+  <td style="width:60%;vertical-align:top">
+    {% if c.company.logo %}<img src="{{ c.company.logo }}" style="max-height:60px;max-width:180px"><br>{% endif %}
+    <div class="brand">{{ c.company.name }}</div>
+    {% if c.company.address %}<div class="muted">{{ c.company.address }}</div>{% endif %}
+    <div class="muted"><span class="num">NIF: {{ c.company.tax_id or "—" }} · RC: — · NIS: — · AI: —</span></div>
+  </td>
+  <td style="vertical-align:top">
+    <div class="title">كشف حساب</div>
+    <div class="muted" style="text-align:left">من <span class="num">{{ from_date }}</span> إلى <span class="num">{{ to_date }}</span></div>
+  </td>
+</tr></table>
+<div class="box"><div class="muted">العميل</div><div style="font-weight:600;font-size:14px">{{ c.customer.name }}</div>
+  {% if c.customer.address %}<div class="muted">{{ c.customer.address }}</div>{% endif %}
+  {% if c.customer.phone %}<div class="muted">الهاتف: <span class="num">{{ c.customer.phone }}</span></div>{% endif %}</div>
+<table class="lines">
+  <thead><tr><th>التاريخ</th><th>المستند</th><th class="n">مدين (عليه)</th><th class="n">دائن (له)</th><th class="n">الرصيد</th></tr></thead>
+  <tbody>
+    <tr><td></td><td>الرصيد الافتتاحي</td><td></td><td></td><td class="n">{{ dz_money(opening) }}</td></tr>
+    {% for r in rows %}<tr><td><span class="num">{{ frappe.utils.formatdate(r.posting_date, "dd/MM/yyyy") }}</span></td>
+      <td>{{ titles.get(r.voucher_type, r.voucher_type) }} <span class="num muted">{{ r.voucher_no }}</span></td>
+      <td class="n">{{ dz_money(r.debit) if r.debit else "" }}</td><td class="n">{{ dz_money(r.credit) if r.credit else "" }}</td>
+      <td class="n">{{ dz_money(r.balance) }}</td></tr>{% endfor %}
+    <tr class="sum"><td></td><td>المجموع</td><td class="n">{{ dz_money(debit) }}</td><td class="n">{{ dz_money(credit) }}</td><td class="n">{{ dz_money(closing) }}</td></tr>
+  </tbody>
+</table>
+<div class="closing">الرصيد الختامي: {{ dz_money(closing if closing >= 0 else -closing) }} — {{ "عليه" if closing > 0.005 else ("له" if closing < -0.005 else "الحساب خالص") }}</div>
+</body>
+</html>
