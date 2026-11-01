@@ -1006,3 +1006,35 @@ def setup_print_formats():
 		frappe.make_property_setter({"doctype": dt, "doctype_or_field": "DocType", "property": "default_print_format",
 			"value": name, "property_type": "Data"}, validate_fields_for_doctype=False)
 	frappe.db.commit()
+
+
+@frappe.whitelist(methods=["POST"])
+def create_item(data):
+	"""A sellable service (no stock) or product, with its unit and the two prices. Raw materials are added from stock."""
+	from frappe.model.naming import make_autoname
+
+	if not (_can("Item", "create") and _can("Item Price", "write")):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	data = frappe.parse_json(data)
+	name = (data.get("item_name") or "").strip()
+	if not name:
+		frappe.throw(_("اكتب اسم الخدمة أو المنتج"))
+	if frappe.db.exists("Item", {"item_name": name, "disabled": 0}):
+		frappe.throw(_("يوجد بند بهذا الاسم"))
+	uom = (data.get("uom") or "قطعة").strip()
+	if not frappe.db.exists("UOM", uom):
+		frappe.get_doc({"doctype": "UOM", "uom_name": uom, "must_be_whole_number": uom in ("قطعة", "ورقة", "علبة")}).insert(ignore_permissions=True)
+	product = data.get("kind") == "product"
+	group = "خدمات" if not product else "منتجات"
+	if not frappe.db.exists("Item Group", group):
+		root = frappe.db.get_value("Item Group", {"is_group": 1, "parent_item_group": ["in", ["", None]]}) or "All Item Groups"
+		frappe.get_doc({"doctype": "Item Group", "item_group_name": group, "parent_item_group": root}).insert(ignore_permissions=True)
+	item = frappe.get_doc({
+		"doctype": "Item", "item_code": make_autoname(("PRD" if product else "SRV") + "-.####"), "item_name": name,
+		"item_group": group, "stock_uom": uom, "is_stock_item": 1 if product else 0, "is_sales_item": 1, "is_purchase_item": 1 if product else 0,
+		"include_item_in_manufacturing": 0, "description": (data.get("description") or "").strip() or name,
+	}).insert()
+	for kind, key in (("Individual", "price_individual"), ("Company", "price_company")):
+		if data.get(key) not in (None, ""):
+			set_price(item.name, kind, data[key])
+	return _with_prices([frappe._dict(item_code=item.name, item_name=item.item_name, stock_uom=uom, is_stock_item=item.is_stock_item, standard_rate=0)])[0]

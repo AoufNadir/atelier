@@ -351,3 +351,6 @@ details.collapse[open] > summary .chev { transform: rotate(-90deg); }
 .cycle li.done { color: var(--success); } .cycle li.done .dot { background: var(--success); border-color: var(--success); color: #fff; }
 .cycle li.current { background: var(--primary-weak, #E6EEF6); color: var(--primary); font-weight: var(--fw-medium); } .cycle li.current .dot { border-color: var(--primary); }
 .box { border: 1px solid var(--line); border-radius: 10px; padding: var(--s3); }
+.unit-wrap { position: relative; }
+.unit-wrap .input { padding-inline-end: 52px; }
+.unit-wrap .u { position: absolute; inset-inline-end: 10px; top: 50%; transform: translateY(-50%); color: var(--ink-3); font-size: var(--fs-cap); pointer-events: none; }

@@ -497,6 +497,8 @@ const COST_TYPES = [
   ["Matière", "ct_material"], ["Machine", "ct_machine"], ["Main d'œuvre", "ct_labour"],
   ["Sous-traitance", "ct_external"], ["Finition", "ct_finish"], ["Autre", "ct_other"],
 ];
+const UOM_AR = { Nos: "قطعة", Unit: "وحدة", Feuille: "ورقة", Hour: "ساعة", Meter: "متر", "Square Meter": "م²", Kg: "كغ", Box: "علبة" };
+const uom = (u) => UOM_AR[u] || u || "";
 const DRAFT_KEY = "atelier.orderDraft.v1";
 let lineSeq = 0;
 const blankItem = () => ({ key: ++lineSeq, item_code: "", description: "", qty: 1, rate: "", noPrice: false, open: false, touched: false, autoPending: false });
@@ -602,7 +604,7 @@ const OrderNew = {
       saving.value = false;
     }
     const again = () => { discard(); done.value = null; };
-    return { f, boot, onItem, custType, sum, err, errorCount, attempted, saving, serverError, done, restored, discard, addItem, addCost, togglePrice, submit, again,
+    return { itemsByCode, uom, f, boot, onItem, custType, sum, err, errorCount, attempted, saving, serverError, done, restored, discard, addItem, addCost, togglePrice, submit, again,
       lineAmount, costAmount, COST_TYPES, t, money, go, todayISO, state, dfw, parseDate };
   },
   template: `
@@ -679,11 +681,12 @@ const OrderNew = {
                   </select>
                   <span v-if="err('items.'+idx+'.item')" class="error-text">{{ err('items.'+idx+'.item') }}</span></div>
                 <div class="field"><label :for="'q-'+idx" class="mlabel req">{{ t('of_qty') }}</label>
-                  <input :id="'q-'+idx" class="input num" :class="{invalid: err('items.'+idx+'.qty')}" type="text" inputmode="decimal" autocomplete="off" v-model="it.qty" :aria-label="t('of_qty')" enterkeyhint="next">
+                  <div class="unit-wrap"><input :id="'q-'+idx" class="input num" :class="{invalid: err('items.'+idx+'.qty')}" type="text" inputmode="decimal" autocomplete="off" v-model="it.qty" :aria-label="t('of_qty')" enterkeyhint="next">
+                    <span v-if="itemsByCode[it.item_code]" class="u">{{ uom(itemsByCode[it.item_code].stock_uom) }}</span></div>
                   <span v-if="err('items.'+idx+'.qty')" class="error-text">{{ err('items.'+idx+'.qty') }}</span></div>
                 <div class="field"><label :for="'r-'+idx" class="mlabel" :class="{req: !it.noPrice}">{{ t('of_rate') }}</label>
                   <input :id="'r-'+idx" class="input num" :class="{invalid: err('items.'+idx+'.rate')}" type="text" inputmode="decimal" autocomplete="off"
-                    v-model="it.rate" @input="it.touched=true" :disabled="it.noPrice" :placeholder="it.noPrice ? t('price_pending') : '0.00'" :aria-label="t('of_rate')" enterkeyhint="next">
+                    v-model="it.rate" @input="it.touched=true" :disabled="it.noPrice" :placeholder="it.noPrice ? '—' : '0.00'" :aria-label="t('of_rate')" enterkeyhint="next">
                   <span v-if="err('items.'+idx+'.rate')" class="error-text">{{ err('items.'+idx+'.rate') }}</span></div>
                 <div class="amount"><span class="mlabel">{{ t('of_amount') }}</span>
                   <span v-if="it.noPrice" class="badge b-warning"><Icon name="tag" :size="13"/>{{ t('price_pending') }}</span>
@@ -698,7 +701,8 @@ const OrderNew = {
                 <div v-if="it.open || it.noPrice || it.description" class="detail">
                   <div v-if="it.open || it.description" class="field"><label :for="'d-'+idx">{{ t('of_desc') }}</label>
                     <input :id="'d-'+idx" class="input" v-model="it.description" :placeholder="t('of_desc_ph')" enterkeyhint="next"></div>
-                  <div v-if="it.autoPending" class="alert warn" style="padding:6px 10px"><Icon name="tag" :size="14"/><span>{{ t(custType==='Company' ? 'pr_missing_company' : 'pr_missing_individual') }}</span></div>
+                  <div v-if="it.autoPending" class="alert warn" style="padding:6px 10px"><Icon name="tag" :size="14"/><span style="flex:1">{{ t(custType==='Company' ? 'pr_missing_company' : 'pr_missing_individual') }}</span>
+                    <a v-if="state.boot.can.prices" class="btn sm" href="/atelier/prices" target="_blank" rel="noopener">{{ t('pr_go_prices') }}</a></div>
                   <div v-if="it.noPrice" class="hint">{{ t('of_no_price_hint') }}</div>
                 </div>
               </div>
@@ -1634,17 +1638,18 @@ const PricesPage = {
       } catch (e) { failed[row.item_code + key] = e.message; ev.target.value = old ?? ""; }
       delete saving[row.item_code + key];
     }
-    return { s, load, cols, filters, save, saving, failed, t, money };
+    watch(() => state.rev, load);
+    return { s, load, cols, filters, save, saving, failed, t, money, uom, state };
   },
   template: `
   <div class="page">
     <div class="page-head"><div><h1>{{ t('nav_prices') }}</h1><div class="sub">{{ t('pr_sub') }}</div></div>
-      <a class="btn" href="/app/item/new"><Icon name="plus" :size="18"/>{{ t('pr_new_service') }}</a></div>
+      <button v-if="s.data && s.data.can_edit" type="button" class="btn primary" @click="state.sheet={type:'item'}"><Icon name="plus" :size="18"/>{{ t('pr_new_service') }}</button></div>
     <LoadState :s="s" :rows="4" @retry="load">
       <div class="alert info" style="margin-bottom:var(--s4)"><Icon name="tag" :size="16"/><span>{{ t('pr_explain') }}</span></div>
       <DataTable :rows="s.data.items" :cols="cols" row-key="item_code" :search-keys="['item_name','item_code','item_group']" :filters="filters" initial-sort="item_name" :empty="t('pr_none')">
         <template #cell="{row, col}">
-          <span v-if="col.k==='item_name'" class="title-cell"><span class="medium clamp2">{{ row.item_name }}</span><span class="cap num">{{ row.item_code }} · {{ row.stock_uom }}</span></span>
+          <span v-if="col.k==='item_name'" class="title-cell"><span class="medium clamp2">{{ row.item_name }}</span><span class="cap">{{ t('pr_per', uom(row.stock_uom)) }}</span></span>
           <span v-else class="price-cell">
             <input v-if="s.data.can_edit" class="input num" type="text" inputmode="decimal" autocomplete="off" :value="row[col.k] ?? ''"
               :placeholder="t('price_pending')" :aria-label="col.label + ' — ' + row.item_name" :class="{invalid: failed[row.item_code+col.k]}"
@@ -1657,6 +1662,60 @@ const PricesPage = {
         </template>
       </DataTable>
     </LoadState>
+  </div>`,
+};
+
+// ------------------------------------------------------------------ new service / product
+const ITEM_UNITS = ["قطعة", "ورقة", "م²", "متر", "ساعة", "علبة"];
+const ItemSheet = {
+  props: ["opts"], components: { Icon },
+  setup() {
+    const f = reactive({ item_name: "", kind: "service", uom: "قطعة", price_individual: "", price_company: "", description: "" });
+    const saving = ref(false), error = ref(null), attempted = ref(false);
+    const errs = computed(() => ({
+      item_name: !f.item_name.trim() ? t("it_err_name") : null,
+      price: [f.price_individual, f.price_company].some((v) => v !== "" && !(+v >= 0)) ? t("pr_err_value") : null,
+    }));
+    const close = () => (state.sheet = null);
+    onMounted(() => setTimeout(() => document.getElementById("is-name")?.focus(), 50));
+    async function save() {
+      attempted.value = true; error.value = null;
+      if (errs.value.item_name || errs.value.price) return;
+      saving.value = true;
+      try {
+        const item = await call("create_item", { data: JSON.stringify(f) }, true);
+        state.boot.items.push(item); state.boot.items.sort((a, b) => a.item_name.localeCompare(b.item_name, "ar"));
+        toast(t("it_created", item.item_name)); close(); state.rev++;
+      } catch (e) { error.value = e.message; }
+      saving.value = false;
+    }
+    return { f, saving, error, attempted, errs, save, close, ITEM_UNITS, t };
+  },
+  template: `
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="is-h">
+    <form class="sheet wide" novalidate @submit.prevent="save">
+      <div class="row"><h2 id="is-h" style="flex:1">{{ t('pr_new_service') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
+      <div v-if="error" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ error }}</span></div>
+      <div class="seg" role="group" :aria-label="t('it_kind')">
+        <button type="button" :aria-pressed="f.kind==='service'" @click="f.kind='service'">{{ t('it_service') }}</button>
+        <button type="button" :aria-pressed="f.kind==='product'" @click="f.kind='product'">{{ t('it_product') }}</button></div>
+      <span class="hint">{{ f.kind==='service' ? t('it_service_hint') : t('it_product_hint') }}</span>
+      <div class="field"><label for="is-name" class="req">{{ t('it_name') }}</label>
+        <input id="is-name" class="input" :class="{invalid: attempted && errs.item_name}" type="text" v-model="f.item_name" :placeholder="t('it_name_ph')" autocomplete="off">
+        <span v-if="attempted && errs.item_name" class="error-text">{{ errs.item_name }}</span></div>
+      <div class="field"><span class="label">{{ t('it_unit') }}</span>
+        <div class="chips" role="group" :aria-label="t('it_unit')"><button v-for="u in ITEM_UNITS" :key="u" type="button" class="chip" :aria-pressed="f.uom===u" @click="f.uom=u">{{ u }}</button></div></div>
+      <div class="grid-2">
+        <div class="field"><label for="is-pi">{{ t('pr_individual_prices') }} ({{ t('currency') }})</label>
+          <input id="is-pi" class="input num" type="text" inputmode="decimal" autocomplete="off" v-model="f.price_individual" :placeholder="t('it_price_ph')"></div>
+        <div class="field"><label for="is-pc">{{ t('pr_company_prices') }} ({{ t('currency') }})</label>
+          <input id="is-pc" class="input num" type="text" inputmode="decimal" autocomplete="off" v-model="f.price_company" :placeholder="t('it_price_ph')"></div>
+      </div>
+      <span v-if="attempted && errs.price" class="error-text">{{ errs.price }}</span>
+      <div class="field"><label for="is-desc">{{ t('it_desc') }} <span class="cap">({{ t('optional') }})</span></label>
+        <input id="is-desc" class="input" type="text" v-model="f.description" :placeholder="t('of_desc_ph')"></div>
+      <button type="submit" class="btn primary block lg" :disabled="saving">{{ saving ? t('of_saving') : t('it_save') }}</button>
+    </form>
   </div>`,
 };
 
@@ -1823,7 +1882,7 @@ const SECTION_NAV = [
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -1905,6 +1964,7 @@ const App = {
     <PaymentSheet v-if="state.sheet && state.sheet.type==='payment'" :opts="state.sheet"/>
     <ExpenseSheet v-if="state.sheet && state.sheet.type==='expense'" :opts="state.sheet"/>
     <CustomerSheet v-if="state.sheet && state.sheet.type==='customer'" :opts="state.sheet"/>
+    <ItemSheet v-if="state.sheet && state.sheet.type==='item'" :opts="state.sheet"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>
   </div>`,
 };
