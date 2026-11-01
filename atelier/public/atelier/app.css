@@ -343,3 +343,5 @@ details.collapse[open] > summary .chev { transform: rotate(-90deg); }
 .sheet .seg button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .grid-2 { display: grid; gap: var(--s3); grid-template-columns: 1fr; }
 @media (min-width: 560px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+.price-cell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.price-cell .input { width: 140px; min-height: 34px; text-align: end; }

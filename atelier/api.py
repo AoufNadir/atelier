@@ -17,6 +17,39 @@ def _can(doctype, ptype="read"):
 	return frappe.has_permission(doctype, ptype)
 
 
+# Two selling price lists: individuals and companies. A customer's type picks its list (Customer.default_price_list),
+# so quotations, orders, delivery notes and invoices all carry the right list natively.
+PRICE_LISTS = {"Individual": "سعر الأفراد", "Company": "سعر المؤسسات"}
+
+
+def _price_list(customer_type):
+	name = PRICE_LISTS["Company" if customer_type == "Company" else "Individual"]
+	if not frappe.db.exists("Price List", name):
+		frappe.get_doc({"doctype": "Price List", "price_list_name": name, "selling": 1, "enabled": 1,
+			"currency": frappe.db.get_value("Company", _company(), "default_currency")}).insert(ignore_permissions=True)
+	return name
+
+
+def _item_prices(item_codes=None):
+	"""{item_code: {"Individual": rate, "Company": rate}} from Item Price; a missing price stays absent."""
+	lists = {_price_list(k): k for k in PRICE_LISTS}
+	filters = {"price_list": ["in", list(lists)], "selling": 1}
+	if item_codes is not None:
+		filters["item_code"] = ["in", item_codes or [""]]
+	out = {}
+	for r in frappe.get_all("Item Price", filters=filters, fields=["item_code", "price_list", "price_list_rate"]):
+		out.setdefault(r.item_code, {})[lists[r.price_list]] = flt(r.price_list_rate)
+	return out
+
+
+def _with_prices(items):
+	prices = _item_prices([i.item_code for i in items])
+	for i in items:
+		i.price_individual = prices.get(i.item_code, {}).get("Individual")
+		i.price_company = prices.get(i.item_code, {}).get("Company")
+	return items
+
+
 @frappe.whitelist()
 def boot():
 	company = _company()
@@ -33,12 +66,13 @@ def boot():
 		"company": company,
 		"currency": frappe.db.get_value("Company", company, "default_currency"),
 		"is_demo": "DÉMO" in (company or "") or "تجريبي" in (company or ""),
-		"items": items,
+		"items": _with_prices(items),
 		"stages": STAGES,
 		"modes": [{"value": v, "label": l} for v, l in MODES if frappe.db.exists("Mode of Payment", v)],
 		"can": {
 			"order": _can("Sales Order", "create"),
 			"customer": _can("Customer", "create"),
+			"prices": _can("Item Price", "write"),
 			"payment": _can("Payment Entry", "create"),
 			"expense": _can("Journal Entry", "create"),
 			"finance": _can("GL Entry", "read"),
@@ -327,6 +361,7 @@ def save_customer(data):
 		doc = frappe.new_doc("Customer")
 	doc.customer_name = data["customer_name"].strip()
 	doc.customer_type = "Company" if data.get("customer_type") == "Company" else "Individual"
+	doc.default_price_list = _price_list(doc.customer_type)
 	if doc.is_new() or data.get("relation"):
 		doc.customer_group = _group(data.get("relation"))
 	# Tax ID belongs to companies; an individual keeps none.
@@ -511,7 +546,9 @@ def create_order(data):
 
 	if not customer:
 		customer = frappe.get_doc({
-			"doctype": "Customer", "customer_name": new_customer["name"].strip(), "customer_type": "Individual", "customer_group": _group("final"),
+			"doctype": "Customer", "customer_name": new_customer["name"].strip(), "customer_group": _group("final"),
+			"customer_type": "Company" if new_customer.get("type") == "Company" else "Individual",
+			"default_price_list": _price_list(new_customer.get("type")),
 			"mobile_no": (new_customer.get("phone") or "").strip() or None,
 		}).insert().name
 
@@ -523,6 +560,7 @@ def create_order(data):
 
 	so = frappe.get_doc({
 		"doctype": "Sales Order", "customer": customer, "company": company, "project": project,
+		"selling_price_list": _price_list(frappe.db.get_value("Customer", customer, "customer_type")),
 		"transaction_date": nowdate(), "delivery_date": data["delivery_date"],
 		"atelier_subject": subject, "atelier_stage": STAGES[0],
 		"items": [
@@ -777,3 +815,40 @@ def record_expense(account, amount, mode_of_payment, description, sales_order=No
 	je.insert()
 	je.submit()
 	return {"name": je.name, "project": project}
+
+
+# ---------------------------------------------------------------- prices
+
+
+@frappe.whitelist()
+def prices():
+	"""Sales items with their individual and company prices."""
+	_require("Item Price")
+	items = frappe.get_list("Item", filters={"disabled": 0, "is_sales_item": 1},
+		fields=["item_code", "item_name", "item_group", "stock_uom"], order_by="item_name asc", limit=1000)
+	return {"items": _with_prices(items), "lists": {k: _price_list(k) for k in PRICE_LISTS}, "can_edit": _can("Item Price", "write")}
+
+
+@frappe.whitelist(methods=["POST"])
+def set_price(item_code, kind, rate=None):
+	"""Create, change or (empty rate) remove one Item Price. Removing means the item is priced later for that type."""
+	if not _can("Item Price", "write"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	if kind not in PRICE_LISTS:
+		frappe.throw(_("نوع سعر غير معروف"))
+	price_list = _price_list(kind)
+	uom = frappe.db.get_value("Item", item_code, "stock_uom")
+	if not uom:
+		frappe.throw(_("الخدمة غير موجودة"))
+	existing = frappe.get_all("Item Price", {"item_code": item_code, "price_list": price_list}, pluck="name")
+	if rate in (None, ""):
+		for name in existing:
+			frappe.delete_doc("Item Price", name)
+		return None
+	if flt(rate) < 0:
+		frappe.throw(_("السعر لا يكون سالبًا"))
+	doc = frappe.get_doc("Item Price", existing[0]) if existing else frappe.get_doc(
+		{"doctype": "Item Price", "item_code": item_code, "price_list": price_list, "uom": uom})
+	doc.price_list_rate = flt(rate)
+	doc.save()
+	return doc.price_list_rate

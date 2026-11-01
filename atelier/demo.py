@@ -173,3 +173,17 @@ def master_data():
 	]:
 		_ensure("Item", "item_code", code, item_name=name + TAG, item_group="Services",
 			stock_uom="Nos", is_stock_item=0)
+
+
+def prices():
+	"""Demo prices per customer type (fictitious). Finishing has no company price on purpose: it stays 'priced later'."""
+	from atelier.api import PRICE_LISTS, _price_list, set_price
+
+	rates = {"SRV-DESIGN-DEMO": (15000, 22000), "SRV-PRINT-DEMO": (22, 18), "SRV-OFFSET-DEMO": (6.5, 5.5), "SRV-FINISH-DEMO": (8000, None)}
+	for code, (individual, company) in rates.items():
+		set_price(code, "Individual", individual)
+		set_price(code, "Company", company)
+	for c in frappe.get_all("Customer", fields=["name", "customer_type"]):
+		frappe.db.set_value("Customer", c.name, "default_price_list", _price_list(c.customer_type))
+	frappe.db.commit()
+	print({k: _price_list(k) for k in PRICE_LISTS}, frappe.get_all("Customer", fields=["customer_name", "customer_type", "default_price_list"]))

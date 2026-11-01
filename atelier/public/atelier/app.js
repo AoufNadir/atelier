@@ -134,7 +134,7 @@ const route = computed(() => {
   if ((m = p.match(/^\/orders\/(.+)$/))) return { name: "order", id: decodeURIComponent(m[1]) };
   if (p === "/customers") return { name: "customers" };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
-  if (["/money", "/stock", "/machines", "/reports", "/more"].includes(p)) return { name: p.slice(1) };
+  if (["/money", "/stock", "/machines", "/reports", "/more", "/prices"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
@@ -499,9 +499,9 @@ const COST_TYPES = [
 ];
 const DRAFT_KEY = "atelier.orderDraft.v1";
 let lineSeq = 0;
-const blankItem = () => ({ key: ++lineSeq, item_code: "", description: "", qty: 1, rate: "", noPrice: false, open: false });
+const blankItem = () => ({ key: ++lineSeq, item_code: "", description: "", qty: 1, rate: "", noPrice: false, open: false, touched: false, autoPending: false });
 const blankForm = () => ({
-  mode: "pick", customer: null, newCustomer: { name: "", phone: "" }, subject: "", delivery_date: addDays(todayISO(), 3),
+  mode: "pick", customer: null, newCustomer: { name: "", phone: "", type: "Individual" }, subject: "", delivery_date: addDays(todayISO(), 3),
   items: [blankItem()], costs: [], waste: 0, advance: { amount: "", mode: "Cash" },
 });
 
@@ -513,12 +513,24 @@ const OrderNew = {
     const f = reactive(saved || blankForm());
     const restored = ref(!!saved && !!(saved.subject || saved.customer || saved.items?.some((i) => i.item_code)));
     const preset = state.query.get("customer");
-    if (preset && !f.customer) call("customers", { q: preset }).then((l) => { const c = l.find((x) => x.name === preset); if (c) { f.mode = "pick"; f.customer = c; } });
+    if (preset && !f.customer) call("customer_profile", { name: preset }).then((c) => { f.mode = "pick"; f.customer = c; }).catch(() => {});
     watch(f, (v) => store.set(DRAFT_KEY, v), { deep: true });  // input survives navigation and reloads
 
     const boot = computed(() => state.boot || { items: [], modes: [], can: {} });
     const itemsByCode = computed(() => Object.fromEntries(boot.value.items.map((i) => [i.item_code, i])));
-    const onItem = (row) => { const it = itemsByCode.value[row.item_code]; if (it && row.rate === "" && it.standard_rate) row.rate = it.standard_rate; };
+    // Prices come from the customer's type (individual / company price list). A line whose price was typed by hand
+    // keeps it; a missing price for that type leaves the line "priced later", never the other type's price.
+    if (!f.newCustomer.type) f.newCustomer.type = "Individual";
+    const custType = computed(() => (f.mode === "pick" ? f.customer?.customer_type : f.newCustomer.type) === "Company" ? "Company" : "Individual");
+    const applyPrice = (row) => {
+      const it = itemsByCode.value[row.item_code];
+      if (!it || row.touched) return;
+      const p = custType.value === "Company" ? it.price_company : it.price_individual;
+      if (p !== null && p !== undefined) Object.assign(row, { rate: p, noPrice: false, autoPending: false });
+      else Object.assign(row, { rate: "", noPrice: true, autoPending: true });
+    };
+    const onItem = (row) => { row.touched = false; applyPrice(row); };
+    watch(custType, () => f.items.forEach(applyPrice));
     const attempted = ref(false), saving = ref(false), serverError = ref(null), serverErrors = ref({}), done = ref(null);
     watch(done, (d) => (state.editing = !d), { immediate: true });
     onBeforeUnmount(() => (state.editing = false));
@@ -560,7 +572,7 @@ const OrderNew = {
     const discard = () => { Object.assign(f, blankForm()); store.del(DRAFT_KEY); restored.value = false; attempted.value = false; serverError.value = null; };
     const addItem = () => { f.items.push(blankItem()); setTimeout(() => document.getElementById(`it-${f.items.length - 1}`)?.focus(), 0); };
     const addCost = () => { f.costs.push({ cost_type: "Matière", description: "", item: "", qty: 1, rate: "" }); setTimeout(() => document.getElementById(`cd-${f.costs.length - 1}`)?.focus(), 0); };
-    const togglePrice = (it) => { if (it.noPrice) it.rate = ""; };
+    const togglePrice = (it) => { it.touched = true; it.autoPending = false; if (it.noPrice) it.rate = ""; };
 
     async function submit() {
       attempted.value = true; serverError.value = null; serverErrors.value = {};
@@ -590,7 +602,7 @@ const OrderNew = {
       saving.value = false;
     }
     const again = () => { discard(); done.value = null; };
-    return { f, boot, onItem, sum, err, errorCount, attempted, saving, serverError, done, restored, discard, addItem, addCost, togglePrice, submit, again,
+    return { f, boot, onItem, custType, sum, err, errorCount, attempted, saving, serverError, done, restored, discard, addItem, addCost, togglePrice, submit, again,
       lineAmount, costAmount, COST_TYPES, t, money, go, todayISO, state, dfw, parseDate };
   },
   template: `
@@ -631,6 +643,10 @@ const OrderNew = {
                 <div class="field"><label for="f-nc-name" class="req">{{ t('of_new_name') }}</label>
                   <input id="f-nc-name" class="input" :class="{invalid: err('customer')}" v-model="f.newCustomer.name" autocomplete="off" enterkeyhint="next">
                   <span v-if="err('customer')" class="error-text"><Icon name="alert" :size="14"/>{{ err('customer') }}</span></div>
+                <div class="field" style="grid-column:1/-1"><span class="label">{{ t('cs_type') }}</span>
+                  <div class="seg" role="group" :aria-label="t('cs_type')">
+                    <button type="button" :aria-pressed="f.newCustomer.type!=='Company'" @click="f.newCustomer.type='Individual'">{{ t('c_type_person') }}</button>
+                    <button type="button" :aria-pressed="f.newCustomer.type==='Company'" @click="f.newCustomer.type='Company'">{{ t('c_type_company_short') }}</button></div></div>
                 <div class="field"><label for="f-nc-phone">{{ t('of_new_phone') }} <span class="cap">({{ t('optional') }})</span></label>
                   <input id="f-nc-phone" class="input num" type="tel" inputmode="tel" v-model="f.newCustomer.phone" autocomplete="off" enterkeyhint="next"></div>
               </div>
@@ -667,7 +683,7 @@ const OrderNew = {
                   <span v-if="err('items.'+idx+'.qty')" class="error-text">{{ err('items.'+idx+'.qty') }}</span></div>
                 <div class="field"><label :for="'r-'+idx" class="mlabel" :class="{req: !it.noPrice}">{{ t('of_rate') }}</label>
                   <input :id="'r-'+idx" class="input num" :class="{invalid: err('items.'+idx+'.rate')}" type="text" inputmode="decimal" autocomplete="off"
-                    v-model="it.rate" :disabled="it.noPrice" :placeholder="it.noPrice ? t('price_pending') : '0.00'" :aria-label="t('of_rate')" enterkeyhint="next">
+                    v-model="it.rate" @input="it.touched=true" :disabled="it.noPrice" :placeholder="it.noPrice ? t('price_pending') : '0.00'" :aria-label="t('of_rate')" enterkeyhint="next">
                   <span v-if="err('items.'+idx+'.rate')" class="error-text">{{ err('items.'+idx+'.rate') }}</span></div>
                 <div class="amount"><span class="mlabel">{{ t('of_amount') }}</span>
                   <span v-if="it.noPrice" class="badge b-warning"><Icon name="tag" :size="13"/>{{ t('price_pending') }}</span>
@@ -682,6 +698,7 @@ const OrderNew = {
                 <div v-if="it.open || it.noPrice || it.description" class="detail">
                   <div v-if="it.open || it.description" class="field"><label :for="'d-'+idx">{{ t('of_desc') }}</label>
                     <input :id="'d-'+idx" class="input" v-model="it.description" :placeholder="t('of_desc_ph')" enterkeyhint="next"></div>
+                  <div v-if="it.autoPending" class="alert warn" style="padding:6px 10px"><Icon name="tag" :size="14"/><span>{{ t(custType==='Company' ? 'pr_missing_company' : 'pr_missing_individual') }}</span></div>
                   <div v-if="it.noPrice" class="hint">{{ t('of_no_price_hint') }}</div>
                 </div>
               </div>
@@ -732,7 +749,8 @@ const OrderNew = {
 
         <aside class="side">
           <section class="card" aria-labelledby="sum-h">
-            <div class="card-h"><h2 id="sum-h">{{ t('of_summary') }}</h2></div>
+            <div class="card-h"><h2 id="sum-h">{{ t('of_summary') }}</h2>
+              <span class="badge" :class="custType==='Company' ? 'b-info' : 'b-neutral'"><Icon name="tag" :size="13"/>{{ t(custType==='Company' ? 'pr_company_prices' : 'pr_individual_prices') }}</span></div>
             <div class="card-b">
               <div class="sum-row"><span>{{ sum.pending ? t('sum_priced') : t('sum_total') }}</span><span class="money strong">{{ money(sum.total) }}</span></div>
               <div v-if="sum.pending" class="sum-note">{{ t('sum_not_final', sum.pending) }}</div>
@@ -885,6 +903,7 @@ const CustomerView = {
     <LoadState :s="s" :rows="6" @retry="load"><template v-if="s.data">
       <div class="page-head">
         <div class="stack" style="gap:2px;min-width:0;flex:1"><h1 class="wrap-any">{{ s.data.customer_name }}</h1>
+          <span class="badge" :class="s.data.customer_type==='Company' ? 'b-info' : 'b-neutral'" style="align-self:flex-start"><Icon name="tag" :size="13"/>{{ t(s.data.customer_type==='Company' ? 'pr_company_prices' : 'pr_individual_prices') }}</span>
           <a v-if="s.data.mobile_no" class="meta num" dir="ltr" :href="'tel:'+s.data.mobile_no" style="align-self:flex-start">{{ s.data.mobile_no }}</a></div>
         <div class="row wrap" style="gap:6px">
           <a class="btn primary" :href="'/atelier/orders/new?customer='+encodeURIComponent(s.data.name)" @click.prevent="go('/orders/new?customer='+encodeURIComponent(s.data.name))"><Icon name="plus" :size="18"/>{{ t('c_new_order') }}</a>
@@ -1087,7 +1106,7 @@ const CustomerList = {
         initial-sort="customer_name" :empty="t('c_none')">
         <template #cell="{row, col}">
           <span v-if="col.k==='customer_name'" class="title-cell"><a :href="'/atelier/customers/'+encodeURIComponent(row.name)" @click.prevent="open(row)" class="medium clamp2">{{ row.customer_name }}</a>
-            <span class="row wrap" style="gap:4px"><span class="cap">{{ t(row.customer_type==='Company' ? 'c_type_company_short' : 'c_type_person') }}</span></span></span>
+            <span class="row wrap" style="gap:4px"><span class="badge" :class="row.customer_type==='Company' ? 'b-info' : 'b-neutral'">{{ t(row.customer_type==='Company' ? 'pr_company_prices' : 'pr_individual_prices') }}</span></span></span>
           <a v-else-if="col.k==='mobile_no'" class="num" dir="ltr" :href="row.mobile_no ? 'tel:'+row.mobile_no : null">{{ row.mobile_no || '—' }}</a>
           <span v-else-if="col.k==='open_orders'" class="num">{{ row.open_orders || '—' }}</span>
           <template v-else-if="col.k==='last_order'">{{ row.last_order ? date(row.last_order, true) : '—' }}</template>
@@ -1107,9 +1126,10 @@ const CustomerSheet = {
   setup(props) {
     const editing = !!props.opts.name;
     const f = reactive({ name: props.opts.name || null, customer_name: "", customer_type: "Individual", contact_person: "", mobile_no: "", email_id: "", tax_id: "", address: "", city: "", notes: "" });
+    const originalType = ref(null);
     const ready = ref(!editing), saving = ref(false), error = ref(null), serverErrors = ref({}), attempted = ref(false);
     onMounted(async () => {
-      if (editing) { try { Object.assign(f, await call("customer_profile", { name: f.name })); } catch (e) { error.value = e.message; } ready.value = true; }
+      if (editing) { try { Object.assign(f, await call("customer_profile", { name: f.name })); originalType.value = f.customer_type; } catch (e) { error.value = e.message; } ready.value = true; }
       setTimeout(() => document.getElementById("cs-name")?.focus(), 50);
     });
     const errs = computed(() => ({
@@ -1133,7 +1153,7 @@ const CustomerSheet = {
       } catch (e) { error.value = e.message; serverErrors.value = e.errors || {}; }
       saving.value = false;
     }
-    return { f, editing, ready, saving, error, attempted, errs, save, close, t };
+    return { originalType, f, editing, ready, saving, error, attempted, errs, save, close, t };
   },
   template: `
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="cs-h">
@@ -1145,6 +1165,8 @@ const CustomerSheet = {
         <div class="seg" role="group" :aria-label="t('cs_type')">
           <button type="button" :aria-pressed="f.customer_type==='Individual'" @click="f.customer_type='Individual'"><Icon name="users" :size="16"/>{{ t('c_type_person') }}</button>
           <button type="button" :aria-pressed="f.customer_type==='Company'" @click="f.customer_type='Company'"><Icon name="orders" :size="16"/>{{ t('c_type_company_short') }}</button></div>
+        <div v-if="editing && originalType && originalType!==f.customer_type" class="alert info" role="status"><Icon name="tag" :size="16"/>
+          <span>{{ t('pr_convert_note', t(f.customer_type==='Company' ? 'pr_company_prices' : 'pr_individual_prices')) }}</span></div>
         <div class="field"><label for="cs-name" class="req">{{ f.customer_type==='Company' ? t('cs_company_name') : t('cs_full_name') }}</label>
           <input id="cs-name" class="input" :class="{invalid: attempted && errs.customer_name}" type="text" v-model="f.customer_name" autocomplete="off" enterkeyhint="next">
           <span v-if="attempted && errs.customer_name" class="error-text">{{ errs.customer_name }}</span></div>
@@ -1475,6 +1497,62 @@ const ReportsPage = {
   </div>`,
 };
 
+// ------------------------------------------------------------------ services & prices
+const PricesPage = {
+  components: { Icon, LoadState, DataTable },
+  setup() {
+    const { s, load } = useLoad(() => call("prices"));
+    onMounted(load);
+    const saving = reactive({}), failed = reactive({});
+    const cols = [
+      { k: "item_name", label: t("pr_service"), sort: true },
+      { k: "price_individual", label: t("pr_individual_prices"), type: "money", sort: true },
+      { k: "price_company", label: t("pr_company_prices"), type: "money", sort: true, main: true },
+    ];
+    const filters = [
+      ["noCompany", "pr_f_no_company", (i) => i.price_company === null || i.price_company === undefined],
+      ["noIndividual", "pr_f_no_individual", (i) => i.price_individual === null || i.price_individual === undefined],
+    ];
+    // Saved on leaving the field; empty = no price for that type (orders show "priced later").
+    async function save(row, key, kind, ev) {
+      const raw = ev.target.value.trim(), old = row[key];
+      const value = raw === "" ? null : +raw;
+      if (value !== null && (Number.isNaN(value) || value < 0)) { failed[row.item_code + key] = t("pr_err_value"); return; }
+      if (value === old || (value === null && (old === null || old === undefined))) return;
+      saving[row.item_code + key] = true; delete failed[row.item_code + key];
+      try {
+        row[key] = await call("set_price", { item_code: row.item_code, kind, rate: value === null ? "" : value }, true);
+        const b = state.boot.items.find((i) => i.item_code === row.item_code); if (b) b[key] = row[key];
+        toast(t("pr_saved"));
+      } catch (e) { failed[row.item_code + key] = e.message; ev.target.value = old ?? ""; }
+      delete saving[row.item_code + key];
+    }
+    return { s, load, cols, filters, save, saving, failed, t, money };
+  },
+  template: `
+  <div class="page">
+    <div class="page-head"><div><h1>{{ t('nav_prices') }}</h1><div class="sub">{{ t('pr_sub') }}</div></div>
+      <a class="btn" href="/app/item/new"><Icon name="plus" :size="18"/>{{ t('pr_new_service') }}</a></div>
+    <LoadState :s="s" :rows="4" @retry="load">
+      <div class="alert info" style="margin-bottom:var(--s4)"><Icon name="tag" :size="16"/><span>{{ t('pr_explain') }}</span></div>
+      <DataTable :rows="s.data.items" :cols="cols" row-key="item_code" :search-keys="['item_name','item_code','item_group']" :filters="filters" initial-sort="item_name" :empty="t('pr_none')">
+        <template #cell="{row, col}">
+          <span v-if="col.k==='item_name'" class="title-cell"><span class="medium clamp2">{{ row.item_name }}</span><span class="cap num">{{ row.item_code }} · {{ row.stock_uom }}</span></span>
+          <span v-else class="price-cell">
+            <input v-if="s.data.can_edit" class="input num" type="text" inputmode="decimal" autocomplete="off" :value="row[col.k] ?? ''"
+              :placeholder="t('price_pending')" :aria-label="col.label + ' — ' + row.item_name" :class="{invalid: failed[row.item_code+col.k]}"
+              @change="save(row, col.k, col.k==='price_company' ? 'Company' : 'Individual', $event)" @keydown.enter="$event.target.blur()">
+            <span v-else-if="row[col.k]!==null && row[col.k]!==undefined" class="money">{{ money(row[col.k]) }}</span>
+            <span v-else class="badge b-warning"><Icon name="tag" :size="13"/>{{ t('price_pending') }}</span>
+            <span v-if="saving[row.item_code+col.k]" class="cap">{{ t('of_saving') }}</span>
+            <span v-else-if="failed[row.item_code+col.k]" class="error-text">{{ failed[row.item_code+col.k] }}</span>
+          </span>
+        </template>
+      </DataTable>
+    </LoadState>
+  </div>`,
+};
+
 // ------------------------------------------------------------------ more (phone)
 const MorePage = {
   components: { Icon },
@@ -1633,11 +1711,12 @@ const SECTION_NAV = [
   { key: "money", path: "/money", icon: "money", label: "nav_money", match: ["money"], need: "finance" },
   { key: "stock", path: "/stock", icon: "box", label: "nav_stock", match: ["stock"] },
   { key: "machines", path: "/machines", icon: "gear", label: "nav_machines", match: ["machines"] },
+  { key: "prices", path: "/prices", icon: "tag", label: "nav_prices", match: ["prices"], need: "prices" },
   { key: "reports", path: "/reports", icon: "chart", label: "nav_reports", match: ["reports"], need: "finance" },
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -1652,7 +1731,7 @@ const App = {
     });
     const isActive = (n) => n.match.includes(route.value.name);
     const titles = { "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
-      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more" };
+      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
     return { state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back };
   },
@@ -1704,6 +1783,7 @@ const App = {
         <MachinesPage v-else-if="route.name==='machines'"/>
         <ReportsPage v-else-if="route.name==='reports'"/>
         <MorePage v-else-if="route.name==='more'"/>
+        <PricesPage v-else-if="route.name==='prices'"/>
       </main>
     </div>
 
@@ -1712,7 +1792,7 @@ const App = {
       <a href="/atelier/orders" :class="{active: ['orders','order'].includes(route.name)}" @click.prevent="go('/orders')"><Icon name="orders"/>{{ t('nav_orders') }}</a>
       <a class="fab" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><span class="fab-circle"><Icon name="plus" :size="22"/></span><span class="lbl">{{ t('new_order') }}</span></a>
       <a href="/atelier/customers" :class="{active: ['customer','customers'].includes(route.name)}" @click.prevent="go('/customers')"><Icon name="users"/>{{ t('nav_customers') }}</a>
-      <a href="/atelier/more" :class="{active: ['more','money','stock','machines','reports'].includes(route.name)}" @click.prevent="go('/more')"><Icon name="more"/>{{ t('nav_more') }}</a>
+      <a href="/atelier/more" :class="{active: ['more','money','stock','machines','reports','prices'].includes(route.name)}" @click.prevent="go('/more')"><Icon name="more"/>{{ t('nav_more') }}</a>
     </nav>
 
     <PaymentSheet v-if="state.sheet && state.sheet.type==='payment'" :opts="state.sheet"/>
