@@ -544,20 +544,147 @@ const Home = {
   </div>`,
 };
 
+const billState = (o) => (o.docstatus === 0 ? { text: "مسودة", cls: "" } : o.per_billed >= 100 ? { text: "✓ مفوتر", cls: "ok" }
+  : o.per_billed > 0 ? { text: "مفوتر جزئيًا", cls: "info" } : { text: "غير مفوتر", cls: "" });
+const payState = (o) => {
+  if (o.price_pending) return { text: o.paid > 0 ? `تسبيق ${fig(o.paid)}` : "لا دفع", cls: o.paid > 0 ? "info" : "" };
+  if (o.paid >= o.grand_total - 0.005 && o.grand_total > 0) return { text: "✓ مدفوع", cls: "ok" };
+  if (o.per_billed > 0) return { text: o.paid > 0 ? "مدفوع جزئيًا" : "لم يُدفع", cls: "bad" };
+  return o.paid > 0 ? { text: `تسبيق ${fig(o.paid)}`, cls: "info" } : { text: "لا دفع", cls: "" };
+};
+const PERIODS = [["month", "هذا الشهر"], ["quarter", "آخر 3 أشهر"], ["all", "كل الفترات"]];
+
 const OrdersPage = {
-  components: { LoadState, OrdersTable },
+  components: { Icon },
   setup() {
     const closed = ref(false);
     const { s, load } = useLoad(() => call("orders", { include_closed: closed.value ? 1 : 0 }));
     watch(closed, load); onMounted(load);
-    return { s, load, closed, t, go };
+    const view = ref(store.get("atelier.ordersView") || "table"); watch(view, (v) => store.set("atelier.ordersView", v));
+    const card = ref("open"), stage = ref("all"), customer = ref(""), period = ref("all"), sortKey = ref("due"), sortDir = ref(1);
+    const rows = computed(() => s.data || []);
+    const inPeriod = (o) => {
+      if (period.value === "all" || !o.transaction_date) return true;
+      const d = -daysFromToday(o.transaction_date);
+      return period.value === "month" ? String(o.transaction_date).slice(0, 7) === todayISO().slice(0, 7) : d <= 92;
+    };
+    const base = computed(() => rows.value.filter(inPeriod).filter((o) => !customer.value || o.customer === customer.value));
+    const toCollect = (o) => (o.per_billed > 0 ? Math.max(0, o.grand_total - o.paid) : 0);
+    const CARDS = [
+      ["open", "طلبات مفتوحة", (o) => !["Completed", "Closed"].includes(o.status)],
+      ["late", "متأخرة", (o) => dueText(o).late],
+      ["pending", "بانتظار التسعير", (o) => o.price_pending],
+      ["unbilled", "سُلّمت ولم تُفوتر", (o) => o.per_delivered >= 100 && o.per_billed < 100],
+      ["collect", "باقي للتحصيل", (o) => toCollect(o) > 0.005],
+    ];
+    const cards = computed(() => CARDS.map(([k, label, fn]) => {
+      const l = base.value.filter(fn);
+      const sum = l.reduce((a, o) => a + (k === "collect" ? toCollect(o) : o.grand_total), 0);
+      const sub = { open: `${fig(sum)} دج`, late: l.length ? "يحتاج قرارك" : "كل شيء في وقته", pending: "لا تُسلَّم قبل التسعير",
+        unbilled: `${fig(sum)} دج`, collect: `على ${new Set(l.map((o) => o.customer)).size} عميل` }[k];
+      return { k, label, n: l.length, value: k === "collect" ? `${fig(sum)}` : String(l.length), money: k === "collect", sub, tone: { late: "bad", pending: "warn", collect: "bad" }[k] || "" };
+    }));
+    const STAGE_CHIPS = [["all", "كل المراحل", () => true], ["design", "تصميم", (o) => STAGE_TONE[o.atelier_stage] === "design"],
+      ["make", "طباعة وتشطيب", (o) => ["print", "finish"].includes(STAGE_TONE[o.atelier_stage])], ["ready", "جاهز للتسليم", (o) => STAGE_TONE[o.atelier_stage] === "ready"]];
+    const byCard = computed(() => base.value.filter(CARDS.find((c) => c[0] === card.value)[2]));
+    const stageCounts = computed(() => Object.fromEntries(STAGE_CHIPS.map(([k, , fn]) => [k, byCard.value.filter(fn).length])));
+    const shown = computed(() => {
+      const fn = STAGE_CHIPS.find((c) => c[0] === stage.value)[2];
+      const key = { due: (o) => o.delivery_date || "9999", total: (o) => o.grand_total, customer: (o) => o.customer_name || "" }[sortKey.value];
+      return byCard.value.filter(fn).sort((a, b) => { const x = key(a), y = key(b); return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), "ar")) * sortDir.value; });
+    });
+    const total = computed(() => shown.value.reduce((a, o) => a + o.grand_total, 0));
+    const customers = computed(() => [...new Map(rows.value.map((o) => [o.customer, o.customer_name])).entries()].sort((a, b) => a[1].localeCompare(b[1], "ar")));
+    const sortBy = (k) => { if (sortKey.value === k) sortDir.value *= -1; else { sortKey.value = k; sortDir.value = 1; } };
+    const arrow = (k) => (sortKey.value === k ? (sortDir.value > 0 ? " ↑" : " ↓") : "");
+    const board = computed(() => STEPS.map((label, i) => ({ label, items: shown.value.filter((o) => (STEP_OF[o.atelier_stage] ?? 0) === i) })));
+    const open = (o) => go("/orders/" + encodeURIComponent(o.name));
+    function exportCsv() {
+      const head = ["الطلب", "العميل", "المرحلة", "التسليم", "الفوترة", "الدفع", "المبلغ", "المدفوع", "المسؤول"];
+      const lines = shown.value.map((o) => [o.atelier_subject || o.name, o.customer_name, o.atelier_stage, o.delivery_date || "", billState(o).text, payState(o).text,
+        o.grand_total.toFixed(2), (o.paid || 0).toFixed(2), o.owner_name || ""]);
+      const csv = "﻿" + [head, ...lines].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      a.download = `الطلبات-${todayISO()}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+    return { s, load, closed, view, card, cards, stage, STAGE_CHIPS, stageCounts, customer, customers, period, PERIODS, shown, total, sortBy, arrow, board,
+      open, exportCsv, dueText, billState, payState, thumbTone, darkTone, firstName, STAGE_TONE, money, fig, t, go };
   },
   template: `
-  <div class="page">
-    <div class="page-head"><h1>{{ t('orders_title') }}</h1>
-      <div class="row"><label class="check"><input type="checkbox" v-model="closed">{{ t('show_closed') }}</label>
-        <a class="btn primary" href="/atelier/orders/new" @click.prevent="go('/orders/new')">{{ t('new_order') }}</a></div></div>
-    <LoadState :s="s" :rows="6" @retry="load"><OrdersTable :rows="s.data" :title="t('orders_title')"/></LoadState>
+  <div class="page ws">
+    <div class="ws-head">
+      <div><h1 class="ws-title">الطلبات</h1><div class="ws-sub">كل الطلبات من الاستلام حتى التحصيل.</div></div>
+      <div class="ws-head-actions">
+        <button type="button" class="btn ws-btn" :disabled="!shown.length" @click="exportCsv"><Icon name="out" :size="18"/>تصدير</button>
+        <a class="btn primary ws-btn" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><Icon name="plus" :size="18"/>طلب جديد</a>
+      </div>
+    </div>
+
+    <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
+    <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
+    <template v-else>
+    <div class="op-cards" role="group" aria-label="مرشحات سريعة">
+      <button v-for="c in cards" :key="c.k" type="button" class="op-card" :aria-pressed="card===c.k" @click="card=c.k; stage='all'">
+        <span class="op-card-l">{{ c.label }}</span>
+        <span class="op-card-v" :class="c.n && c.tone"><template v-if="c.money"><bdi>{{ c.value }}</bdi> <small>دج</small></template><template v-else>{{ c.value }}</template></span>
+        <span class="op-card-s">{{ c.sub }}</span>
+      </button>
+    </div>
+
+    <section class="op-panel">
+      <div class="op-tools">
+        <div class="ws-toggle" role="group" aria-label="طريقة العرض">
+          <button type="button" :aria-pressed="view==='table'" @click="view='table'">جدول</button>
+          <button type="button" :aria-pressed="view==='board'" @click="view='board'">لوحة المراحل</button>
+        </div>
+        <div class="chips" role="group" aria-label="المرحلة">
+          <button v-for="c in STAGE_CHIPS" :key="c[0]" type="button" class="chip" :aria-pressed="stage===c[0]" @click="stage=c[0]">{{ c[1] }}<span v-if="c[0]!=='all'" class="count num"> {{ stageCounts[c[0]] }}</span></button>
+        </div>
+        <span class="spacer"></span>
+        <label class="sr-only" for="op-cust">العميل</label>
+        <select id="op-cust" class="input op-select" v-model="customer"><option value="">العميل: الكل</option><option v-for="c in customers" :key="c[0]" :value="c[0]">{{ c[1] }}</option></select>
+        <label class="sr-only" for="op-period">الفترة</label>
+        <select id="op-period" class="input op-select" v-model="period"><option v-for="p in PERIODS" :key="p[0]" :value="p[0]">الفترة: {{ p[1] }}</option></select>
+        <label class="check"><input type="checkbox" v-model="closed">إظهار المنتهية</label>
+      </div>
+
+      <div v-if="!shown.length" class="empty">{{ (s.data||[]).length ? 'لا طلبات تطابق التصفية' : 'لا طلبات بعد' }}</div>
+      <template v-else-if="view==='table'">
+        <div class="op-tr op-th desktop-only">
+          <span>الطلب / العميل</span><span>المرحلة</span>
+          <button type="button" class="op-sort" @click="sortBy('due')">التسليم{{ arrow('due') }}</button>
+          <span>الفوترة</span><span>الدفع</span>
+          <button type="button" class="op-sort n" @click="sortBy('total')">المبلغ{{ arrow('total') }}</button>
+          <span>المسؤول</span>
+        </div>
+        <a v-for="o in shown" :key="o.name" class="op-tr" :href="'/atelier/orders/'+o.name" @click.prevent="open(o)">
+          <span class="ws-order">
+            <span class="ws-thumb" :style="{background: thumbTone(o.customer_name), color: darkTone(thumbTone(o.customer_name)) ? '#fff' : '#2B2B2B'}">{{ firstName(o.customer_name).slice(0, 5) }}</span>
+            <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span></span></span>
+          </span>
+          <span><span class="ws-stage" :class="'st-' + (STAGE_TONE[o.atelier_stage] || 'design')"><i></i>{{ o.atelier_stage }}</span></span>
+          <span :class="{'ws-late': dueText(o).late}">{{ dueText(o).text }}</span>
+          <span class="op-state" :class="billState(o).cls">{{ billState(o).text }}</span>
+          <span class="op-state" :class="payState(o).cls">{{ payState(o).text }}</span>
+          <span class="op-amount"><span class="money">{{ money(o.grand_total) }}</span><span v-if="o.price_pending" class="op-pending">بند بانتظار التسعير</span></span>
+          <span class="op-owner">{{ firstName(o.owner_name) || '—' }}</span>
+        </a>
+      </template>
+      <div v-else class="op-board">
+        <div v-for="col in board" :key="col.label" class="op-col">
+          <div class="op-col-h">{{ col.label }} <span class="num">{{ col.items.length }}</span></div>
+          <a v-for="o in col.items" :key="o.name" class="op-bcard" :href="'/atelier/orders/'+o.name" @click.prevent="open(o)">
+            <span class="ws-order-name">{{ o.atelier_subject || o.name }}</span>
+            <span class="ws-order-meta">{{ o.customer_name }}</span>
+            <span class="op-bcard-f"><span :class="{'ws-late': dueText(o).late}">{{ dueText(o).text }}</span><span class="money">{{ money(o.grand_total) }}</span></span>
+          </a>
+          <div v-if="!col.items.length" class="op-col-empty">—</div>
+        </div>
+      </div>
+      <div class="ws-tfoot"><span>عرض {{ shown.length }} من {{ (s.data||[]).length }} طلبات · المجموع <span class="money">{{ money(total) }}</span></span><span>النقر على الطلب يفتحه</span></div>
+    </section>
+    </template>
   </div>`,
 };
 
@@ -662,10 +789,10 @@ const OrderNew = {
         advance: sum.value.adv > 0 ? { amount: sum.value.adv, mode_of_payment: f.advance.mode } : null,
       };
       try {
-        done.value = await call("create_order", { data: JSON.stringify(data) }, true);
+        const r = await call("create_order", { data: JSON.stringify(data) }, true);
         store.del(DRAFT_KEY);
-        toast(t("ok_title"));
-        window.scrollTo(0, 0);
+        toast(r.submitted ? t("ok_title") : t("ok_title_draft"));
+        go("/orders/" + encodeURIComponent(r.sales_order));
       } catch (e) {
         serverError.value = e.message;
         if (e.errors) serverErrors.value = e.errors;
@@ -1021,8 +1148,7 @@ const OrderView = {
               <span class="money">{{ money(s.data.estimate[0].total_cost) }}</span></div>
           </div>
           <div class="card-f row wrap" style="gap:6px">
-            <a class="btn sm ghost" :href="'/app/sales-order/'+s.data.name"><Icon name="ext" :size="16"/>{{ t('ov_open_erp') }}</a>
-            <a v-if="s.data.project && state.boot.can.finance" class="btn sm ghost" :href="'/app/query-report/Rentabilite Commande?project='+encodeURIComponent(s.data.project)"><Icon name="chart" :size="16"/>{{ t('ov_profit') }}</a>
+            <a v-if="s.data.project && state.boot.can.finance" class="btn sm ghost" href="/atelier/reports" @click.prevent="go('/reports')"><Icon name="chart" :size="16"/>{{ t('ov_profit') }}</a>
           </div></section>
           <section class="card" aria-labelledby="docs-h"><div class="card-h"><h2 id="docs-h">{{ t('cy_docs') }}</h2></div>
             <div class="list">
@@ -1060,7 +1186,6 @@ const CustomerView = {
       return b > 0 ? { label: t("c_owes"), value: b, cls: "b-danger", icon: "alert" } : { label: t("c_credit"), value: -b, cls: "b-info", icon: "money" };
     });
     const pdf = (dt, name) => `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(dt)}&name=${encodeURIComponent(name)}`;
-    const statement = computed(() => `/app/query-report/General Ledger?party_type=Customer&party=${encodeURIComponent(props.id)}&group_by=Group by Voucher (Consolidated)`);
     const tabs = computed(() => [
       ["orders", t("c_orders"), s.data?.orders?.length],
       ...(s.data?.ledger ? [["ledger", t("c_ledger"), s.data.ledger.length]] : []),
@@ -1075,7 +1200,7 @@ const CustomerView = {
       else return;
       e.preventDefault(); setTimeout(() => document.getElementById("tab-" + tab.value)?.focus(), 0);
     };
-    return { s, load, tab, tabs, onTabKey, bal, preview, pdf, statement, DT_KEY, isImage, fileSize, t, money, date, go, state };
+    return { s, load, tab, tabs, onTabKey, bal, preview, pdf, DT_KEY, isImage, fileSize, t, money, date, go, state };
   },
   template: `
   <div class="page">
@@ -1087,7 +1212,7 @@ const CustomerView = {
         <div class="row wrap" style="gap:6px">
           <a class="btn primary" :href="'/atelier/orders/new?customer='+encodeURIComponent(s.data.name)" @click.prevent="go('/orders/new?customer='+encodeURIComponent(s.data.name))"><Icon name="plus" :size="18"/>{{ t('c_new_order') }}</a>
           <button v-if="state.boot.can.payment" class="btn" @click="state.sheet={type:'payment', customer:{name:s.data.name, customer_name:s.data.customer_name}}"><Icon name="in" :size="18"/>{{ t('record_payment') }}</button>
-          <a v-if="s.data.ledger" class="btn ghost" :href="statement"><Icon name="file" :size="18"/>{{ t('c_statement') }}</a>
+          <a v-if="s.data.ledger" class="btn ghost" href="#tab-ledger" @click.prevent="tab='ledger'"><Icon name="file" :size="18"/>{{ t('c_statement') }}</a>
           <button v-if="s.data.can_edit" type="button" class="btn ghost" @click="state.sheet={type:'customer', name:s.data.name}"><Icon name="edit" :size="18"/>{{ t('cs_edit') }}</button>
         </div>
       </div>
@@ -1254,7 +1379,8 @@ const Kpis = {
     <span class="k-label">{{ k.label }}</span><span class="k-value" :class="{money: k.money !== false}">{{ k.value }}</span><span class="k-hint">{{ k.hint }}</span></div></div>`,
 };
 
-const deskLink = (doctype, name) => `/app/${doctype.toLowerCase().replace(/ /g, "-")}/${encodeURIComponent(name)}`;
+// Documents are shown, not linked to the underlying engine: no page of the app leads outside it.
+const deskLink = () => undefined;
 
 const CustomerList = {
   components: { Icon, LoadState, DataTable },
@@ -1544,8 +1670,7 @@ const StockPage = {
   template: `
   <div class="page">
     <div class="page-head"><div><h1>{{ t('nav_stock') }}</h1><div class="sub">{{ t('s_sub') }}</div></div>
-      <div class="row" style="gap:8px"><a class="btn" href="/app/stock-entry/new"><Icon name="box" :size="18"/>{{ t('s_new_entry') }}</a>
-        <a class="btn" href="/app/purchase-receipt/new"><Icon name="in" :size="18" style="color:var(--success)"/>{{ t('s_new_receipt') }}</a></div></div>
+</div>
     <LoadState :s="s" :rows="4" @retry="load">
       <Kpis :items="kpis"/>
       <div class="stack">
@@ -1596,13 +1721,11 @@ const MachinesPage = {
   template: `
   <div class="page">
     <div class="page-head"><div><h1>{{ t('nav_machines') }}</h1><div class="sub">{{ t('mc_sub') }}</div></div>
-      <div class="row" style="gap:8px"><a class="btn primary" href="/app/asset/new"><Icon name="plus" :size="18"/>{{ t('mc_add') }}</a>
-        <a class="btn" href="/app/asset-repair/new"><Icon name="gear" :size="18"/>{{ t('mc_repair') }}</a></div></div>
+</div>
     <LoadState :s="s" :rows="3" @retry="load">
       <section v-if="!s.data.assets.length" class="card"><div class="empty" style="padding:var(--s6) var(--s4)">
         <Icon name="gear" :size="30" class="muted"/><span class="medium" style="color:var(--ink)">{{ t('mc_none') }}</span>
-        <span class="meta" style="max-width:520px">{{ t('mc_none_hint') }}</span>
-        <a class="btn primary" href="/app/asset/new" style="margin-top:var(--s3)"><Icon name="plus" :size="18"/>{{ t('mc_add') }}</a></div></section>
+        <span class="meta" style="max-width:520px">{{ t('mc_none_hint') }}</span></div></section>
       <div v-else class="stack">
         <DataTable :rows="s.data.assets" :cols="cols" row-key="name" :search-keys="['asset_name','item_name','location']" :title="t('nav_machines')">
           <template #cell="{row, col}">
@@ -1647,15 +1770,14 @@ const ReportsPage = {
       { k: "cost", label: t("r_cost"), type: "money" }, { k: "result_sort", label: t("r_actual"), type: "money", sort: true, main: true },
     ];
     const filters = [["done", "r_f_billed", (o) => o.result !== null], ["open", "r_f_open", (o) => o.result === null], ["missing", "r_f_missing", (o) => o.est_missing > 0 || o.est_cost === null]];
-    const reportLink = (o) => `/app/query-report/Rentabilite Commande?project=${encodeURIComponent(o.project)}`;
+    const reportLink = (o) => `/atelier/orders/${encodeURIComponent(o.name)}`;
     return { s, load, rows, kpis, cols, filters, reportLink, t, money, go };
   },
   template: `
   <div class="page">
     <div class="page-head"><div><h1>{{ t('nav_reports') }}</h1><div class="sub">{{ t('r_sub') }}</div></div>
       <div class="row wrap" style="gap:8px">
-        <a class="btn" href="/app/query-report/Profit and Loss Statement"><Icon name="ext" :size="16"/>{{ t('r_pl') }}</a>
-        <a class="btn" href="/app/query-report/Accounts Receivable"><Icon name="ext" :size="16"/>{{ t('r_ar') }}</a></div></div>
+</div></div>
     <LoadState :s="s" :rows="4" @retry="load">
       <Kpis :items="kpis"/>
       <div class="alert info" style="margin-bottom:var(--s4)"><Icon name="alert" :size="16"/><span>{{ t('r_explain') }}</span></div>
@@ -1971,7 +2093,6 @@ const ExpenseSheet = {
         <div class="alert success"><Icon name="check" :size="16"/><span>{{ t('e_done', done.name) }}<template v-if="done.project"> · {{ t('e_on_order') }}</template><template v-if="done.receipt"> · {{ t('e_receipt_saved') }}</template></span></div>
         <div v-if="uploadWarn" class="alert warn" role="alert"><Icon name="alert" :size="16"/><span>{{ uploadWarn }}</span></div>
         <div class="row wrap"><button type="button" class="btn primary" @click="again">{{ t('e_another') }}</button>
-          <a class="btn" :href="'/app/journal-entry/'+encodeURIComponent(done.name)">{{ t('ov_open_erp') }}</a>
           <button type="button" class="btn ghost" @click="close">{{ t('close') }}</button></div>
       </template>
       <div v-else-if="loadError" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ loadError }}</span></div>

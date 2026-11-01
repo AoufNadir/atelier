@@ -351,9 +351,10 @@ details.collapse[open] > summary .chev { transform: rotate(-90deg); }
 .cycle li.done { color: var(--success); } .cycle li.done .dot { background: var(--success); border-color: var(--success); color: #fff; }
 .cycle li.current { background: var(--primary-weak, #E6EEF6); color: var(--primary); font-weight: var(--fw-medium); } .cycle li.current .dot { border-color: var(--primary); }
 .box { border: 1px solid var(--line); border-radius: 10px; padding: var(--s3); }
-.unit-wrap { position: relative; }
-.unit-wrap .input { padding-inline-end: 52px; }
-.unit-wrap .u { position: absolute; inset-inline-end: 10px; top: 50%; transform: translateY(-50%); color: var(--ink-3); font-size: var(--fs-cap); pointer-events: none; }
+/* The unit sits beside the quantity, never over the typed number. */
+.unit-wrap { display: flex; align-items: center; gap: 6px; }
+.unit-wrap .input { flex: 1; min-width: 0; }
+.unit-wrap .u { flex-shrink: 0; color: var(--ink-3); font-size: var(--fs-meta); white-space: nowrap; }
 
 /* ==========================================================================
    نَسَق — design system v1 (2026-11-01)
@@ -556,3 +557,48 @@ table.t thead th { background: #FAF9FC; }
   .ws-tabs { flex-wrap: wrap; overflow: visible; }
   .ws-tabs button { flex: 1 1 40%; min-height: 44px; }
 }
+
+/* ---------- نَسَق orders page ---------- */
+.op-cards { display: grid; gap: var(--s3); grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.op-card { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; padding: 16px 18px; border-radius: var(--r-lg);
+  background: var(--surface); border: 1px solid var(--line); cursor: pointer; }
+.op-card:hover { border-color: var(--line-strong); }
+.op-card[aria-pressed="true"] { border: 2px solid var(--primary); padding: 15px 17px; }
+.op-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.op-card-l { font-size: var(--fs-meta); color: var(--ink-3); }
+.op-card-v { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.op-card-v small { font-size: 13px; font-weight: 500; }
+.op-card-v.bad { color: var(--danger); } .op-card-v.warn { color: var(--warning); }
+.op-card-s { font-size: var(--fs-cap); color: var(--ink-3); }
+.op-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.op-tools { display: flex; align-items: center; gap: var(--s3); padding: 14px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.op-select { width: auto; min-height: 38px; padding-block: 0; font-size: var(--fs-meta); }
+.op-tr { display: grid; grid-template-columns: minmax(0, 2.3fr) 1fr 0.9fr 0.9fr 0.9fr 1.1fr 0.7fr; align-items: center; gap: var(--s3);
+  min-height: 84px; padding: 0 18px; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
+a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
+.op-th { min-height: 48px; border-top: 0; background: #FAF9FC; color: var(--ink-3); font-size: var(--fs-meta); }
+.op-sort { all: unset; cursor: pointer; } .op-sort.n { text-align: end; } .op-sort:focus-visible { outline: 2px solid var(--primary); border-radius: 4px; }
+.op-state { font-size: var(--fs-meta); color: var(--ink-3); }
+.op-state.ok { color: var(--success); } .op-state.info { color: var(--info); } .op-state.bad { color: var(--danger); }
+.op-amount { display: flex; flex-direction: column; align-items: flex-end; font-weight: 600; }
+.op-pending { font-size: var(--fs-cap); font-weight: 400; color: var(--warning); }
+.op-owner { color: var(--ink-2); }
+.op-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3); padding: var(--s4); background: var(--surface-2); }
+.op-col { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.op-col-h { font-weight: 600; color: var(--ink-2); padding: 4px 2px; }
+.op-col-h .num { color: var(--ink-3); font-weight: 400; }
+.op-bcard { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--line); color: inherit; }
+.op-bcard:hover { border-color: var(--primary); text-decoration: none; }
+.op-bcard-f { display: flex; justify-content: space-between; font-size: var(--fs-meta); margin-top: 4px; }
+.op-col-empty { color: var(--ink-3); text-align: center; padding: var(--s4); }
+@media (max-width: 1279px) { .op-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1023px) {
+  .op-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .op-tr { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "o s" "d a"; min-height: 0; padding: 12px var(--s3); row-gap: 6px; }
+  .op-tr > :nth-child(1) { grid-area: o; } .op-tr > :nth-child(2) { grid-area: s; } .op-tr > :nth-child(3) { grid-area: d; font-size: var(--fs-meta); }
+  .op-tr > :nth-child(6) { grid-area: a; }
+  .op-tr > :nth-child(4), .op-tr > :nth-child(5), .op-tr > :nth-child(7) { display: none; }
+  .op-board { grid-template-columns: minmax(0, 1fr); }
+  .op-select { flex: 1 1 40%; }
+}
+@media (min-width: 1024px) { .op-tools .op-select { width: auto; flex: 0 0 auto; min-width: 160px; } }
