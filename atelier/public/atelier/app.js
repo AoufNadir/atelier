@@ -134,7 +134,7 @@ const route = computed(() => {
   if ((m = p.match(/^\/orders\/(.+)$/))) return { name: "order", id: decodeURIComponent(m[1]) };
   if (p === "/customers") return { name: "customers" };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
-  if (["/money", "/stock", "/machines", "/reports", "/more", "/prices"].includes(p)) return { name: p.slice(1) };
+  if (["/money", "/stock", "/machines", "/reports", "/more", "/prices", "/ds"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
@@ -1719,6 +1719,92 @@ const ItemSheet = {
   </div>`,
 };
 
+// ------------------------------------------------------------------ design system reference (/atelier/ds)
+const DS_COLORS = [
+  ["--primary", "الرئيسي"], ["--primary-weak", "الرئيسي الفاتح"], ["--accent", "علامة (ليموني)"], ["--nav-bg", "القائمة"],
+  ["--ink", "النص"], ["--ink-3", "النص الثانوي"], ["--bg", "الخلفية"], ["--line", "الحدود"],
+  ["--success", "نجاح"], ["--warning", "تحذير"], ["--danger", "خطر"], ["--info", "معلومة"],
+];
+const StyleGuide = {
+  components: { Icon },
+  setup() {
+    const css = getComputedStyle(document.documentElement);
+    const colors = DS_COLORS.map(([v, l]) => ({ v, l, hex: css.getPropertyValue(v).trim() }));
+    const seg = ref("Individual"), chip = ref("all"), check = ref(true);
+    return { colors, seg, chip, check, t, money };
+  },
+  template: `
+  <div class="page">
+    <div class="page-head"><div><h1>{{ t('ds_title') }}</h1><div class="sub">{{ t('ds_sub') }}</div></div></div>
+    <div class="stack" style="gap:var(--s5)">
+      <section class="card"><div class="card-h"><h2>{{ t('ds_colors') }}</h2></div><div class="card-b">
+        <div class="ds-swatches"><div v-for="c in colors" :key="c.v" class="ds-swatch">
+          <div class="chip-color" :style="{background: 'var(' + c.v + ')'}"></div>
+          <div class="lbl"><div class="medium">{{ c.l }}</div><div class="cap num" dir="ltr">{{ c.hex }}</div></div></div></div>
+      </div></section>
+
+      <section class="card"><div class="card-h"><h2>{{ t('ds_type') }}</h2></div><div class="card-b ds-type">
+        <h1>كل طلب، في وقته. — 26</h1><h2>عنوان قسم — 17</h2>
+        <p style="font-size:var(--fs-body)">نص أساسي — 15. الخط IBM Plex Sans Arabic بثلاثة أوزان.</p>
+        <p style="font-size:var(--fs-table)">نص الجداول — 14</p><p class="meta">نص ثانوي — 13</p><p class="cap">تعليق — 12</p>
+        <p><span class="money big">28,000.00 دج</span> · {{ t('ds_money_rule') }}</p>
+      </div></section>
+
+      <section class="card"><div class="card-h"><h2>{{ t('ds_buttons') }}</h2></div><div class="card-b stack">
+        <div class="ds-row">
+          <button type="button" class="btn primary"><Icon name="plus" :size="18"/>طلب جديد</button>
+          <button type="button" class="btn">تسجيل دفعة</button>
+          <button type="button" class="btn ghost">إلغاء</button>
+          <button type="button" class="btn sm">زر صغير</button>
+          <button type="button" class="btn primary" disabled>غير متاح</button>
+          <button type="button" class="btn ghost icon-btn" aria-label="حذف"><Icon name="trash" :size="18"/></button>
+        </div>
+      </div></section>
+
+      <section class="card"><div class="card-h"><h2>{{ t('ds_inputs') }}</h2></div><div class="card-b">
+        <div class="grid-2">
+          <div class="field"><label for="ds-a" class="req">اسم العميل</label><input id="ds-a" class="input" placeholder="مثال: مؤسسة النور"></div>
+          <div class="field"><label for="ds-b">المبلغ (دج)</label><input id="ds-b" class="input num" inputmode="decimal" placeholder="0.00"></div>
+          <div class="field"><label for="ds-c">حقل خاطئ</label><input id="ds-c" class="input invalid" aria-invalid="true" value="—"><span class="error-text">اكتب اسم العميل</span></div>
+          <div class="field"><label for="ds-d">قائمة</label><select id="ds-d" class="input"><option>نقدًا</option><option>تحويل بنكي</option></select></div>
+        </div>
+        <div class="ds-row" style="margin-top:var(--s4)">
+          <div class="seg" role="group" aria-label="النوع"><button type="button" :aria-pressed="seg==='Individual'" @click="seg='Individual'">فرد</button><button type="button" :aria-pressed="seg==='Company'" @click="seg='Company'">مؤسسة</button></div>
+          <div class="chips" role="group" aria-label="تصفية"><button v-for="c in [['all','الكل 7'],['late','متأخرة 1'],['soon','خلال 3 أيام 3']]" :key="c[0]" type="button" class="chip" :aria-pressed="chip===c[0]" @click="chip=c[0]">{{ c[1] }}</button></div>
+          <label class="check"><input type="checkbox" v-model="check">خانة اختيار</label>
+        </div>
+      </div></section>
+
+      <section class="card"><div class="card-h"><h2>{{ t('ds_status') }}</h2></div><div class="card-b stack">
+        <div class="ds-row">
+          <span class="badge b-success"><Icon name="check" :size="13"/>مدفوع</span>
+          <span class="badge b-warning"><Icon name="tag" :size="13"/>بانتظار التسعير</span>
+          <span class="badge b-danger"><Icon name="alert" :size="13"/>متأخر</span>
+          <span class="badge b-info"><Icon name="invoice" :size="13"/>مفوتر جزئيًا</span>
+          <span class="badge b-neutral">مسودة</span>
+        </div>
+        <div class="alert info"><Icon name="alert" :size="16"/><span>معلومة: التسبيق ليس ربحًا.</span></div>
+        <div class="alert warn"><Icon name="tag" :size="16"/><span>تنبيه: الإجمالي النهائي لم يكتمل.</span></div>
+        <div class="alert error"><Icon name="alert" :size="16"/><span>خطأ: راجع الحقول المشار إليها.</span></div>
+        <div class="alert success"><Icon name="check" :size="16"/><span>تم: حُفظ الطلب.</span></div>
+        <p class="hint">{{ t('ds_status_rule') }}</p>
+      </div></section>
+
+      <section class="card"><div class="card-h"><h2>{{ t('ds_data') }}</h2></div>
+        <div class="card-b"><div class="kpis static">
+          <div class="kpi"><span class="k-label">السيولة الآن</span><span class="k-value money">{{ money(74800) }}</span><span class="k-hint">الصندوق والبنك</span></div>
+          <div class="kpi tone-danger"><span class="k-label">مستحقات العملاء</span><span class="k-value money">{{ money(18000) }}</span><span class="k-hint">فواتير لم تُدفع</span></div>
+        </div></div>
+        <div class="table-wrap"><table class="t">
+          <thead><tr><th>الطلب</th><th>المرحلة</th><th class="n">المبلغ</th></tr></thead>
+          <tbody><tr><td><div class="medium">500 بطاقة زيارة</div><div class="cap">مؤسسة النور</div></td><td><span class="badge b-info">طباعة</span></td><td class="n"><span class="money">{{ money(8000) }}</span></td></tr>
+            <tr><td><div class="medium">لافتة 3×1 م</div><div class="cap">مخبزة السعادة</div></td><td><span class="badge b-danger">متأخر</span></td><td class="n"><span class="money">{{ money(18000) }}</span></td></tr></tbody>
+        </table></div>
+      </section>
+    </div>
+  </div>`,
+};
+
 // ------------------------------------------------------------------ more (phone)
 const MorePage = {
   components: { Icon },
@@ -1728,7 +1814,6 @@ const MorePage = {
     <section class="card"><div class="list">
       <a v-for="n in SECTION_NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="list-item" :href="'/atelier'+n.path" @click.prevent="go(n.path)"><Icon :name="n.icon" class="muted"/>
         <span class="main-col"><span class="medium">{{ t(n.label) }}</span></span><Icon name="chev" :size="16" class="muted"/></a>
-      <a class="list-item" href="/app"><Icon name="ext" class="muted"/><span class="main-col"><span class="medium">{{ t('nav_erpnext') }}</span></span></a>
     </div></section></div>`,
 };
 
@@ -1882,7 +1967,7 @@ const SECTION_NAV = [
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, StyleGuide },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -1907,7 +1992,7 @@ const App = {
   <div v-else class="shell" :class="{editing: state.editing}">
     <a href="#main" class="skip">{{ t('skip') }}</a>
     <nav class="sidebar" :class="{collapsed: state.collapsed}" :aria-label="t('app_name')">
-      <div class="brand"><img src="/assets/atelier/atelier/icon.svg" alt=""><span class="name">{{ t('app_name') }}</span>
+      <div class="brand"><img src="/assets/atelier/atelier/icon.svg" alt=""><span class="name">{{ t('app_name') }}<small>{{ t('app_tagline') }}</small></span>
         <button type="button" class="btn ghost sm icon-btn collapse-btn" :aria-label="state.collapsed ? t('expand') : t('collapse')" :title="state.collapsed ? t('expand') : t('collapse')"
           :aria-expanded="!state.collapsed" @click="state.collapsed=!state.collapsed"><Icon name="panel" :size="18"/></button></div>
       <div class="group">{{ t('nav_group_daily') }}</div>
@@ -1918,7 +2003,6 @@ const App = {
       <a v-for="n in SECTION_NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null" :title="state.collapsed ? t(n.label) : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
-      <a class="nav" href="/app" :title="state.collapsed ? t('nav_erpnext') : null"><Icon name="ext"/><span class="lbl">{{ t('nav_erpnext') }}</span></a>
       <div class="cap who" style="padding:6px 12px">{{ state.boot.full_name }}</div>
     </nav>
 
@@ -1950,6 +2034,7 @@ const App = {
         <ReportsPage v-else-if="route.name==='reports'"/>
         <MorePage v-else-if="route.name==='more'"/>
         <PricesPage v-else-if="route.name==='prices'"/>
+        <StyleGuide v-else-if="route.name==='ds'"/>
       </main>
     </div>
 
