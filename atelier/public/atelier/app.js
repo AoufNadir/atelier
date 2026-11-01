@@ -134,7 +134,7 @@ const route = computed(() => {
   if ((m = p.match(/^\/orders\/(.+)$/))) return { name: "order", id: decodeURIComponent(m[1]) };
   if (p === "/customers") return { name: "customers" };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
-  if (["/money", "/stock", "/machines", "/reports", "/more", "/prices", "/ds"].includes(p)) return { name: p.slice(1) };
+  if (["/money", "/stock", "/machines", "/reports", "/more", "/prices", "/team", "/ds"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
@@ -412,6 +412,13 @@ const dueText = (o) => {
 // Who handles the current step: a person in-house, or the supplier for an external step.
 const stepWho = (o) => (o.step ? (o.step.mode === "خارجي" ? (o.step.supplier_name || o.step.supplier || "مورد") : (o.step.owner || "—")) : "—");
 const stepLabel = (o) => (o.step ? o.step.kind : o.atelier_stage);
+// The three quick tags have fixed colours; any other tag is neutral.
+const QUICK_TAGS = [["عاجل", "urgent"], ["مهم", "important"], ["في انتظار موافقة العميل", "wait"]];
+const tagTone = (tg) => (QUICK_TAGS.find((q) => q[0] === tg) || [])[1] || "";
+const tagRank = (o) => ((o.tags || []).includes("عاجل") ? 0 : (o.tags || []).includes("مهم") ? 1 : 2);
+// Where the order is, whatever its steps are called: at the workshop, at a supplier, or ready.
+const phaseOf = (o) => (["جاهز للتسليم", "سُلّم"].includes(o.atelier_stage) ? "ready" : o.step && o.step.mode === "خارجي" ? "ext" : "work");
+const PHASE_TABS = [["work", "قيد التنفيذ", (o) => phaseOf(o) === "work"], ["ext", "عند مورد", (o) => phaseOf(o) === "ext"], ["ready", "جاهز للتسليم", (o) => phaseOf(o) === "ready"]];
 const fig = (v) => `${LRI}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(+v || 0))}${PDI}`;
 
 const Home = {
@@ -421,12 +428,12 @@ const Home = {
     onMounted(load);
     const tab = ref("all"), scope = ref("all"), selected = ref(null), detail = ref(null);
     const orders = computed(() => (s.data?.orders || []).slice().sort((a, b) => (a.delivery_date || "9").localeCompare(b.delivery_date || "9")));
-    const TABS = [["all", "الكل", () => true], ["design", "تصميم", (o) => STAGE_TONE[o.atelier_stage] === "design"],
-      ["make", "طباعة وتشطيب", (o) => ["print", "finish"].includes(STAGE_TONE[o.atelier_stage])], ["ready", "جاهز للتسليم", (o) => STAGE_TONE[o.atelier_stage] === "ready"]];
+    const TABS = [["all", "الكل", () => true], ...PHASE_TABS];
     const counts = computed(() => Object.fromEntries(TABS.map(([k, , fn]) => [k, orders.value.filter(fn).length])));
     const shown = computed(() => {
       const fn = TABS.find((x) => x[0] === tab.value)[2];
-      return orders.value.filter(fn).filter((o) => scope.value === "all" || (o.delivery_date && daysFromToday(o.delivery_date) <= 0));
+      return orders.value.filter(fn).filter((o) => scope.value === "all" || (o.delivery_date && daysFromToday(o.delivery_date) <= 0))
+        .map((o, i) => [o, i]).sort((a, b) => tagRank(a[0]) - tagRank(b[0]) || a[1] - b[1]).map((x) => x[0]);
     });
     const late = computed(() => orders.value.filter((o) => dueText(o).late));
     const soon = computed(() => orders.value.filter((o) => o.delivery_date && [0, 1].includes(daysFromToday(o.delivery_date))));
@@ -448,7 +455,7 @@ const Home = {
     const ACTION_ICON = { late: "alert", overdue: "invoice", price: "tag", invoice: "invoice", supplier: "out", stock: "box" };
     const ACTION_BTN = { late: "مراجعة الطلب", overdue: "تسجيل دفعة", price: "تسعير", invoice: "فوترة", supplier: "مراجعة", stock: "تجديد المخزون" };
     return { s, load, tab, scope, TABS, counts, shown, late, soon, pick, selected, sel, detail, step, STEPS, nextStep, firstItem, actions, m,
-      greet, today, monthLabel, open, dueText, thumbTone, darkTone, firstName, STAGE_TONE, ACTION_ICON, ACTION_BTN, fig, money, num, plain, t, go, state, stepWho, stepLabel };
+      greet, today, monthLabel, open, dueText, thumbTone, darkTone, firstName, STAGE_TONE, ACTION_ICON, ACTION_BTN, fig, money, num, plain, t, go, state, stepWho, stepLabel, tagTone };
   },
   template: `
   <div class="page ws">
@@ -492,7 +499,7 @@ const Home = {
           <button v-for="o in shown" :key="o.name" type="button" class="ws-tr" :class="{sel: o.name===selected}" @click="pick(o)" @dblclick="open(o)">
             <span class="ws-order">
               <span class="ws-thumb" :style="{background: thumbTone(o.customer_name), color: darkTone(thumbTone(o.customer_name)) ? '#fff' : '#2B2B2B'}">{{ firstName(o.customer_name).slice(0, 5) }}</span>
-              <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span><span v-for="tg in o.tags" :key="tg" class="tag-chip">{{ tg }}</span></span></span>
+              <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span><span v-for="tg in o.tags" :key="tg" :class="['tag-chip', 'tg-' + tagTone(tg)]">{{ tg }}</span></span></span>
             </span>
             <span><span class="ws-stage" :class="'st-' + (STAGE_TONE[o.atelier_stage] || 'design')"><i></i>{{ stepLabel(o) }}</span><span v-if="o.step && o.step.mode==='خارجي'" class="ext-tag">خارجي</span></span>
             <span :class="{'ws-late': dueText(o).late}">{{ dueText(o).text }}</span>
@@ -588,8 +595,8 @@ const OrdersPage = {
         unbilled: `${fig(sum)} دج`, collect: `على ${new Set(l.map((o) => o.customer)).size} عميل` }[k];
       return { k, label, n: l.length, value: k === "collect" ? `${fig(sum)}` : String(l.length), money: k === "collect", sub, tone: { late: "bad", pending: "warn", collect: "bad" }[k] || "" };
     }));
-    const STAGE_CHIPS = [["all", "كل المراحل", () => true], ["design", "تصميم", (o) => STAGE_TONE[o.atelier_stage] === "design"],
-      ["make", "طباعة وتشطيب", (o) => ["print", "finish"].includes(STAGE_TONE[o.atelier_stage])], ["ready", "جاهز للتسليم", (o) => STAGE_TONE[o.atelier_stage] === "ready"]];
+    const STAGE_CHIPS = [["all", "كل المراحل", () => true], ...PHASE_TABS,
+      ...QUICK_TAGS.map(([tg]) => ["tag:" + tg, tg, (o) => (o.tags || []).includes(tg)])];
     const byCard = computed(() => base.value.filter(CARDS.find((c) => c[0] === card.value)[2]));
     const stageCounts = computed(() => Object.fromEntries(STAGE_CHIPS.map(([k, , fn]) => [k, byCard.value.filter(fn).length])));
     const shown = computed(() => {
@@ -613,7 +620,7 @@ const OrdersPage = {
       a.download = `الطلبات-${todayISO()}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     }
     return { s, load, closed, view, card, cards, stage, STAGE_CHIPS, stageCounts, customer, customers, period, PERIODS, shown, total, sortBy, arrow, board,
-      open, exportCsv, dueText, billState, payState, thumbTone, darkTone, firstName, STAGE_TONE, money, fig, t, go, stepWho, stepLabel };
+      open, exportCsv, dueText, billState, payState, thumbTone, darkTone, firstName, STAGE_TONE, money, fig, t, go, stepWho, stepLabel, tagTone };
   },
   template: `
   <div class="page ws">
@@ -665,7 +672,7 @@ const OrdersPage = {
         <a v-for="o in shown" :key="o.name" class="op-tr" :href="'/atelier/orders/'+o.name" @click.prevent="open(o)">
           <span class="ws-order">
             <span class="ws-thumb" :style="{background: thumbTone(o.customer_name), color: darkTone(thumbTone(o.customer_name)) ? '#fff' : '#2B2B2B'}">{{ firstName(o.customer_name).slice(0, 5) }}</span>
-            <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span><span v-for="tg in o.tags" :key="tg" class="tag-chip">{{ tg }}</span></span></span>
+            <span class="ws-order-txt"><span class="ws-order-name">{{ o.atelier_subject || o.name }}</span><span class="ws-order-meta">{{ o.customer_name }} · <span class="num">#{{ o.name.split('-').pop() }}</span><span v-for="tg in o.tags" :key="tg" :class="['tag-chip', 'tg-' + tagTone(tg)]">{{ tg }}</span></span></span>
           </span>
           <span><span class="ws-stage" :class="'st-' + (STAGE_TONE[o.atelier_stage] || 'design')"><i></i>{{ stepLabel(o) }}</span><span v-if="o.step && o.step.mode==='خارجي'" class="ext-tag">خارجي</span></span>
           <span :class="{'ws-late': dueText(o).late}">{{ dueText(o).text }}</span>
@@ -1034,7 +1041,7 @@ const OrderView = {
       const paid = o.per_billed >= 100 && o.outstanding < 0.01;
       const production = steps.value.length
         ? steps.value.map((st) => ({ key: "step:" + st.name, step: st, label: st.kind, done: confirmed && (st.done || o.per_delivered >= 100),
-            hint: st.mode === "خارجي" ? "عند " + (st.supplier_name || "مورد") : (st.owner || "داخلي") }))
+            hint: st.mode === "خارجي" ? "عند " + (st.supplier_name || "مورد") : (st.owner || "بلا مسؤول") }))
         : [{ key: "design", label: "تصميم", done: confirmed && prodStep.value >= 1 }, { key: "make", label: "طباعة وتشطيب", done: confirmed && made }];
       return [
         { key: "confirm", label: "مسعّر ومعتمد", done: confirmed },
@@ -1045,6 +1052,18 @@ const OrderView = {
       ];
     });
     const current = computed(() => track.value.find((x) => !x.done)?.key || "done");
+    // The track on screen is production only; paperwork shows as small badges beside it.
+    const prodTrack = computed(() => track.value.filter((x) => x.step || ["design", "make"].includes(x.key)));
+    const badges = computed(() => {
+      const o = d.value; if (!o.name) return [];
+      const paid = o.per_billed >= 100 && o.outstanding < 0.01;
+      return [
+        o.docstatus === 1 ? { text: "✓ معتمد", cls: "ok" } : { text: "غير معتمد بعد", cls: "warn" },
+        o.per_delivered >= 100 ? { text: "✓ سُلّم", cls: "ok" } : o.per_delivered > 0 ? { text: "سُلّم جزئيًا", cls: "warn" } : { text: "لم يُسلَّم", cls: "" },
+        o.per_billed >= 100 ? { text: "✓ مفوتر", cls: "ok" } : o.per_billed > 0 ? { text: "فوترة جزئية", cls: "warn" } : { text: "بلا فاتورة", cls: "" },
+        paid ? { text: "✓ مدفوع", cls: "ok" } : o.paid > 0 ? { text: "دفع جزئي", cls: "warn" } : { text: "لم يدفع", cls: "" },
+      ];
+    });
     const curStep = computed(() => track.value.find((x) => x.key === current.value)?.step);
     const next = computed(() => {
       const o = d.value;
@@ -1095,15 +1114,16 @@ const OrderView = {
     // step editor
     const editing = ref(null);
     const editSteps = () => { editing.value = steps.value.map((x) => ({ name: x.name, kind: x.kind, mode: x.mode, supplier: x.supplier || "", owner: x.owner || "", done: x.done, locked: x.done || !!x.po }));
-      if (!editing.value.length) editing.value.push({ kind: "تصميم", mode: "داخلي", supplier: "", owner: "" }); panel.value = "steps"; };
-    const addStep = () => editing.value.push({ kind: "طباعة رقمية", mode: "داخلي", supplier: "", owner: "" });
+      if (!editing.value.length) editing.value.push({ kind: "", mode: "داخلي", supplier: "", owner: "" }); panel.value = "steps"; };
+    const addStep = () => editing.value.push({ kind: "", mode: "داخلي", supplier: "", owner: "" });
     const moveStep = (i, dir) => { const l = editing.value, j = i + dir; if (j < 0 || j >= l.length) return; [l[i], l[j]] = [l[j], l[i]]; };
-    const saveSteps = () => run("steps", async () => { await call("save_steps", { name: props.id, steps: JSON.stringify(editing.value) }, true); toast("حُفظت المراحل"); });
+    const saveSteps = () => editing.value.some((x) => !x.kind.trim()) ? (actionError.value = "اكتب اسم كل مرحلة") : run("steps", async () => { await call("save_steps", { name: props.id, steps: JSON.stringify(editing.value) }, true); toast("حُفظت المراحل"); });
     // tags
     const newTag = ref("");
     const saveTags = (tags) => run("tags", async () => { await call("set_tags", { name: props.id, tags: JSON.stringify(tags) }, true); });
     const addTag = () => { const v = newTag.value.trim(); if (v && !(d.value.tags || []).includes(v)) saveTags([...(d.value.tags || []), v]); newTag.value = ""; };
     const removeTag = (tg) => saveTags((d.value.tags || []).filter((x) => x !== tg));
+    const toggleTag = (tg) => ((d.value.tags || []).includes(tg) ? removeTag(tg) : saveTags([...(d.value.tags || []), tg]));
     const setStage = (stage) => run("stage", async () => { await call("set_stage", { name: props.id, stage }, true); toast(t("ov_stage_saved")); });
     const savePrices = () => {
       const payload = Object.fromEntries(pendingRows.value.filter((i) => rates[i.row] !== undefined && rates[i.row] !== "").map((i) => [i.row, +rates[i.row]]));
@@ -1122,7 +1142,7 @@ const OrderView = {
     const unbilled = computed(() => Math.max(0, (d.value.grand_total || 0) * (1 - (d.value.per_billed || 0) / 100)));
     const paidPct = computed(() => (d.value.grand_total ? Math.min(100, Math.round((d.value.paid / d.value.grand_total) * 100)) : 0));
     const DOC_ICON = { "Delivery Note": "truck", "Sales Invoice": "invoice", "Payment Entry": "in" };
-    return { steps, curStep, poCost, orderSupplier, editing, editSteps, addStep, moveStep, saveSteps, newTag, addTag, removeTag,
+    return { steps, curStep, poCost, orderSupplier, editing, editSteps, addStep, moveStep, saveSteps, newTag, addTag, removeTag, toggleTag, QUICK_TAGS, tagTone, prodTrack, badges,
       s, load, d, track, current, next, others, busy, panel, rates, qtys, actionError, pendingRows, toDeliver, unbilled, paidPct,
       savePrices, deliver, invoice, setStage, pdfUrl, DOC_ICON, DT_KEY, thumbTone, darkTone, firstName, uom, t, money, num, date, go, state, plain };
   },
@@ -1135,17 +1155,26 @@ const OrderView = {
       <span class="ws-thumb ov-thumb" :style="{background: thumbTone(d.customer_name), color: darkTone(thumbTone(d.customer_name)) ? '#fff' : '#2B2B2B'}">{{ firstName(d.customer_name).slice(0, 5) }}</span>
       <div class="ov-head-txt"><h1 class="ws-title ov-title">{{ d.atelier_subject || d.name }}</h1>
         <div class="ws-sub"><a :href="'/atelier/customers/'+d.customer" @click.prevent="go('/customers/'+encodeURIComponent(d.customer))">{{ d.customer_name }}</a> · طلب <span class="num">#{{ d.name.split('-').pop() }}</span> · سُجّل {{ date(d.transaction_date) }}</div>
-        <div class="tags-row"><span v-for="tg in d.tags" :key="tg" class="tag-chip lg">{{ tg }}<button type="button" :aria-label="'إزالة الوسم ' + tg" @click="removeTag(tg)">×</button></span>
-          <form v-if="d.can.edit" class="tag-add" @submit.prevent="addTag"><label class="sr-only" for="tag-new">وسم جديد</label>
-            <input id="tag-new" class="input" v-model="newTag" list="tag-list" placeholder="+ وسم (عاجل، عميل مهم…)"><datalist id="tag-list"><option v-for="tg in state.boot.tags" :key="tg" :value="tg"></option><option value="عاجل"></option><option value="عميل مهم"></option><option value="ينتظر ملفات"></option></datalist></form></div></div>
+        <div class="tags-row">
+          <template v-for="q in QUICK_TAGS" :key="q[0]">
+            <button v-if="d.can.edit" type="button" class="qtag" :class="['tg-' + q[1], {on: (d.tags||[]).includes(q[0])}]" :aria-pressed="(d.tags||[]).includes(q[0])" :disabled="!!busy" @click="toggleTag(q[0])">{{ (d.tags||[]).includes(q[0]) ? '✓ ' : '' }}{{ q[0] }}</button>
+            <span v-else-if="(d.tags||[]).includes(q[0])" class="tag-chip lg" :class="'tg-' + q[1]">{{ q[0] }}</span>
+          </template>
+          <span v-for="tg in (d.tags||[]).filter(x => !tagTone(x))" :key="tg" class="tag-chip lg">{{ tg }}<button v-if="d.can.edit" type="button" :aria-label="'إزالة الوسم ' + tg" @click="removeTag(tg)">×</button></span>
+          <form v-if="d.can.edit" class="tag-add" @submit.prevent="addTag"><label class="sr-only" for="tag-new">وسم آخر</label>
+            <input id="tag-new" class="input" v-model="newTag" list="tag-list" placeholder="+ وسم آخر"><datalist id="tag-list"><option v-for="tg in state.boot.tags.filter(x => !tagTone(x))" :key="tg" :value="tg"></option></datalist></form></div></div>
       <a class="btn ws-btn" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, d.print_format)"><Icon name="file" :size="18"/>بون الطلب PDF</a>
     </div>
 
     <section class="ov-track-card" aria-label="أين الطلب الآن">
+      <div class="ov-track-head"><span class="ov-h">مراحل الإنتاج</span>
+        <button v-if="d.can.edit && d.project" type="button" class="btn sm ghost" @click="editSteps"><Icon name="edit" :size="16"/>تعديل المراحل</button>
+        <span class="spacer"></span><span v-for="b in badges" :key="b.text" class="ov-badge" :class="b.cls">{{ b.text }}</span></div>
       <ol class="ov-track">
-        <li v-for="(st, i) in track" :key="st.key" :class="{done: st.done, cur: st.key===current}">
+        <li v-for="(st, i) in prodTrack" :key="st.key" :class="{done: st.done, cur: st.key===current}">
           <span class="ov-dot">{{ st.done ? '✓' : i + 1 }}</span><span class="ov-step-l">{{ st.label }}</span>
-          <span class="ov-step-h">{{ st.key===current ? 'الآن' : (st.hint || '') }}</span>
+          <span v-if="st.hint" class="ov-step-who" :class="{ext: st.step && st.step.mode==='خارجي', none: st.hint==='بلا مسؤول'}">{{ st.hint }}</span>
+          <span v-if="st.key===current" class="ov-step-h">الآن</span>
         </li>
       </ol>
       <div v-if="actionError" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ actionError }}</span></div>
@@ -1173,15 +1202,17 @@ const OrderView = {
         <span class="strong">مراحل إنتاج هذا الطلب</span>
         <div v-for="(st, i) in editing" :key="i" class="step-row">
           <span class="step-n" :class="{opt: st.done}">{{ st.done ? '✓' : i + 1 }}</span>
-          <select class="input" v-model="st.kind" :disabled="st.locked" :aria-label="'نوع المرحلة ' + (i+1)"><option v-for="k in state.boot.step_kinds" :key="k" :value="k">{{ k }}</option></select>
+          <input class="input" v-model="st.kind" list="kind-list" :disabled="st.locked" :aria-label="'اسم المرحلة ' + (i+1)" placeholder="اسم المرحلة (مثلًا: طباعة UV)">
           <div class="seg" role="group" :aria-label="'مكان التنفيذ ' + (i+1)"><button v-for="m in state.boot.step_modes" :key="m" type="button" :disabled="st.locked" :aria-pressed="st.mode===m" @click="st.mode=m">{{ m }}</button></div>
           <select v-if="st.mode==='خارجي'" class="input" v-model="st.supplier" :disabled="st.locked" :aria-label="'المورد ' + (i+1)"><option value="">اختر المورد…</option><option v-for="sp in state.boot.suppliers" :key="sp.name" :value="sp.name">{{ sp.supplier_name }}</option></select>
-          <input v-else class="input" v-model="st.owner" list="team-list" :aria-label="'المسؤول ' + (i+1)" placeholder="المسؤول">
+          <select v-else class="input" v-model="st.owner" :aria-label="'المسؤول ' + (i+1)"><option value="">المسؤول…</option>
+            <option v-if="st.owner && !state.boot.team.includes(st.owner)" :value="st.owner">{{ st.owner }}</option><option v-for="p in state.boot.team" :key="p" :value="p">{{ p }}</option></select>
           <span class="step-tools"><button type="button" class="btn sm ghost icon-btn" :aria-label="'تقديم ' + st.kind" @click="moveStep(i, -1)"><Icon name="up" :size="16"/></button>
             <button type="button" class="btn sm ghost icon-btn" :aria-label="'تأخير ' + st.kind" @click="moveStep(i, 1)"><Icon name="down" :size="16"/></button>
             <button v-if="!st.locked" type="button" class="btn sm ghost icon-btn danger" :aria-label="'حذف ' + st.kind" @click="editing.splice(i, 1)"><Icon name="trash" :size="16"/></button></span>
         </div>
-        <datalist id="team-list"><option v-for="p in state.boot.team" :key="p" :value="p"></option></datalist>
+        <datalist id="kind-list"><option v-for="k in state.boot.step_kinds" :key="k" :value="k"></option></datalist>
+        <span v-if="!state.boot.team.length" class="hint">لا أحد في الفريق بعد. <a href="/atelier/team" @click.prevent="go('/team')">أضف أسماء الفريق</a> لتختار المسؤول.</span>
         <div class="row wrap" style="gap:8px"><button type="button" class="btn chip dashed" @click="addStep">+ إضافة مرحلة</button><span class="spacer"></span>
           <button type="button" class="btn ghost" @click="panel=null">{{ t('close') }}</button><button type="button" class="btn primary" :disabled="!!busy" @click="saveSteps">{{ busy==='steps' ? t('of_saving') : 'حفظ المراحل' }}</button></div>
         <span class="hint">المرحلة الخارجية تُرسل كطلب شراء للمورد، وتكلفتها تُحسب في ربح الطلب. المراحل المنتهية لا تُحذف.</span>
@@ -1203,12 +1234,8 @@ const OrderView = {
         <div class="row" style="gap:8px"><button type="button" class="btn primary" :disabled="!!busy" @click="invoice">{{ busy==='invoice' ? t('of_saving') : t('cy_invoice_do') }}</button>
           <button type="button" class="btn ghost" @click="panel=null">{{ t('close') }}</button></div>
       </div>
-      <div v-if="others.length || d.can.edit" class="ov-others">
-        <template v-if="others.length">أعمال أخرى متاحة الآن:
-          <template v-for="(o, i) in others" :key="o.label"><span v-if="i"> · </span><a href="#" @click.prevent="o.act">{{ o.label }}</a></template></template>
-        <span class="spacer"></span>
-        <button v-if="d.can.edit && d.project" type="button" class="btn sm" @click="editSteps"><Icon name="edit" :size="16"/>تعديل المراحل</button>
-      </div>
+      <details v-if="others.length" class="ov-more"><summary class="btn sm">⋯ إجراءات أخرى</summary>
+        <div class="ov-more-menu"><button v-for="o in others" :key="o.label" type="button" class="btn sm ghost" @click="o.act">{{ o.label }}</button></div></details>
     </section>
 
     <div class="ws-grid">
@@ -1232,13 +1259,13 @@ const OrderView = {
           <span v-if="d.price_pending" class="why">{{ t('why_remaining') }}</span>
           <span v-else class="money" :class="{'ws-late': d.grand_total - d.paid > 0.005}">{{ money(Math.max(0, d.grand_total - d.paid)) }}</span></div>
         <div class="ws-order-meta">{{ d.per_billed >= 100 ? 'فُوتر بالكامل' : d.per_billed > 0 ? 'فُوتر جزئيًا' : 'لم تُصدر فاتورة بعد' }}<template v-if="d.project && state.boot.can.finance"> · <a href="/atelier/reports" @click.prevent="go('/reports')">ربحية الطلب</a></template></div>
-        <h2 class="ov-h" style="margin-top:var(--s4)">الوثائق</h2>
+        <details class="ov-docs"><summary class="ov-h">الوثائق <span class="ov-docs-n num">{{ d.docs.length + 1 }}</span></summary>
         <div class="ov-doc"><span class="ws-order-txt"><span class="strong">بون الطلب</span><span class="ws-order-meta num">#{{ d.name.split('-').pop() }} · {{ date(d.transaction_date) }}</span></span>
           <a class="btn sm" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, d.print_format)">PDF</a></div>
         <div v-for="dc in d.docs" :key="dc.name" class="ov-doc"><span class="ws-order-txt"><span class="strong">{{ t(DT_KEY[dc.doctype]) }}</span>
           <span class="ws-order-meta"><span class="num">{{ dc.name }}</span> · {{ date(dc.posting_date) }}<template v-if="dc.doctype==='Sales Invoice'"> · {{ dc.outstanding_amount>0.005 ? 'باقي ' + money(dc.outstanding_amount) : 'مدفوعة' }}</template><template v-else-if="dc.paid_amount"> · {{ money(dc.paid_amount) }}</template></span></span>
           <a class="btn sm" target="_blank" rel="noopener" :href="pdfUrl(dc.doctype, dc.name, d.print_format)">PDF</a></div>
-        <div v-if="!d.docs.length" class="ws-order-meta">بون التسليم والفاتورة ووصل الدفع تظهر هنا عند إنشائها.</div>
+        <div v-if="!d.docs.length" class="ws-order-meta">بون التسليم والفاتورة ووصل الدفع تظهر هنا عند إنشائها.</div></details>
       </aside>
     </div>
     </template>
@@ -2058,6 +2085,40 @@ const ItemSheet = {
   </div>`,
 };
 
+// ------------------------------------------------------------------ team (/atelier/team)
+const TeamPage = {
+  components: { Icon },
+  setup() {
+    const rows = ref((state.boot.team_members || []).map((m) => ({ ...m })));
+    const saving = ref(false), err = ref(null);
+    if (!rows.value.length) rows.value.push({ name: "", role: "" });
+    const save = async () => {
+      saving.value = true; err.value = null;
+      try {
+        const out = await call("save_team", { members: JSON.stringify(rows.value.filter((r) => r.name.trim())) }, true);
+        state.boot.team_members = out; state.boot.team = out.map((m) => m.name);
+        rows.value = out.map((m) => ({ ...m })); toast("حُفظ الفريق");
+      } catch (e) { err.value = e.message; } finally { saving.value = false; }
+    };
+    return { rows, saving, err, save, t };
+  },
+  template: `
+  <div class="page">
+    <div class="page-head"><div><h1>الفريق</h1><div class="sub">من يعمل في الورشة. تختار منهم مسؤول كل مرحلة داخلية.</div></div></div>
+    <div class="card team-card">
+      <div v-for="(r, i) in rows" :key="i" class="team-row">
+        <input class="input" v-model="r.name" :aria-label="'الاسم ' + (i+1)" placeholder="الاسم">
+        <input class="input" v-model="r.role" list="role-list" :aria-label="'الدور ' + (i+1)" placeholder="الدور (مصمم، طابع…)">
+        <button type="button" class="btn sm ghost icon-btn danger" :aria-label="'حذف ' + (r.name || 'السطر')" @click="rows.splice(i, 1)"><Icon name="trash" :size="16"/></button>
+      </div>
+      <datalist id="role-list"><option value="مصمم"></option><option value="طابع"></option><option value="تشطيب"></option><option value="تركيب"></option><option value="استقبال"></option></datalist>
+      <div v-if="err" class="alert error" role="alert">{{ err }}</div>
+      <div class="row" style="gap:8px"><button type="button" class="btn chip dashed" @click="rows.push({name:'', role:''})">+ إضافة شخص</button><span class="spacer"></span>
+        <button type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? t('of_saving') : 'حفظ' }}</button></div>
+    </div>
+  </div>`,
+};
+
 // ------------------------------------------------------------------ design system reference (/atelier/ds)
 const DS_COLORS = [
   ["--primary", "الرئيسي"], ["--primary-weak", "الرئيسي الفاتح"], ["--accent", "علامة (ليموني)"], ["--nav-bg", "القائمة"],
@@ -2302,10 +2363,11 @@ const SECTION_NAV = [
   { key: "machines", path: "/machines", icon: "gear", label: "nav_machines", match: ["machines"] },
   { key: "prices", path: "/prices", icon: "tag", label: "nav_prices", match: ["prices"], need: "prices" },
   { key: "reports", path: "/reports", icon: "chart", label: "nav_reports", match: ["reports"], need: "finance" },
+  { key: "team", path: "/team", icon: "users", label: "nav_team", match: ["team"] },
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, StyleGuide },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -2321,7 +2383,7 @@ const App = {
     });
     const isActive = (n) => n.match.includes(route.value.name);
     const titles = { ds: "ds_title", "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
-      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices" };
+      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
     const initials = (n) => String(n || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join(" ");
     return { state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials };
@@ -2371,6 +2433,7 @@ const App = {
         <ReportsPage v-else-if="route.name==='reports'"/>
         <MorePage v-else-if="route.name==='more'"/>
         <PricesPage v-else-if="route.name==='prices'"/>
+        <TeamPage v-else-if="route.name==='team'"/>
         <StyleGuide v-else-if="route.name==='ds'"/>
       </main>
     </div>

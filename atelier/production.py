@@ -107,7 +107,7 @@ def sync_stage(so):
 		stage = "سُلّم"
 	else:
 		todo = [s for s in steps if s.status != "Completed"]
-		stage = KINDS.get(todo[0].kind, "تشطيب") if todo else "جاهز للتسليم"
+		stage = KINDS.get(todo[0].kind, "طباعة") if todo else "جاهز للتسليم"
 	if so.atelier_stage != stage:
 		so.db_set("atelier_stage", stage)
 
@@ -118,7 +118,7 @@ def _template(item_code):
 		steps = json.loads(raw) if raw else []
 	except ValueError:
 		steps = []
-	return [s for s in steps if s.get("kind") in KINDS]
+	return [s for s in steps if (s.get("kind") or "").strip()]
 
 
 def create_default_steps(so):
@@ -133,7 +133,7 @@ def create_default_steps(so):
 				seen.add(key)
 				plan.append(st)
 	order = list(KINDS)
-	plan.sort(key=lambda st: order.index(st["kind"]))  # design before print before finishing, whatever the item order
+	plan.sort(key=lambda st: order.index(st["kind"]) if st["kind"] in order else len(order))  # design before print before finishing, whatever the item order
 	for i, st in enumerate(plan or DEFAULT_STEPS):
 		_new_task(so, st, i)
 	sync_stage(so)
@@ -159,8 +159,9 @@ def save_steps(name, steps):
 	if not steps:
 		frappe.throw(_("أضف مرحلة واحدة على الأقل"))
 	for st in steps:
-		if st.get("kind") not in KINDS:
-			frappe.throw(_("نوع مرحلة غير معروف: {0}").format(st.get("kind")))
+		st["kind"] = (st.get("kind") or "").strip()[:100]
+		if not st["kind"]:
+			frappe.throw(_("اكتب اسم كل مرحلة"))
 		if st.get("mode") == EXTERNAL and not st.get("supplier"):
 			frappe.throw(_("اختر المورد للمرحلة الخارجية «{0}»").format(st["kind"]))
 	existing = {s.name: s for s in steps_of(so.project)}
@@ -289,15 +290,45 @@ def set_service_steps(item_code, steps):
 	if not frappe.has_permission("Item", "write"):
 		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
 	steps = [{"kind": s["kind"], "mode": s.get("mode") or INTERNAL, **({"supplier": s["supplier"]} if s.get("supplier") else {})}
-		for s in (frappe.parse_json(steps) or []) if s.get("kind") in KINDS]
+		for s in (frappe.parse_json(steps) or []) if (s.get("kind") or "").strip()]
 	frappe.db.set_value("Item", item_code, "atelier_steps", json.dumps(steps, ensure_ascii=False))
 	return steps
 
 
+def _team():
+	try:
+		return json.loads(frappe.db.get_default("atelier_team") or "[]")
+	except ValueError:
+		return []
+
+
+@frappe.whitelist()
+def team():
+	return _team()
+
+
+@frappe.whitelist(methods=["POST"])
+def save_team(members):
+	"""The workshop's people, picked as the owner of in-house steps."""
+	if not frappe.has_permission("Project", "write"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	seen, out = set(), []
+	for m in frappe.parse_json(members) or []:
+		name = (m.get("name") or "").strip()[:80]
+		if name and name not in seen:
+			seen.add(name)
+			out.append({"name": name, "role": (m.get("role") or "").strip()[:80]})
+	frappe.db.set_default("atelier_team", json.dumps(out, ensure_ascii=False))
+	return out
+
+
 def boot_info():
-	team = sorted({r[0] for r in frappe.db.sql("select distinct atelier_owner from `tabTask` where ifnull(atelier_owner, '') != ''")})
+	members = _team()
+	if not members:  # until the team is set up, offer whoever already handled a step
+		members = [{"name": r[0], "role": ""} for r in frappe.db.sql("select distinct atelier_owner from `tabTask` where ifnull(atelier_owner, '') != '' order by 1")]
+	kinds = list(KINDS) + sorted({r[0] for r in frappe.db.sql("select distinct atelier_kind from `tabTask` where ifnull(atelier_kind, '') != ''")} - set(KINDS))
 	return {
-		"step_kinds": list(KINDS), "step_modes": [INTERNAL, EXTERNAL], "team": team,
+		"step_kinds": kinds, "step_modes": [INTERNAL, EXTERNAL], "team": [m["name"] for m in members], "team_members": members,
 		"suppliers": frappe.get_all("Supplier", filters={"disabled": 0}, fields=["name", "supplier_name"], order_by="supplier_name asc", limit=200),
 		"tags": sorted({x for r in frappe.db.sql("select _user_tags from `tabSales Order` where ifnull(_user_tags, '') != ''") for x in r[0].split(",") if x}),
 	}
@@ -341,3 +372,14 @@ def demo_fix_order():
 		sync_stage(so)
 	frappe.db.commit()
 	print({n: frappe.db.get_value("Sales Order", n, "atelier_stage") for n in frappe.get_all("Sales Order", {"docstatus": ["<", 2]}, pluck="name")})
+
+
+def demo_team_tags():
+	"""Demo: a small team and a few tags on open orders."""
+	frappe.set_user("Administrator")
+	save_team(json.dumps([{"name": "سمير", "role": "مصمم"}, {"name": "ياسين", "role": "طابع"}, {"name": "منيرة", "role": "تشطيب"}], ensure_ascii=False))
+	names = frappe.get_all("Sales Order", filters={"docstatus": ["<", 2], "per_delivered": ["<", 100]}, pluck="name", order_by="creation desc", limit=4)
+	for name, tags in zip(names, [["عاجل"], ["في انتظار موافقة العميل"], ["مهم", "عاجل"], []]):
+		set_tags(name, json.dumps(tags, ensure_ascii=False))
+	frappe.db.commit()
+	return names
