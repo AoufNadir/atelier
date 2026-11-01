@@ -793,11 +793,16 @@ const OrderNew = {
 };
 
 // ------------------------------------------------------------------ order view
+const pdfUrl = (doctype, name, format) =>
+  `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name)}` +
+  (format ? `&format=${encodeURIComponent(format + " — " + doctype)}&no_letterhead=1` : "");
+
 const OrderView = {
   props: ["id"], components: { Icon, Badge, LoadState },
   setup(props) {
     const { s, load } = useLoad(() => call("order", { name: props.id }));
     onMounted(load);
+    watch(() => state.rev, load);
     const stages = computed(() => state.boot?.stages || []);
     const setStage = async (stage) => {
       const prev = s.data.atelier_stage; s.data.atelier_stage = stage;
@@ -805,7 +810,49 @@ const OrderView = {
       catch (e) { s.data.atelier_stage = prev; toast(e.message, "error"); }
     };
     const stageIdx = computed(() => stages.value.indexOf(s.data?.atelier_stage));
-    return { s, load, stages, setStage, stageIdx, t, money, num, date, billing, payment, due, go, state, plain };
+
+    // ---- the cycle: one obvious next step, the others still reachable
+    const busy = ref(null), panel = ref(null), rates = reactive({}), qtys = reactive({}), actionError = ref(null);
+    const d = computed(() => s.data || {});
+    const pendingRows = computed(() => (d.value.items || []).filter((i) => i.rate === null));
+    const toDeliver = computed(() => (d.value.items || []).filter((i) => i.qty - (i.delivered_qty || 0) > 0));
+    const steps = computed(() => {
+      const o = d.value; if (!o.name) return [];
+      const draft = o.docstatus === 0;
+      return [
+        { key: "price", label: t("cy_price"), done: !pendingRows.value.length, show: true },
+        { key: "confirm", label: t("cy_confirm"), done: o.docstatus === 1, show: true },
+        { key: "deliver", label: t("cy_deliver"), done: o.per_delivered >= 100, show: true },
+        { key: "invoice", label: t("cy_invoice"), done: o.per_billed >= 100, show: true },
+        { key: "pay", label: t("cy_pay"), done: o.per_billed >= 100 && o.outstanding < 0.01, show: true, blocked: draft },
+      ];
+    });
+    const next = computed(() => steps.value.find((x) => !x.done)?.key || "done");
+    const run = async (key, fn) => {
+      busy.value = key; actionError.value = null;
+      try { const r = await fn(); panel.value = null; await load(); return r; }
+      catch (e) { actionError.value = e.message; }
+      finally { busy.value = null; }
+    };
+    const savePrices = () => {
+      const bad = pendingRows.value.find((i) => rates[i.row] !== undefined && rates[i.row] !== "" && !(+rates[i.row] >= 0));
+      if (bad) { actionError.value = t("pr_err_value"); return; }
+      const payload = Object.fromEntries(pendingRows.value.filter((i) => rates[i.row] !== undefined && rates[i.row] !== "").map((i) => [i.row, +rates[i.row]]));
+      if (!Object.keys(payload).length) { actionError.value = t("cy_err_no_price"); return; }
+      return run("price", async () => { const r = await call("price_order", { name: props.id, rates: JSON.stringify(payload) }, true); toast(t("cy_prices_saved")); return r; });
+    };
+    const confirmOrder = () => run("confirm", async () => { await call("confirm_order", { name: props.id }, true); toast(t("cy_confirmed")); });
+    const openDeliver = () => { for (const i of toDeliver.value) qtys[i.row] = i.qty - (i.delivered_qty || 0); panel.value = "deliver"; };
+    const deliver = () => run("deliver", async () => {
+      const r = await call("deliver_order", { name: props.id, qtys: JSON.stringify(Object.fromEntries(Object.entries(qtys).map(([k, v]) => [k, +v || 0]))) }, true);
+      toast(t("cy_delivered", r));
+    });
+    const invoice = () => run("invoice", async () => { const r = await call("invoice_order", { name: props.id }, true); toast(t("cy_invoiced", r)); });
+    const pay = () => (state.sheet = { type: "payment", customer: { name: d.value.customer, customer_name: d.value.customer_name }, order: d.value.name });
+    const unbilled = computed(() => Math.max(0, (d.value.grand_total || 0) * (1 - (d.value.per_billed || 0) / 100)));
+    const DOC_ICON = { "Delivery Note": "truck", "Sales Invoice": "invoice", "Payment Entry": "in" };
+    return { s, load, stages, setStage, stageIdx, steps, next, busy, panel, rates, qtys, actionError, pendingRows, toDeliver, unbilled,
+      savePrices, confirmOrder, openDeliver, deliver, invoice, pay, pdfUrl, DOC_ICON, DT_KEY, t, money, num, date, billing, payment, due, go, state, plain };
   },
   template: `
   <div class="page">
@@ -819,23 +866,71 @@ const OrderView = {
       </div>
       <div class="split">
         <div class="stack">
+          <section class="card" aria-labelledby="cy-h">
+            <div class="card-h"><h2 id="cy-h">{{ t('cy_title') }}</h2><span v-if="next==='done'" class="badge b-success"><Icon name="check" :size="13"/>{{ t('cy_done') }}</span></div>
+            <div class="card-b stack">
+              <ol class="cycle">
+                <li v-for="(st,i) in steps" :key="st.key" :class="{done: st.done, current: st.key===next}"><span class="dot">{{ st.done ? '✓' : i+1 }}</span>{{ st.label }}</li>
+              </ol>
+              <div v-if="actionError" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ actionError }}</span></div>
+
+              <template v-if="next==='price'">
+                <p class="hint">{{ t('cy_price_hint', pendingRows.length) }}</p>
+                <div v-for="i in pendingRows" :key="i.row" class="row wrap" style="gap:8px;align-items:center">
+                  <label :for="'pr-'+i.row" style="flex:1;min-width:160px" class="medium">{{ i.item_name }} <span class="cap num">× {{ num(i.qty) }}</span></label>
+                  <input :id="'pr-'+i.row" class="input num" style="width:160px" type="text" inputmode="decimal" autocomplete="off" v-model="rates[i.row]" :placeholder="t('of_rate')">
+                </div>
+                <button type="button" class="btn primary" style="align-self:flex-start" :disabled="busy" @click="savePrices">{{ busy==='price' ? t('of_saving') : t('cy_save_prices') }}</button>
+              </template>
+              <template v-else-if="next==='confirm'">
+                <p class="hint">{{ t('cy_confirm_hint') }}</p>
+                <button type="button" class="btn primary" style="align-self:flex-start" :disabled="busy || !s.data.can.submit" @click="confirmOrder">{{ busy==='confirm' ? t('of_saving') : t('cy_confirm') }}</button>
+              </template>
+              <template v-else-if="next!=='done'">
+                <div class="row wrap" style="gap:8px">
+                  <button v-if="s.data.per_delivered<100 && s.data.can.deliver" type="button" class="btn" :class="{primary: next==='deliver'}" :disabled="busy" @click="openDeliver"><Icon name="truck" :size="18"/>{{ t('cy_deliver') }}</button>
+                  <button v-if="s.data.per_billed<100 && s.data.can.invoice" type="button" class="btn" :class="{primary: next==='invoice'}" :disabled="busy" @click="panel='invoice'"><Icon name="invoice" :size="18"/>{{ t('cy_invoice') }}</button>
+                  <button v-if="s.data.outstanding>0.005 && s.data.can.payment" type="button" class="btn" :class="{primary: next==='pay'}" @click="pay"><Icon name="in" :size="18"/>{{ t('record_payment') }}</button>
+                </div>
+                <div v-if="panel==='deliver'" class="box stack">
+                  <span class="medium">{{ t('cy_deliver_title') }}</span>
+                  <div v-for="i in toDeliver" :key="i.row" class="row wrap" style="gap:8px;align-items:center">
+                    <label :for="'dq-'+i.row" style="flex:1;min-width:160px">{{ i.item_name }} <span class="cap">{{ t('cy_left', num(i.qty - (i.delivered_qty||0))) }}</span></label>
+                    <input :id="'dq-'+i.row" class="input num" style="width:120px" type="text" inputmode="decimal" v-model="qtys[i.row]"></div>
+                  <span class="hint">{{ t('cy_deliver_hint') }}</span>
+                  <div class="row" style="gap:8px"><button type="button" class="btn primary" :disabled="busy" @click="deliver">{{ busy==='deliver' ? t('of_saving') : t('cy_deliver_do') }}</button>
+                    <button type="button" class="btn ghost" @click="panel=null">{{ t('close') }}</button></div>
+                </div>
+                <div v-if="panel==='invoice'" class="box stack">
+                  <span class="medium">{{ t('cy_invoice_title') }}</span>
+                  <dl class="kv"><dt>{{ t('cy_invoice_amount') }}</dt><dd class="money">{{ money(unbilled) }}</dd>
+                    <template v-if="s.data.advance_paid"><dt>{{ t('cy_advance_deducted') }}</dt><dd class="money">− {{ money(Math.min(s.data.advance_paid, unbilled)) }}</dd></template></dl>
+                  <span class="hint">{{ t('cy_invoice_hint') }}</span>
+                  <div class="row" style="gap:8px"><button type="button" class="btn primary" :disabled="busy" @click="invoice">{{ busy==='invoice' ? t('of_saving') : t('cy_invoice_do') }}</button>
+                    <button type="button" class="btn ghost" @click="panel=null">{{ t('close') }}</button></div>
+                </div>
+              </template>
+            </div>
+          </section>
+
           <section class="card"><div class="card-h"><h2>{{ t('ov_stage') }}</h2></div>
             <div class="card-b"><div class="stages" role="group" :aria-label="t('ov_stage')">
-              <button v-for="(st,i) in stages" :key="st" :class="{done: i<stageIdx, current: i===stageIdx}" :aria-pressed="i===stageIdx" @click="setStage(st)">{{ st }}</button>
+              <button v-for="(st,i) in stages" :key="st" type="button" :class="{done: i<stageIdx, current: i===stageIdx}" :aria-pressed="i===stageIdx" @click="setStage(st)">{{ st }}</button>
             </div></div></section>
           <section class="card"><div class="card-h"><h2>{{ t('ov_items') }}</h2></div>
             <div class="desktop-only table-wrap"><table class="t">
-              <thead><tr><th>{{ t('of_item') }}</th><th class="n">{{ t('of_qty') }}</th><th class="n">{{ t('of_rate') }}</th><th class="n">{{ t('of_amount') }}</th></tr></thead>
+              <thead><tr><th>{{ t('of_item') }}</th><th class="n">{{ t('of_qty') }}</th><th class="n">{{ t('cy_delivered_col') }}</th><th class="n">{{ t('of_rate') }}</th><th class="n">{{ t('of_amount') }}</th></tr></thead>
               <tbody><tr v-for="(i,idx) in s.data.items" :key="idx">
                 <td><div class="medium">{{ i.item_name }}</div><div v-if="plain(i.description) && plain(i.description)!==i.item_name" class="meta">{{ plain(i.description) }}</div></td>
                 <td class="n"><span class="num">{{ num(i.qty) }}</span></td>
+                <td class="n"><span class="num" :class="{'t-success': i.delivered_qty>=i.qty}">{{ num(i.delivered_qty||0) }}</span></td>
                 <td class="n"><span v-if="i.rate===null" class="badge b-warning"><Icon name="tag" :size="13"/>{{ t('price_pending') }}</span><span v-else class="money">{{ money(i.rate) }}</span></td>
                 <td class="n"><span class="money medium">{{ i.rate===null ? '—' : money(i.amount) }}</span></td></tr></tbody></table></div>
             <div class="mobile-only list">
-              <div v-for="(i,idx) in s.data.items" :key="idx" class="list-item" style="cursor:default">
+              <div v-for="(i,idx) in s.data.items" :key="idx" class="list-item static">
                 <span class="main-col"><span class="medium">{{ i.item_name }}</span>
                   <span v-if="plain(i.description) && plain(i.description)!==i.item_name" class="meta">{{ plain(i.description) }}</span>
-                  <span class="cap">{{ num(i.qty) }} × {{ i.rate===null ? '؟' : money(i.rate) }}</span></span>
+                  <span class="cap">{{ num(i.qty) }} × {{ i.rate===null ? '؟' : money(i.rate) }} · {{ t('cy_delivered_col') }} {{ num(i.delivered_qty||0) }}</span></span>
                 <span class="end-col"><span v-if="i.rate===null" class="badge b-warning"><Icon name="tag" :size="13"/>{{ t('price_pending') }}</span>
                   <span v-else class="money medium">{{ money(i.amount) }}</span></span>
               </div>
@@ -848,15 +943,26 @@ const OrderView = {
             <div class="sum-row"><span>{{ t('ov_paid') }}</span><span class="money">{{ money(s.data.paid) }}</span></div>
             <div class="sum-row total"><span>{{ t('ov_left') }}</span>
               <span v-if="s.data.price_pending" class="stack" style="gap:0;align-items:flex-end"><span class="muted">—</span><span class="why">{{ t('why_remaining') }}</span></span>
-              <span v-else class="money">{{ money(s.data.grand_total - s.data.paid) }}</span></div>
+              <span v-else class="money">{{ money(Math.max(0, s.data.grand_total - s.data.paid)) }}</span></div>
             <div v-if="s.data.estimate && s.data.estimate.length" class="sum-row"><span>{{ s.data.estimate[0].missing_count ? t('sum_cost_known') : t('sum_cost_complete') }}</span>
               <span class="money">{{ money(s.data.estimate[0].total_cost) }}</span></div>
           </div>
           <div class="card-f row wrap" style="gap:6px">
-            <button v-if="state.boot.can.payment" class="btn sm" @click="state.sheet={type:'payment', customer:{name:s.data.customer, customer_name:s.data.customer_name}, order:s.data.name}"><Icon name="in" :size="16"/>{{ t('record_payment') }}</button>
             <a class="btn sm ghost" :href="'/app/sales-order/'+s.data.name"><Icon name="ext" :size="16"/>{{ t('ov_open_erp') }}</a>
             <a v-if="s.data.project && state.boot.can.finance" class="btn sm ghost" :href="'/app/query-report/Rentabilite Commande?project='+encodeURIComponent(s.data.project)"><Icon name="chart" :size="16"/>{{ t('ov_profit') }}</a>
           </div></section>
+          <section class="card" aria-labelledby="docs-h"><div class="card-h"><h2 id="docs-h">{{ t('cy_docs') }}</h2></div>
+            <div class="list">
+              <div class="list-item static"><Icon name="orders" :size="18" class="muted"/>
+                <span class="main-col"><span class="medium">{{ t('cy_doc_order') }}</span><span class="meta num">{{ s.data.name }}</span></span>
+                <a class="btn sm" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', s.data.name, s.data.print_format)">PDF</a></div>
+              <div v-for="dc in s.data.docs" :key="dc.name" class="list-item static"><Icon :name="DOC_ICON[dc.doctype]" :size="18" class="muted"/>
+                <span class="main-col"><span class="medium">{{ t(DT_KEY[dc.doctype]) }}</span>
+                  <span class="meta"><span class="num">{{ dc.name }}</span> · {{ date(dc.posting_date) }}
+                    <template v-if="dc.doctype==='Sales Invoice'"> · <span :class="dc.outstanding_amount>0.005 ? 't-danger' : 't-success'">{{ dc.outstanding_amount>0.005 ? t('cy_unpaid', money(dc.outstanding_amount)) : t('pay_full') }}</span></template>
+                    <template v-else-if="dc.paid_amount"> · <span class="money">{{ money(dc.paid_amount) }}</span></template></span></span>
+                <a class="btn sm" target="_blank" rel="noopener" :href="pdfUrl(dc.doctype, dc.name, s.data.print_format)">PDF</a></div>
+            </div></section>
         </aside>
       </div>
     </template></LoadState>
@@ -1199,7 +1305,7 @@ const PaymentSheet = {
     const loadOrders = async () => {
       orders.value = [];
       if (!f.customer) return;
-      try { orders.value = (await call("customer", { name: f.customer.name })).orders.filter((o) => o.docstatus === 1 && o.per_billed < 100); } catch { /* optional */ }
+      try { orders.value = (await call("customer", { name: f.customer.name })).orders.filter((o) => o.docstatus === 1 && (o.per_billed < 100 || o.paid < o.grand_total - 0.005)); } catch { /* optional */ }
     };
     watch(() => f.customer, loadOrders, { immediate: true });
     const errs = computed(() => ({ customer: !f.customer ? t("err_pick_customer") : null, amount: !(+f.amount > 0) ? t("err_amount") : null }));
@@ -1214,6 +1320,7 @@ const PaymentSheet = {
       try {
         done.value = await call("record_payment", { customer: f.customer.name, amount: +f.amount, mode_of_payment: f.mode, sales_order: f.order || null }, true);
         toast(t("p_done", done.value));
+        state.rev++;  // pages showing this customer or order reload
       } catch (e) { error.value = e.message; }
       saving.value = false;
     }

@@ -489,11 +489,17 @@ def order(name):
 	so.check_permission("read")
 	row = _order_rows({"name": name}, limit=1)[0]
 	row["items"] = [
-		{"item_code": i.item_code, "item_name": i.item_name, "description": i.description, "qty": i.qty, "uom": i.uom,
+		{"row": i.name, "item_code": i.item_code, "item_name": i.item_name, "description": i.description, "qty": i.qty, "uom": i.uom,
+			"delivered_qty": i.delivered_qty,
 			"rate": None if i.atelier_price_pending else i.rate, "amount": None if i.atelier_price_pending else i.amount}
 		for i in so.items
 	]
 	row["project"] = so.project
+	row["docs"] = _order_docs(so)
+	row["outstanding"] = sum(flt(d.get("outstanding_amount")) for d in row["docs"] if d["doctype"] == "Sales Invoice")
+	row["print_format"] = PRINT_FORMAT
+	row["can"] = {"edit": bool(so.has_permission("write")), "submit": bool(so.has_permission("submit")),
+		"deliver": _can("Delivery Note", "create"), "invoice": _can("Sales Invoice", "create"), "payment": _can("Payment Entry", "create")}
 	if _can("Cost Estimate"):
 		row["estimate"] = frappe.get_all("Cost Estimate", {"sales_order": name},
 			["name", "total_cost", "missing_count", "estimated_margin", "pricing_status"], limit=1)
@@ -643,7 +649,24 @@ def record_payment(customer, amount, mode_of_payment, sales_order=None):
 	if flt(amount) <= 0:
 		frappe.throw(_("المبلغ يجب أن يكون أكبر من صفر"))
 	so = frappe.get_doc("Sales Order", sales_order) if sales_order else None
+	if so and so.docstatus == 1:
+		unpaid = [d for d in _order_docs(so) if d["doctype"] == "Sales Invoice" and flt(d["outstanding_amount"]) > 0]
+		if unpaid:
+			return _receive_invoice(unpaid[0]["name"], flt(amount), mode_of_payment)
 	return _receive(customer, flt(amount), mode_of_payment, so if so and so.docstatus == 1 else None)
+
+
+def _receive_invoice(invoice, amount, mode):
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+	pe = get_payment_entry("Sales Invoice", invoice, party_amount=amount, bank_account=_cash_account(mode, _company()))
+	pe.mode_of_payment = mode
+	pe.posting_date = nowdate()
+	pe.reference_no = pe.reference_no or "—"
+	pe.reference_date = nowdate()
+	pe.insert()
+	pe.submit()
+	return pe.name
 
 
 # ---------------------------------------------------------------- sections (money, stock, machines, reports)
@@ -852,3 +875,134 @@ def set_price(item_code, kind, rate=None):
 	doc.price_list_rate = flt(rate)
 	doc.save()
 	return doc.price_list_rate
+
+
+# ---------------------------------------------------------------- order cycle: price → confirm → deliver → invoice → pay
+# Every step creates or submits the standard ERPNext document from the order (make_delivery_note,
+# make_sales_invoice, get_payment_entry), so stock, receivables and advances follow ERPNext's own rules.
+
+PRINT_FORMAT = "الورشة — عربي"
+
+
+def _so_for(name, ptype="write"):
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission(ptype)
+	return so
+
+
+def _sync_estimate(so):
+	for ce in frappe.get_all("Cost Estimate", {"sales_order": so.name}, pluck="name"):
+		doc = frappe.get_doc("Cost Estimate", ce)
+		pending = any(i.atelier_price_pending for i in so.items)
+		doc.selling_price = None if pending else so.net_total
+		doc.save()
+
+
+@frappe.whitelist(methods=["POST"])
+def price_order(name, rates):
+	"""Set prices of lines still 'priced later' on a draft order. rates = {row name: rate}."""
+	so = _so_for(name)
+	if so.docstatus != 0:
+		frappe.throw(_("الطلب معتمد؛ تعديل الأسعار يكون من ERPNext بإلغاء وتعديل"))
+	rates = frappe.parse_json(rates) or {}
+	for row in so.items:
+		if row.name in rates and rates[row.name] not in (None, ""):
+			if flt(rates[row.name]) < 0:
+				frappe.throw(_("السعر لا يكون سالبًا"))
+			row.rate = flt(rates[row.name])
+			row.atelier_price_pending = 0
+	so.save()
+	_sync_estimate(so)
+	return {"pending": sum(1 for i in so.items if i.atelier_price_pending)}
+
+
+@frappe.whitelist(methods=["POST"])
+def confirm_order(name):
+	so = _so_for(name, "submit")
+	if so.docstatus != 0:
+		return so.name
+	if any(i.atelier_price_pending for i in so.items):
+		frappe.throw(_("سعّر كل البنود قبل اعتماد الطلب"))
+	so.submit()
+	return so.name
+
+
+@frappe.whitelist(methods=["POST"])
+def deliver_order(name, qtys=None):
+	"""Delivery note from the order: everything left, or qtys = {order row name: qty} for a partial delivery."""
+	from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+
+	so = _so_for(name, "read")
+	if so.docstatus != 1:
+		frappe.throw(_("اعتمد الطلب أولًا"))
+	if not _can("Delivery Note", "create"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	dn = make_delivery_note(so.name)
+	qtys = frappe.parse_json(qtys) if qtys else None
+	if qtys:
+		for row in dn.items:
+			if row.so_detail in qtys:
+				row.qty = min(flt(qtys[row.so_detail]), row.qty)
+		dn.items = [r for r in dn.items if flt(r.qty) > 0]
+	if not dn.items:
+		frappe.throw(_("لا شيء للتسليم"))
+	dn.insert()
+	dn.submit()
+	so.reload()
+	if so.per_delivered >= 100:
+		so.db_set("atelier_stage", STAGES[-1])
+	return dn.name
+
+
+@frappe.whitelist(methods=["POST"])
+def invoice_order(name):
+	"""Sales invoice for what is not billed yet; customer advances are deducted automatically."""
+	from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+
+	so = _so_for(name, "read")
+	if so.docstatus != 1:
+		frappe.throw(_("اعتمد الطلب أولًا"))
+	if not _can("Sales Invoice", "create"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	si = make_sales_invoice(so.name)
+	si.allocate_advances_automatically = 1
+	si.set_advances()
+	si.insert()
+	si.submit()
+	return si.name
+
+
+def _order_docs(so):
+	"""Documents created from this order, oldest first, with what the order page needs."""
+	docs = []
+	for dt, child, field in (("Delivery Note", "Delivery Note Item", "against_sales_order"), ("Sales Invoice", "Sales Invoice Item", "sales_order")):
+		names = frappe.get_all(child, {field: so.name, "docstatus": ["<", 2]}, pluck="parent", distinct=True)
+		extra = ["outstanding_amount", "grand_total", "total_advance"] if dt == "Sales Invoice" else ["grand_total"]
+		for d in frappe.get_all(dt, {"name": ["in", names or [""]], "docstatus": 1}, ["name", "posting_date", "creation", *extra]):
+			docs.append({"doctype": dt, **d})
+	invoices = [d["name"] for d in docs if d["doctype"] == "Sales Invoice"]
+	refs = [so.name, *invoices]
+	for p in frappe.db.sql(
+		"""select distinct pe.name, pe.posting_date, pe.creation, pe.paid_amount from `tabPayment Entry` pe
+		join `tabPayment Entry Reference` per on per.parent = pe.name
+		where pe.docstatus = 1 and per.reference_name in %s""", [refs], as_dict=True):
+		docs.append({"doctype": "Payment Entry", **p})
+	docs.sort(key=lambda d: d["creation"])
+	for d in docs:
+		d.pop("creation", None)
+	return docs
+
+
+def setup_print_formats():
+	"""One Jinja print format shared by the documents (HTML in templates/print/atelier_doc.html), set as default."""
+	html = '{% include "templates/print/atelier_doc.html" %}'
+	for dt in ("Quotation", "Sales Order", "Delivery Note", "Sales Invoice", "Payment Entry"):
+		name = f"{PRINT_FORMAT} — {dt}"
+		pf = frappe.get_doc("Print Format", name) if frappe.db.exists("Print Format", name) else frappe.new_doc("Print Format")
+		pf.update({"name": name, "doc_type": dt, "module": "Atelier", "standard": "No", "custom_format": 1,
+			"print_format_type": "Jinja", "html": html, "disabled": 0, "raw_printing": 0})
+		pf.flags.ignore_permissions = True
+		pf.save() if not pf.is_new() else pf.insert(set_name=name)
+		frappe.make_property_setter({"doctype": dt, "doctype_or_field": "DocType", "property": "default_print_format",
+			"value": name, "property_type": "Data"}, validate_fields_for_doctype=False)
+	frappe.db.commit()

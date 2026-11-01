@@ -1,0 +1,99 @@
+{#- One Arabic layout for quotation, order, delivery note, invoice and payment receipt. -#}
+{%- set c = print_context(doc) -%}
+{%- set dt = doc.doctype -%}
+{%- set priced = dt in ("Quotation", "Sales Order", "Sales Invoice") -%}
+<link href="{{ c.font_url }}" rel="stylesheet">
+<style>
+  .atl { direction: rtl; font-family: "IBM Plex Sans Arabic", "Noto Sans Arabic", "DejaVu Sans", sans-serif; font-size: 12px; color: #17202A; line-height: 1.6; }
+  .atl table { width: 100%; border-collapse: collapse; }
+  .atl .num { direction: ltr; unicode-bidi: embed; display: inline-block; }
+  .atl .head td { vertical-align: top; }
+  .atl .brand { font-size: 18px; font-weight: 600; color: #0F4C81; }
+  .atl .muted { color: #5F6872; font-size: 11px; }
+  .atl .title { font-size: 20px; font-weight: 600; text-align: left; }
+  .atl .box { border: 1px solid #D5D9DE; border-radius: 6px; padding: 8px 10px; }
+  .atl .lines th { background: #F1F3F5; font-weight: 600; font-size: 11px; color: #48525C; padding: 6px 8px; border-bottom: 1px solid #D5D9DE; text-align: right; }
+  .atl .lines td { padding: 7px 8px; border-bottom: 1px solid #E6E9EC; vertical-align: top; }
+  .atl .lines .n { text-align: left; white-space: nowrap; }
+  .atl .totals td { padding: 4px 8px; }
+  .atl .totals .grand td { font-size: 14px; font-weight: 600; border-top: 2px solid #17202A; }
+  .atl .pending { color: #8A5100; font-weight: 600; }
+  .atl .demo { background: #FFF2D9; color: #8A5100; text-align: center; padding: 4px; margin-bottom: 10px; font-size: 11px; }
+  .atl .sign td { height: 70px; vertical-align: top; border: 1px dashed #C4C9CF; padding: 6px 8px; width: 50%; }
+</style>
+<div class="atl">
+  {%- if c.is_demo %}<div class="demo">وثيقة تجريبية — الأسماء والأرقام وهمية</div>{% endif %}
+  <table class="head"><tr>
+    <td style="width:60%">
+      {%- if c.company.logo %}<img src="{{ c.company.logo }}" style="max-height:60px;max-width:180px;margin-bottom:6px"><br>{% endif %}
+      <div class="brand">{{ c.company.name }}</div>
+      {%- if c.company.address %}<div class="muted">{{ c.company.address }}</div>{% endif %}
+      <div class="muted">{% if c.company.phone %}الهاتف: <span class="num">{{ c.company.phone }}</span>{% endif %}{% if c.company.email %} · <span class="num">{{ c.company.email }}</span>{% endif %}</div>
+      <div class="muted"><span class="num">NIF: {{ c.company.tax_id or "—" }} · RC: — · NIS: — · AI: —</span></div>
+    </td>
+    <td>
+      <div class="title">{{ c.title }}</div>
+      <div style="text-align:left"><span class="num">{{ doc.name }}</span></div>
+      <div style="text-align:left" class="muted">التاريخ: <span class="num">{{ c.date }}</span></div>
+      {%- if dt == "Sales Order" and doc.delivery_date %}<div style="text-align:left" class="muted">موعد التسليم: <span class="num">{{ frappe.utils.formatdate(doc.delivery_date, "dd/MM/yyyy") }}</span></div>{% endif %}
+      {%- if dt == "Sales Invoice" and doc.due_date %}<div style="text-align:left" class="muted">تاريخ الاستحقاق: <span class="num">{{ frappe.utils.formatdate(doc.due_date, "dd/MM/yyyy") }}</span></div>{% endif %}
+    </td>
+  </tr></table>
+
+  <div class="box" style="margin:12px 0">
+    <div class="muted">{{ "استلمنا من" if dt == "Payment Entry" else "العميل" }}</div>
+    <div style="font-weight:600;font-size:14px"><bdi>{{ c.customer.name }}</bdi></div>
+    {%- if c.customer.address %}<div class="muted">{{ c.customer.address }}</div>{% endif %}
+    {%- if c.customer.phone %}<div class="muted">الهاتف: <span class="num">{{ c.customer.phone }}</span></div>{% endif %}
+    {%- if c.customer.tax_id %}<div class="muted"><span class="num">NIF: {{ c.customer.tax_id }}</span></div>{% endif %}
+    {%- if doc.get("atelier_subject") %}<div style="margin-top:4px">الموضوع: {{ doc.atelier_subject }}</div>{% endif %}
+  </div>
+
+  {%- if dt == "Payment Entry" %}
+    <table class="totals">
+      <tr class="grand"><td>المبلغ المقبوض</td><td style="text-align:left">{{ dz_money(doc.paid_amount) }}</td></tr>
+      <tr><td>طريقة الدفع</td><td style="text-align:left">{{ {"Cash": "نقدًا", "Wire Transfer": "تحويل بنكي", "Cheque": "صك"}.get(doc.mode_of_payment, doc.mode_of_payment or "—") }}</td></tr>
+      {%- for r in doc.references %}<tr><td class="muted">عن {{ {"Sales Invoice": "الفاتورة", "Sales Order": "الطلب"}.get(r.reference_doctype, r.reference_doctype) }}</td><td class="muted" style="text-align:left"><span class="num">{{ r.reference_name }}</span> — {{ dz_money(r.allocated_amount) }}</td></tr>{% endfor %}
+      {%- if doc.unallocated_amount %}<tr><td class="muted">تسبيق يبقى رصيدًا للعميل</td><td class="muted" style="text-align:left">{{ dz_money(doc.unallocated_amount) }}</td></tr>{% endif %}
+    </table>
+    <p style="margin-top:10px">المبلغ بالحروف: <b>{{ tafqit(doc.paid_amount) }}</b></p>
+  {%- else %}
+    <table class="lines">
+      <thead><tr><th style="width:24px">#</th><th>البيان</th><th class="n">الكمية</th><th>الوحدة</th>
+        {%- if priced %}<th class="n">سعر الوحدة</th><th class="n">المبلغ</th>{% endif %}</tr></thead>
+      <tbody>
+      {%- for i in doc.items %}
+        {%- set pending = i.get("atelier_price_pending") %}
+        <tr><td>{{ loop.index }}</td>
+          <td><b>{{ i.item_name }}</b>{% set d = frappe.utils.strip_html(i.description or "") %}{% if d and d != i.item_name %}<div class="muted">{{ d }}</div>{% endif %}</td>
+          <td class="n">{{ dz_qty(i.qty) }}</td><td>{{ {"Nos": "قطعة", "Feuille": "ورقة"}.get(i.uom, i.uom) }}</td>
+          {%- if priced %}
+            {%- if pending %}<td class="n pending" colspan="2">بانتظار التسعير</td>
+            {%- else %}<td class="n">{{ dz_money(i.rate) }}</td><td class="n">{{ dz_money(i.amount) }}</td>{% endif %}
+          {%- endif %}</tr>
+      {%- endfor %}
+      </tbody>
+    </table>
+    {%- if priced %}
+      {%- set any_pending = doc.items | selectattr("atelier_price_pending") | list | length %}
+      <table class="totals" style="width:55%;margin-right:auto;margin-top:8px">
+        {%- if doc.discount_amount %}<tr><td>المجموع</td><td style="text-align:left">{{ dz_money(doc.total) }}</td></tr>
+          <tr><td>الخصم</td><td style="text-align:left">− {{ dz_money(doc.discount_amount) }}</td></tr>{% endif %}
+        {%- for tx in doc.taxes %}<tr><td>{{ tx.description }}</td><td style="text-align:left">{{ dz_money(tx.tax_amount) }}</td></tr>{% endfor %}
+        <tr class="grand"><td>{{ "إجمالي البنود المسعّرة" if any_pending else "الإجمالي" }}</td><td style="text-align:left">{{ dz_money(doc.grand_total) }}</td></tr>
+        {%- if dt == "Sales Order" and doc.advance_paid %}<tr><td>التسبيق المدفوع</td><td style="text-align:left">{{ dz_money(doc.advance_paid) }}</td></tr>{% endif %}
+        {%- if dt == "Sales Invoice" %}
+          {%- if doc.total_advance %}<tr><td>التسبيق المخصوم</td><td style="text-align:left">− {{ dz_money(doc.total_advance) }}</td></tr>{% endif %}
+          <tr><td><b>الباقي للدفع</b></td><td style="text-align:left"><b>{{ dz_money(doc.outstanding_amount) }}</b></td></tr>
+        {%- endif %}
+      </table>
+      {%- if any_pending %}<p class="pending">الإجمالي النهائي لم يكتمل: {{ any_pending }} بند بانتظار التسعير.</p>
+      {%- else %}<p style="margin-top:10px">{{ "أُوقفت هذه الفاتورة على مبلغ" if dt == "Sales Invoice" else "المبلغ بالحروف" }}: <b>{{ tafqit(doc.grand_total) }}</b></p>{% endif %}
+    {%- endif %}
+  {%- endif %}
+
+  {%- if dt in ("Delivery Note", "Payment Entry", "Sales Order") %}
+    <table class="sign" style="margin-top:24px"><tr>
+      <td>{{ "توقيع المستلم" if dt == "Delivery Note" else "توقيع العميل" }}</td><td>الختم والتوقيع</td></tr></table>
+  {%- endif %}
+</div>

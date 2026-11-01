@@ -345,3 +345,9 @@ details.collapse[open] > summary .chev { transform: rotate(-90deg); }
 @media (min-width: 560px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
 .price-cell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .price-cell .input { width: 140px; min-height: 34px; text-align: end; }
+.cycle { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; }
+.cycle li { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 12px; border-radius: 999px; background: var(--surface-2); color: var(--ink-3); font-size: var(--fs-cap); }
+.cycle li .dot { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--surface); border: 1px solid var(--line); font-size: 12px; }
+.cycle li.done { color: var(--success); } .cycle li.done .dot { background: var(--success); border-color: var(--success); color: #fff; }
+.cycle li.current { background: var(--primary-weak, #E6EEF6); color: var(--primary); font-weight: var(--fw-medium); } .cycle li.current .dot { border-color: var(--primary); }
+.box { border: 1px solid var(--line); border-radius: 10px; padding: var(--s3); }
