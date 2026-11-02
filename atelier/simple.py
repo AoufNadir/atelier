@@ -708,7 +708,14 @@ def customers2():
 	extra = {r.name: r for r in frappe.get_all("Customer", filters={"name": ["in", names]}, fields=["name", "atelier_vip", "creation"])}
 	counts = dict(frappe.db.sql("""select customer, count(*) from `tabSales Order` where docstatus<2 and customer in %s group by customer""", [names]))
 	month = str(get_first_day(nowdate()))
+	covers = {}
+	for so in frappe.get_all("Sales Order", filters={"customer": ["in", names], "docstatus": ["<", 2], "atelier_cover": ["is", "set"]},
+			fields=["customer", "atelier_cover"], order_by="creation desc", limit=600):
+		l = covers.setdefault(so.customer, [])
+		if len(l) < 3 and so.atelier_cover not in l:
+			l.append(so.atelier_cover)
 	for r in rows:
+		r.covers = covers.get(r.name, [])
 		e = extra.get(r.name) or {}
 		r.vip = cint(e.get("atelier_vip"))
 		r.orders = counts.get(r.name, 0)
