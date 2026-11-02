@@ -218,6 +218,7 @@ CARD_FIELDS = [
 	{"fieldname": "atelier_description", "label": "الوصف", "fieldtype": "Text", "insert_after": "atelier_members"},
 	{"fieldname": "atelier_checklist", "label": "قائمة المهام", "fieldtype": "Text", "insert_after": "atelier_description"},
 	{"fieldname": "atelier_cover", "label": "الغلاف", "fieldtype": "Data", "insert_after": "atelier_checklist"},
+	{"fieldname": "atelier_due_time", "label": "ساعة التسليم", "fieldtype": "Time", "insert_after": "atelier_cover"},
 ]
 
 
@@ -275,7 +276,7 @@ def board2():
 	rows = api._order_rows({"docstatus": ["<", 2], "status": ["not in", ["Closed"]]}, limit=500)
 	names = [r.name for r in rows] or [""]
 	extra = {r.name: r for r in frappe.get_all("Sales Order", filters={"name": ["in", names]},
-		fields=["name", "atelier_column", "atelier_labels", "atelier_members", "atelier_checklist", "atelier_cover", "atelier_assignee"])}
+		fields=["name", "atelier_column", "atelier_labels", "atelier_members", "atelier_checklist", "atelier_cover", "atelier_assignee", "atelier_due_time"])}
 	comments = dict(frappe.db.sql("""select reference_name, count(*) from `tabComment` where reference_doctype='Sales Order'
 		and comment_type='Comment' and reference_name in %s group by reference_name""", [names]))
 	files = dict(frappe.db.sql("""select attached_to_name, count(*) from `tabFile` where attached_to_doctype='Sales Order'
@@ -296,7 +297,7 @@ def board2():
 		checklist = _jl(e.get("atelier_checklist"))
 		cards.append({
 			"name": r.name, "title": r.atelier_subject or r.name, "customer": r.customer, "customer_name": r.customer_name,
-			"column": r.column, "labels": labels, "members": members, "due": r.delivery_date, "cover": r.atelier_cover,
+			"column": r.column, "labels": labels, "members": members, "due": r.delivery_date, "due_time": str(e.atelier_due_time)[:5] if e.get("atelier_due_time") else None, "cover": r.atelier_cover,
 			"grand_total": r.grand_total, "paid": r.paid, "price_pending": r.price_pending, "docstatus": r.docstatus,
 			"per_delivered": r.per_delivered, "comments": comments.get(r.name, 0), "files": files.get(r.name, 0),
 			"check": [sum(1 for c in checklist if c.get("done")), len(checklist)],
@@ -402,7 +403,9 @@ def card(name):
 		"name": name, "title": so.atelier_subject or name, "customer": so.customer, "customer_name": so.customer_name,
 		"column": _column_for(so, cfg), "labels": labels,
 		"members": _jl(so.get("atelier_members")) or ([so.atelier_assignee] if so.get("atelier_assignee") else []),
-		"due": so.delivery_date, "description": so.get("atelier_description") or "", "checklist": _jl(so.get("atelier_checklist")),
+		"due": so.delivery_date, "due_time": str(so.atelier_due_time)[:5] if so.get("atelier_due_time") else None,
+		"description": so.get("atelier_description") or "", "checklist": _jl(so.get("atelier_checklist")),
+		"client": _client(so.customer),
 		"cover": so.get("atelier_cover"), "files": files, "activity": activity,
 		"grand_total": row.grand_total, "paid": row.paid, "price_pending": row.price_pending, "docstatus": so.docstatus,
 		"per_delivered": so.per_delivered, "can_edit": bool(frappe.has_permission("Sales Order", "write", so)),
@@ -440,6 +443,8 @@ def update_card(name, changes):
 				_log(name, _("أكمل «{0}»").format(c["text"]))
 	if "cover" in ch:
 		so.db_set("atelier_cover", ch["cover"] or None)
+	if "due_time" in ch:
+		so.db_set("atelier_due_time", ch["due_time"] or None)
 	if "due" in ch and ch["due"]:
 		if so.docstatus == 1:
 			frappe.db.sql("update `tabSales Order` set delivery_date=%s where name=%s", (ch["due"], name))
@@ -455,6 +460,17 @@ def update_card(name, changes):
 		so.save()
 		_log(name, _("غيّر العميل إلى {0}").format(so.customer_name))
 	return card(name)
+
+
+def _client(customer):
+	"""What the team should know about the card's customer: contact, history and what they owe."""
+	c = frappe.db.get_value("Customer", customer, ["customer_name", "customer_type", "mobile_no"], as_dict=True) or {}
+	owes = None
+	if api._can("Sales Invoice"):
+		owes = flt(frappe.db.sql("select sum(outstanding_amount) from `tabSales Invoice` where customer=%s and docstatus=1", customer)[0][0])
+	return {"name": customer, "customer_name": c.get("customer_name"), "type": c.get("customer_type"), "phone": c.get("mobile_no"),
+		"orders": frappe.db.count("Sales Order", {"customer": customer, "docstatus": ["<", 2]}), "owes": owes,
+		"cash": c.get("customer_name") == "زبون نقدي"}
 
 
 @frappe.whitelist(methods=["POST"])

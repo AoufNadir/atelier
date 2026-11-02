@@ -1,5 +1,5 @@
 // Atelier daily app — Vue 3 (vendored, no build step) on top of the ERPNext API (atelier.api).
-import { createApp, reactive, ref, computed, watch, onMounted, onBeforeUnmount, nextTick, h } from "./vendor/vue.esm-browser.prod.js";
+import { createApp, reactive, ref, computed, watch, onMounted, onBeforeUnmount, nextTick, h, TransitionGroup } from "./vendor/vue.esm-browser.prod.js";
 // Strings follow the app's cache-busting version (?v=…) so text updates are never stale.
 const { default: STR } = await import(`./i18n/ar.js${new URL(import.meta.url).search}`);
 
@@ -2240,7 +2240,7 @@ const BoardCard = {
       <div class="tc-title">{{ c.title }}</div>
       <div class="tc-cust">{{ c.customer_name }}<template v-if="c.price_pending"> · <span class="bd-warn">بلا سعر</span></template></div>
       <div class="tc-foot">
-        <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: daysFromToday(c.due) < 0, soon: daysFromToday(c.due) === 0}">⏰ {{ dueWord(c.due) }}</span>
+        <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: daysFromToday(c.due) < 0, soon: daysFromToday(c.due) >= 0 && daysFromToday(c.due) <= 1}">⏰ {{ dueWord(c.due) }}<template v-if="c.due_time"> {{ c.due_time }}</template></span>
         <span v-else-if="c.per_delivered >= 100" :class="c.grand_total - c.paid > 0.005 ? 'bd-late' : 'bd-ok'">{{ c.grand_total - c.paid > 0.005 ? 'باقي ' + money(c.grand_total - c.paid) : '✓ مدفوع' }}</span>
         <span v-if="c.comments" title="تعليقات">💬 {{ c.comments }}</span>
         <span v-if="c.files" title="مرفقات">📎 {{ c.files }}</span>
@@ -2320,7 +2320,30 @@ const CardModal = {
     onMounted(() => window.addEventListener("keydown", onKey));
     onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     const column = computed(() => props.config.columns.find((c) => c.id === d.value?.column));
-    return { d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
+    // drop-downs: members (team people with a login) and labels (editable here by the manager)
+    const pop = ref(null), who = ref(""), editing = ref(null), pickClient = ref(false);
+    const closePop = () => { pop.value = null; editing.value = null; };
+    onMounted(() => window.addEventListener("click", closePop));
+    onBeforeUnmount(() => window.removeEventListener("click", closePop));
+    const people = computed(() => {
+      const all = state.boot.team_members || [], linked = all.filter((m) => m.user);
+      return (linked.length ? linked : all).filter((m) => !who.value || m.name.includes(who.value.trim()));
+    });
+    const manager = computed(() => !!state.boot.can.prices);
+    const saveConfig = async (labels) => {
+      try { await call("save_board", { config: JSON.stringify({ columns: props.config.columns, labels }) }, true); editing.value = null; emit("changed"); }
+      catch (e) { err.value = e.message; }
+    };
+    const newLabel = () => { editing.value = { name: "", color: BOARD_COLORS[props.config.labels.length % BOARD_COLORS.length] }; nextTick(() => document.getElementById("new-label")?.focus()); };
+    const saveLabel = () => {
+      const e = editing.value; if (!e || !e.name.trim()) return;
+      const labels = e.id ? props.config.labels.map((l) => (l.id === e.id ? { ...l, name: e.name.trim(), color: e.color } : l)) : [...props.config.labels, { name: e.name.trim(), color: e.color }];
+      saveConfig(labels);
+    };
+    const deleteLabel = (l) => { if (confirm(`حذف الحالة «${l.name}» من كل البطاقات؟`)) saveConfig(props.config.labels.filter((x) => x.id !== l.id)); };
+    const dueTone = computed(() => { if (!d.value?.due || d.value.per_delivered >= 100) return ""; const n = daysFromToday(d.value.due); return n < 0 ? "late" : n <= 1 ? "soon" : ""; });
+    watch(customer, () => (pickClient.value = false));
+    return { pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
       uploading, onFiles, delFile, comment, addComment, price, setPrice, pay, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
@@ -2339,16 +2362,64 @@ const CardModal = {
           <div v-if="err" class="alert error" role="alert">{{ err }}</div>
           <div class="tm-titlebox">
             <textarea class="tm-title" v-model="title" rows="1" :readonly="!d.can_edit" aria-label="عنوان البطاقة" @blur="saveTitle" @keydown.enter.prevent="$event.target.blur()"></textarea>
-            <div class="m">العميل: <a :href="'/atelier/customers?c=' + encodeURIComponent(d.customer)" @click.prevent="go('/customers?c=' + encodeURIComponent(d.customer))">{{ d.customer_name }}</a>
-              <template v-if="column"> · في «{{ column.name }}»</template></div>
-            <div v-if="d.docstatus === 0 && d.can_edit" class="tm-cust"><CustomerField v-model="customer"/></div>
           </div>
+          <div class="tm-client">
+            <Avatar :name="d.client.customer_name" :size="42"/>
+            <div style="flex:1;min-width:0">
+              <div><a class="strong" :href="'/atelier/customers?c=' + encodeURIComponent(d.customer)" @click.prevent="go('/customers?c=' + encodeURIComponent(d.customer))">{{ d.client.customer_name }}</a>
+                <span v-if="!d.client.cash" class="tm-type">{{ d.client.type === 'Company' ? 'مؤسسة' : 'فرد' }}</span></div>
+              <div class="m"><template v-if="d.client.cash">لم يُحدَّد العميل بعد</template><template v-else>
+                <span v-if="d.client.phone" dir="ltr">{{ d.client.phone }}</span><template v-if="d.client.phone"> · </template>{{ d.client.orders }} {{ d.client.orders === 1 ? 'طلب' : 'طلبات' }}
+                <template v-if="d.client.owes > 0.005"> · <span class="bd-late">عليه {{ money(d.client.owes) }}</span></template></template></div>
+            </div>
+            <a v-if="d.client.phone" class="btn sm" :href="'tel:' + d.client.phone" aria-label="اتصال">📞</a>
+            <a v-if="waLink(d.client.phone)" class="btn sm" target="_blank" rel="noopener" :href="waLink(d.client.phone)">واتساب</a>
+            <button v-if="d.docstatus === 0 && d.can_edit" type="button" class="btn sm" @click="pickClient = !pickClient">{{ d.client.cash ? 'اختيار العميل' : 'تغيير' }}</button>
+          </div>
+          <div v-if="pickClient" class="tm-cust"><CustomerField v-model="customer"/></div>
           <div class="tm-meta">
-            <div class="tm-meta-b"><span class="m">الأعضاء</span><div class="bd-chips">
-              <button v-for="p in state.boot.team" :key="p" type="button" class="bd-person sm" :aria-pressed="d.members.includes(p)" :disabled="busy || !d.can_edit" @click="toggle('members', p)"><Avatar :name="p"/>{{ p }}</button></div></div>
-            <div class="tm-meta-b"><span class="m">الحالات</span><div class="bd-chips">
-              <button v-for="l in config.labels" :key="l.id" type="button" class="tl tl-btn" :class="{off: !d.labels.includes(l.id)}" :style="labelStyle(l)" :aria-pressed="d.labels.includes(l.id)" :disabled="busy || !d.can_edit" @click="toggle('labels', l.id)">{{ d.labels.includes(l.id) ? '✓ ' : '' }}{{ l.name }}</button></div></div>
-            <div class="tm-meta-b"><span class="m">الموعد</span><label class="row" style="gap:8px"><input type="date" class="input bd-date" :value="d.due" :disabled="busy || !d.can_edit" aria-label="الموعد" @change="save({due: $event.target.value})"><span class="m">{{ dueWord(d.due) }}</span></label></div>
+            <div class="tm-meta-b tm-pop-host"><span class="m">الأعضاء</span>
+              <div class="row" style="gap:4px"><Avatar v-for="p in d.members" :key="p" :name="p" :size="32"/>
+                <button v-if="d.can_edit" type="button" class="tm-plus" aria-label="اختيار الأعضاء" :aria-expanded="pop === 'members'" @click.stop="pop = pop === 'members' ? null : 'members'">+</button></div>
+              <div v-if="pop === 'members'" class="tm-pop" @click.stop>
+                <b>الأعضاء</b>
+                <input class="input" v-model="who" placeholder="ابحث في الفريق…" aria-label="بحث في الفريق">
+                <button v-for="m in people" :key="m.name" type="button" class="tm-pop-row" :aria-pressed="d.members.includes(m.name)" :disabled="busy" @click="toggle('members', m.name)">
+                  <Avatar :name="m.name" :size="28"/><span style="flex:1"><b>{{ m.name }}</b><span v-if="m.role" class="m" style="display:inline"> · {{ m.role }}</span></span><span v-if="d.members.includes(m.name)" class="tm-tick">✓</span></button>
+                <span v-if="!people.length" class="m">لا أحد في الفريق بحساب دخول.</span>
+                <span class="m">فقط من لهم حساب في التطبيق.</span>
+              </div>
+            </div>
+            <div class="tm-meta-b tm-pop-host"><span class="m">الحالات</span>
+              <div class="row" style="gap:4px;flex-wrap:wrap"><span v-for="id in d.labels.filter(id => labels[id])" :key="id" class="tl tm-lb" :style="labelStyle(labels[id])">{{ labels[id].name }}</span>
+                <button v-if="d.can_edit" type="button" class="tm-plus sq" aria-label="اختيار الحالات" :aria-expanded="pop === 'labels'" @click.stop="pop = pop === 'labels' ? null : 'labels'">+</button></div>
+              <div v-if="pop === 'labels'" class="tm-pop" @click.stop>
+                <b>الحالات</b>
+                <template v-for="l in config.labels" :key="l.id">
+                  <div v-if="editing && editing.id === l.id" class="tm-ledit">
+                    <input class="input" v-model="editing.name" aria-label="اسم الحالة" @keydown.enter.prevent="saveLabel">
+                    <span class="bs-colors"><button v-for="col in BOARD_COLORS" :key="col" type="button" class="bs-sw" :style="{background: col}" :aria-pressed="editing.color === col" :aria-label="col" @click="editing.color = col"></button></span>
+                    <div class="row" style="gap:6px"><button type="button" class="btn primary sm" @click="saveLabel">حفظ</button><button type="button" class="btn ghost sm" @click="editing = null">إلغاء</button>
+                      <span class="spacer"></span><button type="button" class="btn ghost sm" style="color:var(--danger)" @click="deleteLabel(l)">حذف</button></div>
+                  </div>
+                  <div v-else class="tm-lrow">
+                    <label class="tm-lcheck"><input type="checkbox" :checked="d.labels.includes(l.id)" :disabled="busy" @change="toggle('labels', l.id)"><span class="tl" :style="labelStyle(l)">{{ l.name }}</span></label>
+                    <button v-if="manager" type="button" class="btn ghost icon-btn sm" :aria-label="'تعديل ' + l.name" @click="editing = {...l}"><Icon name="edit" :size="14"/></button>
+                  </div>
+                </template>
+                <div v-if="editing && !editing.id" class="tm-ledit">
+                  <input id="new-label" class="input" v-model="editing.name" placeholder="اسم الحالة" aria-label="اسم الحالة الجديدة" @keydown.enter.prevent="saveLabel">
+                  <span class="bs-colors"><button v-for="col in BOARD_COLORS" :key="col" type="button" class="bs-sw" :style="{background: col}" :aria-pressed="editing.color === col" :aria-label="col" @click="editing.color = col"></button></span>
+                  <div class="row" style="gap:6px"><button type="button" class="btn primary sm" @click="saveLabel">إضافة</button><button type="button" class="btn ghost sm" @click="editing = null">إلغاء</button></div>
+                </div>
+                <button v-else-if="manager" type="button" class="tm-pop-add" @click="newLabel">+ حالة جديدة</button>
+              </div>
+            </div>
+            <div class="tm-meta-b"><span class="m">الموعد النهائي</span>
+              <div class="tm-due" :class="dueTone">
+                <input type="date" class="input bd-date" :value="d.due" :disabled="busy || !d.can_edit" aria-label="تاريخ التسليم" @change="save({due: $event.target.value})">
+                <input type="time" class="input bd-date" :value="d.due_time || ''" :disabled="busy || !d.can_edit" aria-label="ساعة التسليم" @change="save({due_time: $event.target.value})">
+                <span class="tm-due-w">⏰ {{ dueWord(d.due) }}</span></div></div>
           </div>
 
           <section class="tm-sec"><h3>≡ الوصف <span class="spacer"></span><button v-if="d.can_edit && !editDesc" type="button" class="btn sm" @click="startDesc">تعديل</button></h3>
@@ -2385,6 +2456,7 @@ const CardModal = {
             <template v-else>
               <div class="bd-line"><span class="m">السعر</span><b class="money">{{ money(d.grand_total) }}</b></div>
               <div class="bd-line"><span class="m">دفع</span><span class="money">{{ money(d.paid) }}</span></div>
+              <div class="tm-paybar"><span :style="{width: Math.min(100, d.grand_total ? d.paid / d.grand_total * 100 : 0) + '%'}"></span></div>
               <div class="bd-line"><span class="m">الباقي</span><b class="money" :class="{'bd-late': d.grand_total - d.paid > 0.005}">{{ money(Math.max(0, d.grand_total - d.paid)) }}</b></div></template>
             <div class="row" style="gap:8px"><button v-if="state.boot.can.payment && !d.price_pending && d.grand_total - d.paid > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
               <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, 'الورشة — عربي')">بون PDF</a></div>
@@ -2404,7 +2476,7 @@ const CardModal = {
 };
 
 const Board = {
-  props: ["startNew"], components: { Icon, BoardCard, BoardPanel, CardModal, Avatar },
+  props: ["startNew"], components: { Icon, BoardCard, BoardPanel, CardModal, Avatar, TransitionGroup },
   setup(props) {
     const { s, load } = useLoad(() => call("board2"));
     onMounted(load);
@@ -2463,9 +2535,9 @@ const Board = {
       <section v-for="c in cols" :key="c.id" class="tb-col" :class="{over: over === c.id, deliver: c.deliver}" :aria-label="c.name"
         @dragover.prevent="over = c.id" @dragleave="over === c.id && (over = null)" @drop.prevent="drop(c.id)">
         <h2 class="tb-ch"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم"> 🚚</span><span class="bd-n">{{ c.items.length }}</span></h2>
-        <div class="tb-list">
+        <TransitionGroup name="tcm" tag="div" class="tb-list">
           <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :busy="busy === card.name" @open="open = card.name" @drag="dragging = $event"/>
-        </div>
+        </TransitionGroup>
         <template v-if="!c.deliver">
           <form v-if="adding === c.id" class="tb-add" @submit.prevent="addCard(c.id)">
             <textarea :id="'add-' + c.id" class="input" v-model="newTitle" rows="2" placeholder="عنوان البطاقة…" aria-label="عنوان البطاقة" @keydown.enter.prevent="addCard(c.id)" @keydown.esc="adding = null"></textarea>
