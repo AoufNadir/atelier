@@ -1,6 +1,8 @@
 """API for the daily app (/atelier). Every read goes through frappe.get_list / permission checks,
 every write creates standard ERPNext documents (no parallel accounting)."""
 
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, get_first_day, get_last_day, getdate, nowdate
@@ -825,8 +827,13 @@ def expense_options():
 		"""select gle.account, count(*) from `tabGL Entry` gle join `tabAccount` acc on acc.name = gle.account
 		where gle.company=%s and gle.is_cancelled=0 and acc.root_type='Expense'
 		and gle.voucher_type in ('Journal Entry', 'Purchase Invoice') group by gle.account""", company))
-	accounts = frappe.get_all("Account", filters={"company": company, "root_type": "Expense", "is_group": 0, "disabled": 0},
-		fields=["name", "account_name", "account_number"], order_by="account_number asc")
+	filters = {"company": company, "root_type": "Expense", "is_group": 0, "disabled": 0}
+	short = json.loads(frappe.db.get_default("atelier_expense_accounts") or "[]")  # the workshop's short list, see accounts_ar.py
+	if short:
+		filters["name"] = ["in", short]
+	accounts = frappe.get_all("Account", filters=filters, fields=["name", "account_name", "account_number"], order_by="account_number asc")
+	if short:
+		accounts.sort(key=lambda a: short.index(a.name))
 	for a in accounts:
 		a.used = used.get(a.name, 0)
 	orders = frappe.get_list("Sales Order", filters={"docstatus": ["<", 2], "project": ["is", "set"], "status": ["not in", ["Closed", "Completed"]]},
