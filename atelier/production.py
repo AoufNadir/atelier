@@ -317,7 +317,7 @@ def save_team(members):
 		name = (m.get("name") or "").strip()[:80]
 		if name and name not in seen:
 			seen.add(name)
-			out.append({"name": name, "role": (m.get("role") or "").strip()[:80]})
+			out.append({"name": name, "role": (m.get("role") or "").strip()[:80], "user": (m.get("user") or "").strip()[:140]})
 	frappe.db.set_default("atelier_team", json.dumps(out, ensure_ascii=False))
 	return out
 
@@ -329,6 +329,7 @@ def boot_info():
 	kinds = list(KINDS) + sorted({r[0] for r in frappe.db.sql("select distinct atelier_kind from `tabTask` where ifnull(atelier_kind, '') != ''")} - set(KINDS))
 	return {
 		"step_kinds": kinds, "step_modes": [INTERNAL, EXTERNAL], "team": [m["name"] for m in members], "team_members": members,
+		"me": next((m["name"] for m in members if m.get("user") == frappe.session.user), None),
 		"suppliers": frappe.get_all("Supplier", filters={"disabled": 0}, fields=["name", "supplier_name"], order_by="supplier_name asc", limit=200),
 		"tags": sorted({x for r in frappe.db.sql("select _user_tags from `tabSales Order` where ifnull(_user_tags, '') != ''") for x in r[0].split(",") if x}),
 	}

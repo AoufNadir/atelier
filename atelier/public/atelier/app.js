@@ -1,5 +1,5 @@
 // Atelier daily app — Vue 3 (vendored, no build step) on top of the ERPNext API (atelier.api).
-import { createApp, reactive, ref, computed, watch, onMounted, onBeforeUnmount, h } from "./vendor/vue.esm-browser.prod.js";
+import { createApp, reactive, ref, computed, watch, onMounted, onBeforeUnmount, nextTick, h } from "./vendor/vue.esm-browser.prod.js";
 // Strings follow the app's cache-busting version (?v=…) so text updates are never stale.
 const { default: STR } = await import(`./i18n/ar.js${new URL(import.meta.url).search}`);
 
@@ -134,7 +134,7 @@ const route = computed(() => {
   if ((m = p.match(/^\/orders\/(.+)$/))) return { name: "order", id: decodeURIComponent(m[1]) };
   if (p === "/customers") return { name: "customers" };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
-  if (["/money", "/stock", "/machines", "/reports", "/more", "/prices", "/team", "/ds"].includes(p)) return { name: p.slice(1) };
+  if (["/money", "/stock", "/machines", "/reports", "/more", "/prices", "/team", "/board-settings", "/ds"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
@@ -2107,31 +2107,6 @@ const Avatar = {
   template: `<span class="bd-av" :style="[avatarStyle(name), size ? {width: size + 'px', height: size + 'px', fontSize: (size * 0.4) + 'px'} : {}]" :title="name || 'بلا مسؤول'" aria-hidden="true">{{ name ? [...name][0] : '؟' }}</span>`,
 };
 
-// Order card on the board.
-const BoardCard = {
-  props: ["o", "busy"], emits: ["open", "move", "drag"], components: { Avatar },
-  setup() {
-    const next = (o) => COLS[COLS.findIndex((c) => c[0] === o.column) + 1];
-    const left = (o) => Math.max(0, o.grand_total - (o.paid || 0));
-    return { next, left, dueWord, daysFromToday, money, tagTone };
-  },
-  template: `
-  <article class="bd-card" :class="{busy: busy}" draggable="true" tabindex="0" @dragstart="$emit('drag', o)" @click="$emit('open', o)" @keydown.enter="$emit('open', o)"
-    :aria-label="(o.atelier_subject || o.name) + ' — ' + o.customer_name">
-    <div v-if="o.tags && o.tags.length" class="bd-tags"><span v-for="tg in o.tags" :key="tg" :class="['tag-chip', 'tg-' + tagTone(tg)]">{{ tg }}</span></div>
-    <div class="bd-title">{{ o.atelier_subject || o.name }}</div>
-    <div class="bd-meta">{{ o.customer_name }}<template v-if="o.price_pending"> · <span class="bd-warn">بلا سعر</span></template><template v-else-if="o.column !== 'done'"> · <span class="money">{{ money(o.grand_total) }}</span></template></div>
-    <div class="bd-foot">
-      <span v-if="o.column === 'done'" :class="left(o) > 0.005 ? 'bd-late' : 'bd-ok'">{{ left(o) > 0.005 ? 'باقي ' + money(left(o)) : '✓ مدفوع' }}</span>
-      <span v-else-if="o.column === 'ready' && left(o) > 0.005" class="bd-late">باقي {{ money(left(o)) }}</span>
-      <span v-else :class="{'bd-late': o.delivery_date && daysFromToday(o.delivery_date) < 0}">{{ dueWord(o.delivery_date) }}</span>
-      <span class="spacer"></span>
-      <Avatar :name="o.assignee"/>
-      <button v-if="next(o)" type="button" class="bd-next" :disabled="busy" :aria-label="'نقل إلى ' + next(o)[1]" :title="'نقل إلى ' + next(o)[1]" @click.stop="$emit('move', o, next(o)[0])">‹</button>
-    </div>
-  </article>`,
-};
-
 // Customer search-or-create field used by the quick order form.
 const CustomerField = {
   props: ["modelValue"], emits: ["update:modelValue"],
@@ -2247,61 +2222,265 @@ const BoardPanel = {
   </aside>`,
 };
 
-const Board = {
-  props: ["startNew"], components: { Icon, BoardCard, BoardPanel },
-  setup(props) {
-    const { s, load } = useLoad(() => call("board"));
-    onMounted(load);
-    watch(() => state.rev, load);
-    const filter = ref("all");
-    const me = computed(() => state.boot.full_name || "");
-    const isMine = (o) => !!o.assignee && (me.value === o.assignee || firstName(me.value) === firstName(o.assignee));
-    const FILTERS = [["all", "الكل", () => true], ["mine", "مهامي", isMine], ["urgent", "عاجل", (o) => (o.tags || []).includes("عاجل")]];
-    const rows = computed(() => (s.data || []).filter(FILTERS.find((x) => x[0] === filter.value)[2]));
-    const cols = computed(() => COLS.map(([k, l]) => ({ k, l, items: rows.value.filter((o) => o.column === k)
-      .sort((a, b) => tagRank(a) - tagRank(b) || String(a.delivery_date || "9").localeCompare(String(b.delivery_date || "9"))) })));
-    const panel = ref(props.startNew ? { mode: "new", preset: state.quickCustomer || null } : null);
-    state.quickCustomer = null;
-    const view = (o) => (panel.value = { mode: "view", name: o.name });
-    const current = computed(() => panel.value?.name && (s.data || []).find((o) => o.name === panel.value.name));
-    const busy = ref(null), dragging = ref(null), over = ref(null);
-    async function moveTo(o, col) {
-      if (o.column === col) return;
-      busy.value = o.name;
-      try {
-        await call("move", { name: o.name, column: col }, true);
-        toast(col === "done" ? "سُلّم الطلب وصدرت فاتورته" : `نُقل إلى «${COLS.find((c) => c[0] === col)[1]}»`);
-        await load();
-      } catch (e) { toast(e.message, "error"); } finally { busy.value = null; }
-    }
-    const drop = (col) => { const o = dragging.value; dragging.value = null; over.value = null; if (o) moveTo(o, col); };
-    const saved = async (name) => { await load(); if (!name) panel.value = null; };
-    const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { s, load, filter, FILTERS, cols, panel, view, current, busy, dragging, over, moveTo, drop, saved, closePanel, t };
-  },
+const inkOn = (hex) => { const h = String(hex || "#888").replace("#", ""); const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)); return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#1D1630" : "#fff"; };
+const labelStyle = (l) => ({ background: l.color, color: inkOn(l.color) });
+const BOARD_COLORS = ["#9A94AC", "#F5D547", "#F59E0B", "#E5484D", "#2563EB", "#22A06B", "#D7F1A8", "#9B87F5", "#1597A6", "#C2410C"];
+const isImg = (f) => /\.(png|jpe?g|gif|webp)$/i.test(f.file_name || f.file_url || "");
+const ago = (iso) => { const m = Math.round((Date.now() - new Date(String(iso).replace(" ", "T")).getTime()) / 60000);
+  return m < 1 ? "الآن" : m < 60 ? `منذ ${m} دقيقة` : m < 1440 ? `منذ ${Math.round(m / 60)} ساعة` : `منذ ${Math.round(m / 1440)} يوم`; };
+
+const BoardCard = {
+  props: ["c", "labels", "busy"], emits: ["open", "drag"], components: { Avatar },
+  setup() { return { labelStyle, dueWord, daysFromToday, money }; },
   template: `
-  <div class="page bd" :class="{'with-panel': panel}">
-    <div class="bd-main">
-      <div class="bd-head">
-        <div><h1>الطلبات</h1><div class="sub">اسحب البطاقة إلى العمود التالي عند الانتهاء.</div></div>
-        <div class="bd-filters" role="group" aria-label="تصفية">
-          <button v-for="x in FILTERS" :key="x[0]" type="button" class="bd-chip" :aria-pressed="filter === x[0]" @click="filter = x[0]">{{ x[1] }}</button>
-          <button type="button" class="btn primary bd-new" @click="panel = {mode: 'new'}">+ طلب جديد</button>
-        </div>
-      </div>
-      <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
-      <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
-      <div v-else class="bd-cols">
-        <section v-for="c in cols" :key="c.k" class="bd-col" :class="['bd-' + c.k, {over: over === c.k}]" :aria-label="c.l"
-          @dragover.prevent="over = c.k" @dragleave="over === c.k && (over = null)" @drop.prevent="drop(c.k)">
-          <h2 class="bd-ch">{{ c.l }} <span class="bd-n">{{ c.items.length }}</span></h2>
-          <BoardCard v-for="o in c.items" :key="o.name" :o="o" :busy="busy === o.name" @open="view" @move="moveTo" @drag="dragging = $event"/>
-          <div v-if="!c.items.length" class="bd-empty">{{ c.k === 'new' ? 'لا طلبات جديدة' : 'فارغ' }}</div>
-        </section>
+  <article class="tc" :class="{busy}" draggable="true" tabindex="0" @dragstart="$emit('drag', c)" @click="$emit('open', c)" @keydown.enter="$emit('open', c)" :aria-label="c.title + ' — ' + c.customer_name">
+    <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
+    <div class="tc-body">
+      <div v-if="c.labels.length" class="tc-labels"><span v-for="id in c.labels.filter(id => labels[id])" :key="id" class="tl" :style="labelStyle(labels[id])">{{ labels[id].name }}</span></div>
+      <div class="tc-title">{{ c.title }}</div>
+      <div class="tc-cust">{{ c.customer_name }}<template v-if="c.price_pending"> · <span class="bd-warn">بلا سعر</span></template></div>
+      <div class="tc-foot">
+        <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: daysFromToday(c.due) < 0, soon: daysFromToday(c.due) === 0}">⏰ {{ dueWord(c.due) }}</span>
+        <span v-else-if="c.per_delivered >= 100" :class="c.grand_total - c.paid > 0.005 ? 'bd-late' : 'bd-ok'">{{ c.grand_total - c.paid > 0.005 ? 'باقي ' + money(c.grand_total - c.paid) : '✓ مدفوع' }}</span>
+        <span v-if="c.comments" title="تعليقات">💬 {{ c.comments }}</span>
+        <span v-if="c.files" title="مرفقات">📎 {{ c.files }}</span>
+        <span v-if="c.check[1]" class="tc-check" :class="{full: c.check[0] === c.check[1]}" title="قائمة المهام">☑ {{ c.check[0] }}/{{ c.check[1] }}</span>
+        <span class="spacer"></span>
+        <span class="tc-members"><Avatar v-for="m in c.members.slice(0, 3)" :key="m" :name="m"/></span>
       </div>
     </div>
-    <BoardPanel v-if="panel && (panel.mode === 'new' || current)" :key="panel.mode + (panel.name || '')" :mode="panel.mode" :order="current" :preset="panel.preset"
-      @close="closePanel" @saved="saved" @move="moveTo"/>
+  </article>`,
+};
+
+const CardModal = {
+  props: ["name", "config"], emits: ["close", "changed"], components: { Icon, Avatar, CustomerField },
+  setup(props, { emit }) {
+    const d = ref(null), err = ref(null), busy = ref(false), fileInput = ref(null);
+    const labels = computed(() => Object.fromEntries(props.config.labels.map((l) => [l.id, l])));
+    const load = async () => { try { d.value = await call("card", { name: props.name }); } catch (e) { err.value = e.message; } };
+    onMounted(load);
+    const save = async (changes) => {
+      busy.value = true; err.value = null;
+      try { d.value = await call("update_card", { name: props.name, changes: JSON.stringify(changes) }, true); emit("changed"); }
+      catch (e) { err.value = e.message; await load(); } finally { busy.value = false; }
+    };
+    const title = ref(""); watch(d, (v) => v && (title.value = v.title), { immediate: true });
+    const saveTitle = () => title.value.trim() && title.value.trim() !== d.value.title && save({ title: title.value.trim() });
+    const toggle = (key, v) => { const l = [...d.value[key]]; const i = l.indexOf(v); if (i >= 0) l.splice(i, 1); else l.push(v); save({ [key]: l }); };
+    const moveTo = async (col) => {
+      busy.value = true; err.value = null;
+      try { await call("move_card", { name: props.name, column: col }, true); await load(); emit("changed"); }
+      catch (e) { err.value = e.message; await load(); } finally { busy.value = false; }
+    };
+    // description
+    const editDesc = ref(false), desc = ref("");
+    const startDesc = () => { desc.value = d.value.description; editDesc.value = true; };
+    const saveDesc = async () => { await save({ description: desc.value }); editDesc.value = false; };
+    // checklist
+    const newItem = ref("");
+    const checkDone = computed(() => (d.value?.checklist || []).filter((c) => c.done).length);
+    const setCheck = (list) => save({ checklist: list });
+    const addItem = () => { const v = newItem.value.trim(); if (!v) return; setCheck([...d.value.checklist, { text: v, done: 0 }]); newItem.value = ""; };
+    const tick = (i) => setCheck(d.value.checklist.map((c, j) => (j === i ? { ...c, done: c.done ? 0 : 1 } : c)));
+    const dropItem = (i) => setCheck(d.value.checklist.filter((_, j) => j !== i));
+    // files
+    const uploading = ref(false);
+    const onFiles = async (e) => {
+      const list = [...(e.target.files || e.dataTransfer?.files || [])]; if (!list.length) return;
+      uploading.value = true; err.value = null;
+      try {
+        for (const f of list) {
+          const up = await uploadPrivate(isImg({ file_name: f.name }) ? await shrinkImage(f) : f, "Sales Order", props.name);
+          d.value = await call("file_added", { name: props.name, file_url: up.file_url, file_name: up.file_name }, true);
+        }
+        emit("changed");
+      } catch (x) { err.value = x.message; } finally { uploading.value = false; if (fileInput.value) fileInput.value.value = ""; }
+    };
+    const delFile = async (f) => {
+      if (!confirm(`حذف «${f.file_name}»؟`)) return;
+      try { d.value = await call("delete_file", { name: props.name, file: f.name }, true); emit("changed"); } catch (x) { err.value = x.message; }
+    };
+    // comments
+    const comment = ref("");
+    const addComment = async () => {
+      if (!comment.value.trim()) return;
+      try { d.value = await call("add_comment", { name: props.name, text: comment.value }, true); comment.value = ""; emit("changed"); } catch (x) { err.value = x.message; }
+    };
+    // money
+    const price = ref("");
+    const setPrice = async () => {
+      if (!(+price.value > 0)) { err.value = "أدخل السعر"; return; }
+      try { await call("update_order", { name: props.name, price: +price.value }, true); price.value = ""; await load(); emit("changed"); toast("حُفظ السعر"); } catch (x) { err.value = x.message; }
+    };
+    const pay = () => (state.sheet = { type: "payment", customer: { name: d.value.customer, customer_name: d.value.customer_name }, order: props.name });
+    watch(() => state.rev, load);
+    const customer = ref(null);
+    watch(customer, (c) => c && save({ customer: c.name }));
+    const onKey = (e) => { if (e.key === "Escape" && !state.sheet) emit("close"); };
+    onMounted(() => window.addEventListener("keydown", onKey));
+    onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+    const column = computed(() => props.config.columns.find((c) => c.id === d.value?.column));
+    return { d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
+      uploading, onFiles, delFile, comment, addComment, price, setPrice, pay, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
+  },
+  template: `
+  <div class="overlay tm-overlay" @click.self="$emit('close')">
+    <div class="tm" role="dialog" aria-modal="true" :aria-label="d ? d.title : 'البطاقة'" @dragover.prevent @drop.prevent="onFiles">
+      <div v-if="!d" class="tm-loading">{{ err || 'جارٍ التحميل…' }}</div>
+      <template v-else>
+      <div class="tm-cover" :style="d.cover ? {backgroundImage: 'url(' + d.cover + ')'} : {}">
+        <label class="tm-col"><span class="sr-only">العمود</span>
+          <select class="input" :value="d.column" :disabled="busy || !d.can_edit" @change="moveTo($event.target.value)">
+            <option v-for="c in config.columns" :key="c.id" :value="c.id">{{ c.name }}{{ c.deliver ? ' 🚚' : '' }}</option></select></label>
+        <button type="button" class="btn icon-btn tm-close" aria-label="إغلاق" @click="$emit('close')"><Icon name="x"/></button>
+      </div>
+      <div class="tm-body">
+        <div class="tm-main">
+          <div v-if="err" class="alert error" role="alert">{{ err }}</div>
+          <div class="tm-titlebox">
+            <textarea class="tm-title" v-model="title" rows="1" :readonly="!d.can_edit" aria-label="عنوان البطاقة" @blur="saveTitle" @keydown.enter.prevent="$event.target.blur()"></textarea>
+            <div class="m">العميل: <a :href="'/atelier/customers?c=' + encodeURIComponent(d.customer)" @click.prevent="go('/customers?c=' + encodeURIComponent(d.customer))">{{ d.customer_name }}</a>
+              <template v-if="column"> · في «{{ column.name }}»</template></div>
+            <div v-if="d.docstatus === 0 && d.can_edit" class="tm-cust"><CustomerField v-model="customer"/></div>
+          </div>
+          <div class="tm-meta">
+            <div class="tm-meta-b"><span class="m">الأعضاء</span><div class="bd-chips">
+              <button v-for="p in state.boot.team" :key="p" type="button" class="bd-person sm" :aria-pressed="d.members.includes(p)" :disabled="busy || !d.can_edit" @click="toggle('members', p)"><Avatar :name="p"/>{{ p }}</button></div></div>
+            <div class="tm-meta-b"><span class="m">الحالات</span><div class="bd-chips">
+              <button v-for="l in config.labels" :key="l.id" type="button" class="tl tl-btn" :class="{off: !d.labels.includes(l.id)}" :style="labelStyle(l)" :aria-pressed="d.labels.includes(l.id)" :disabled="busy || !d.can_edit" @click="toggle('labels', l.id)">{{ d.labels.includes(l.id) ? '✓ ' : '' }}{{ l.name }}</button></div></div>
+            <div class="tm-meta-b"><span class="m">الموعد</span><label class="row" style="gap:8px"><input type="date" class="input bd-date" :value="d.due" :disabled="busy || !d.can_edit" aria-label="الموعد" @change="save({due: $event.target.value})"><span class="m">{{ dueWord(d.due) }}</span></label></div>
+          </div>
+
+          <section class="tm-sec"><h3>≡ الوصف <span class="spacer"></span><button v-if="d.can_edit && !editDesc" type="button" class="btn sm" @click="startDesc">تعديل</button></h3>
+            <template v-if="editDesc"><textarea class="input tm-desc" v-model="desc" rows="5" aria-label="الوصف"></textarea>
+              <div class="row" style="gap:8px"><button type="button" class="btn primary sm" :disabled="busy" @click="saveDesc">حفظ</button><button type="button" class="btn ghost sm" @click="editDesc=false">إلغاء</button></div></template>
+            <div v-else class="tm-desc-v" :class="{empty: !d.description}" @click="d.can_edit && startDesc()">{{ d.description || 'أضف وصفًا: المقاسات، الورق، رقم العميل…' }}</div>
+          </section>
+
+          <section class="tm-sec"><h3>☑ قائمة المهام <span v-if="d.checklist.length" class="m" style="display:inline">{{ checkDone }}/{{ d.checklist.length }}</span></h3>
+            <div v-if="d.checklist.length" class="tm-bar"><span :style="{width: (checkDone / d.checklist.length * 100) + '%'}"></span></div>
+            <div v-for="(c, i) in d.checklist" :key="i" class="tm-ck">
+              <label class="row" style="gap:10px;flex:1"><input type="checkbox" :checked="!!c.done" :disabled="busy || !d.can_edit" @change="tick(i)"><span :class="{done: c.done}">{{ c.text }}</span></label>
+              <button v-if="d.can_edit" type="button" class="btn ghost icon-btn sm" :aria-label="'حذف ' + c.text" @click="dropItem(i)"><Icon name="x" :size="14"/></button></div>
+            <form v-if="d.can_edit" class="row" style="gap:8px" @submit.prevent="addItem"><input class="input" v-model="newItem" placeholder="+ أضف عنصرًا" aria-label="عنصر جديد"><button type="submit" class="btn sm">إضافة</button></form>
+          </section>
+
+          <section class="tm-sec"><h3>📎 المرفقات <span class="spacer"></span>
+            <label v-if="d.can_edit" class="btn sm">{{ uploading ? 'جارٍ الرفع…' : '+ إضافة' }}<input ref="fileInput" type="file" multiple class="sr-only" @change="onFiles"></label></h3>
+            <div v-if="!d.files.length" class="m">اسحب الملفات إلى هنا، أو اضغط «+ إضافة».</div>
+            <div v-for="f in d.files" :key="f.name" class="tm-file">
+              <a class="tm-thumb" :href="f.file_url" target="_blank" rel="noopener"><img v-if="isImg(f)" :src="f.file_url" alt=""><span v-else>{{ (f.file_name.split('.').pop() || '').toUpperCase() }}</span></a>
+              <div style="flex:1;min-width:0"><a class="strong ellipsis" style="display:block" :href="f.file_url" target="_blank" rel="noopener">{{ f.file_name }}</a>
+                <span class="m">{{ ago(f.creation) }} · {{ f.by }}<template v-if="d.cover === f.file_url"> · الغلاف</template></span>
+                <span class="row" style="gap:10px"><a class="m" :href="f.file_url" download>تحميل</a>
+                  <a v-if="isImg(f) && d.cover !== f.file_url && d.can_edit" href="#" class="m" @click.prevent="save({cover: f.file_url})">جعلها الغلاف</a>
+                  <a v-if="d.can_edit" href="#" class="m" style="color:var(--danger)" @click.prevent="delFile(f)">حذف</a></span></div></div>
+          </section>
+        </div>
+
+        <aside class="tm-side">
+          <div v-if="d.money" class="tm-money"><h3>المال <span class="m" style="display:inline;margin-inline-start:auto">للمدير</span></h3>
+            <template v-if="d.price_pending"><span class="m">لم يُحدَّد السعر بعد</span>
+              <div class="row" style="gap:8px"><div class="unit-wrap" style="flex:1"><input class="input num" inputmode="decimal" v-model="price" placeholder="0" aria-label="السعر"><span class="u">دج</span></div><button type="button" class="btn primary" @click="setPrice">حفظ</button></div></template>
+            <template v-else>
+              <div class="bd-line"><span class="m">السعر</span><b class="money">{{ money(d.grand_total) }}</b></div>
+              <div class="bd-line"><span class="m">دفع</span><span class="money">{{ money(d.paid) }}</span></div>
+              <div class="bd-line"><span class="m">الباقي</span><b class="money" :class="{'bd-late': d.grand_total - d.paid > 0.005}">{{ money(Math.max(0, d.grand_total - d.paid)) }}</b></div></template>
+            <div class="row" style="gap:8px"><button v-if="state.boot.can.payment && !d.price_pending && d.grand_total - d.paid > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
+              <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, 'الورشة — عربي')">بون PDF</a></div>
+          </div>
+          <h3>💬 التعليقات والنشاط</h3>
+          <form class="tm-comment" @submit.prevent="addComment"><textarea class="input" v-model="comment" rows="2" placeholder="اكتب تعليقًا…" aria-label="تعليق" @keydown.ctrl.enter="addComment"></textarea>
+            <button v-if="comment.trim()" type="submit" class="btn primary sm">حفظ</button></form>
+          <div v-for="a in d.activity" :key="a.name" class="tm-act" :class="{info: a.comment_type === 'Info'}">
+            <Avatar :name="a.by" :size="30"/>
+            <div style="flex:1;min-width:0"><div><b>{{ a.by }}</b> <span class="m" style="display:inline">{{ ago(a.creation) }}</span></div>
+              <div v-if="a.comment_type === 'Comment'" class="tm-bubble" v-html="a.content"></div><div v-else class="m">{{ a.content }}</div></div></div>
+        </aside>
+      </div>
+      </template>
+    </div>
+  </div>`,
+};
+
+const Board = {
+  props: ["startNew"], components: { Icon, BoardCard, BoardPanel, CardModal, Avatar },
+  setup(props) {
+    const { s, load } = useLoad(() => call("board2"));
+    onMounted(load);
+    watch(() => state.rev, load);
+    const cfg = computed(() => s.data?.config || { columns: [], labels: [] });
+    const labels = computed(() => Object.fromEntries(cfg.value.labels.map((l) => [l.id, l])));
+    const mine = ref(false), label = ref("");
+    const me = computed(() => state.boot.me || state.boot.full_name || "");
+    const rows = computed(() => (s.data?.cards || []).filter((c) => (!mine.value || c.members.includes(me.value)) && (!label.value || c.labels.includes(label.value))));
+    const cols = computed(() => cfg.value.columns.map((col) => ({ ...col, items: rows.value.filter((c) => c.column === col.id)
+      .sort((a, b) => (a.labels.some((x) => labels.value[x]?.name === "عاجل") ? 0 : 1) - (b.labels.some((x) => labels.value[x]?.name === "عاجل") ? 0 : 1) || String(a.due || "9").localeCompare(String(b.due || "9"))) })));
+    const panel = ref(props.startNew ? { mode: "new", preset: state.quickCustomer || null } : null);
+    state.quickCustomer = null;
+    const open = ref(state.query.get("card") || null);
+    const busy = ref(null), dragging = ref(null), over = ref(null);
+    async function moveTo(c, col) {
+      if (c.column === col) return;
+      busy.value = c.name;
+      try { await call("move_card", { name: c.name, column: col }, true); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); await load(); }
+      catch (e) { toast(e.message, "error"); } finally { busy.value = null; }
+    }
+    const drop = (col) => { const c = dragging.value; dragging.value = null; over.value = null; if (c) moveTo(c, col); };
+    const adding = ref(null), newTitle = ref("");
+    const addCard = async (col) => {
+      const v = newTitle.value.trim(); if (!v) { adding.value = null; return; }
+      try { await call("add_card", { column: col, title: v }, true); newTitle.value = ""; await load(); } catch (e) { toast(e.message, "error"); }
+    };
+    const startAdd = (col) => { adding.value = col; newTitle.value = ""; nextTick(() => document.getElementById("add-" + col)?.focus()); };
+    const newCol = ref(""), addingCol = ref(false);
+    const addColumn = async () => {
+      const v = newCol.value.trim(); if (!v) { addingCol.value = false; return; }
+      const cols = [...cfg.value.columns]; const di = cols.findIndex((c) => c.deliver);
+      cols.splice(di >= 0 ? di : cols.length, 0, { name: v, color: BOARD_COLORS[cols.length % BOARD_COLORS.length] });
+      try { await call("save_board", { config: JSON.stringify({ columns: cols, labels: cfg.value.labels }) }, true); newCol.value = ""; addingCol.value = false; await load(); } catch (e) { toast(e.message, "error"); }
+    };
+    const startCol = () => { addingCol.value = true; nextTick(() => document.getElementById("new-col")?.focus()); };
+    const saved = async () => { await load(); panel.value = null; };
+    const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
+    return { s, load, cfg, labels, mine, label, cols, panel, open, busy, dragging, over, moveTo, drop, adding, newTitle, addCard, startAdd,
+      newCol, addingCol, addColumn, startCol, saved, closePanel, labelStyle, state, go, t };
+  },
+  template: `
+  <div class="page tb">
+    <div class="tb-head">
+      <h1>الطلبات</h1>
+      <div class="tb-team" aria-label="الفريق"><Avatar v-for="p in state.boot.team" :key="p" :name="p"/></div>
+      <span class="spacer"></span>
+      <label class="tb-filter"><span class="sr-only">تصفية بالحالة</span><select class="input" v-model="label"><option value="">كل الحالات</option><option v-for="l in cfg.labels" :key="l.id" :value="l.id">{{ l.name }}</option></select></label>
+      <button type="button" class="bd-chip" :aria-pressed="mine" @click="mine = !mine">مهامي</button>
+      <button v-if="s.data && s.data.manager" type="button" class="btn tb-gear" @click="go('/board-settings')"><Icon name="gear" :size="18"/>تخصيص اللوحة</button>
+      <button type="button" class="btn primary bd-new" @click="panel = {mode: 'new'}">+ طلب جديد</button>
+    </div>
+    <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
+    <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
+    <div v-else class="tb-cols">
+      <section v-for="c in cols" :key="c.id" class="tb-col" :class="{over: over === c.id, deliver: c.deliver}" :aria-label="c.name"
+        @dragover.prevent="over = c.id" @dragleave="over === c.id && (over = null)" @drop.prevent="drop(c.id)">
+        <h2 class="tb-ch"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم"> 🚚</span><span class="bd-n">{{ c.items.length }}</span></h2>
+        <div class="tb-list">
+          <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :busy="busy === card.name" @open="open = card.name" @drag="dragging = $event"/>
+        </div>
+        <template v-if="!c.deliver">
+          <form v-if="adding === c.id" class="tb-add" @submit.prevent="addCard(c.id)">
+            <textarea :id="'add-' + c.id" class="input" v-model="newTitle" rows="2" placeholder="عنوان البطاقة…" aria-label="عنوان البطاقة" @keydown.enter.prevent="addCard(c.id)" @keydown.esc="adding = null"></textarea>
+            <div class="row" style="gap:6px"><button type="submit" class="btn primary sm">إضافة</button><button type="button" class="btn ghost sm" @click="adding = null">إلغاء</button></div></form>
+          <button v-else type="button" class="tb-addbtn" @click="startAdd(c.id)">+ إضافة بطاقة</button>
+        </template>
+      </section>
+      <div v-if="s.data && s.data.manager" class="tb-newcol">
+        <form v-if="addingCol" @submit.prevent="addColumn"><input id="new-col" class="input" v-model="newCol" placeholder="اسم العمود" aria-label="اسم العمود الجديد" @keydown.esc="addingCol = false">
+          <div class="row" style="gap:6px;margin-top:8px"><button type="submit" class="btn primary sm">إضافة</button><button type="button" class="btn ghost sm" @click="addingCol = false">إلغاء</button></div></form>
+        <button v-else type="button" class="tb-newcol-btn" @click="startCol">+ إضافة عمود</button>
+      </div>
+    </div>
+    <BoardPanel v-if="panel" :mode="panel.mode" :preset="panel.preset" @close="closePanel" @saved="saved"/>
+    <CardModal v-if="open && s.data" :key="open" :name="open" :config="cfg" @close="open = null" @changed="load"/>
   </div>`,
 };
 
@@ -2423,11 +2602,11 @@ const SimpleMoney = {
 
 // ------------------------------------------------------------------ team (/atelier/team)
 const TeamPage = {
-  components: { Icon },
+  props: ["embedded"], components: { Icon },
   setup() {
     const rows = ref((state.boot.team_members || []).map((m) => ({ ...m })));
     const saving = ref(false), err = ref(null);
-    if (!rows.value.length) rows.value.push({ name: "", role: "" });
+    if (!rows.value.length) rows.value.push({ name: "", role: "", user: "" });
     const save = async () => {
       saving.value = true; err.value = null;
       try {
@@ -2439,19 +2618,80 @@ const TeamPage = {
     return { rows, saving, err, save, t };
   },
   template: `
-  <div class="page">
-    <div class="page-head"><div><h1>الفريق</h1><div class="sub">من يعمل في الورشة. تختار منهم مسؤول كل مرحلة داخلية.</div></div></div>
+  <div :class="embedded ? '' : 'page'">
+    <div v-if="!embedded" class="page-head"><div><h1>الفريق</h1><div class="sub">من يعمل في الورشة. تختار منهم أعضاء كل بطاقة.</div></div></div>
     <div class="card team-card">
       <div v-for="(r, i) in rows" :key="i" class="team-row">
         <input class="input" v-model="r.name" :aria-label="'الاسم ' + (i+1)" placeholder="الاسم">
         <input class="input" v-model="r.role" list="role-list" :aria-label="'الدور ' + (i+1)" placeholder="الدور (مصمم، طابع…)">
+        <input class="input" v-model="r.user" dir="ltr" type="email" :aria-label="'حساب الدخول ' + (i+1)" placeholder="بريد حساب الدخول">
         <button type="button" class="btn sm ghost icon-btn danger" :aria-label="'حذف ' + (r.name || 'السطر')" @click="rows.splice(i, 1)"><Icon name="trash" :size="16"/></button>
       </div>
       <datalist id="role-list"><option value="مصمم"></option><option value="طابع"></option><option value="تشطيب"></option><option value="تركيب"></option><option value="استقبال"></option></datalist>
       <div v-if="err" class="alert error" role="alert">{{ err }}</div>
-      <div class="row" style="gap:8px"><button type="button" class="btn chip dashed" @click="rows.push({name:'', role:''})">+ إضافة شخص</button><span class="spacer"></span>
+      <div class="row" style="gap:8px"><button type="button" class="btn chip dashed" @click="rows.push({name:'', role:'', user:''})">+ إضافة شخص</button><span class="spacer"></span>
         <button type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? t('of_saving') : 'حفظ' }}</button></div>
     </div>
+  </div>`,
+};
+
+const BoardSettings = {
+  components: { Icon, TeamPage },
+  setup() {
+    const { s, load } = useLoad(() => call("board2"));
+    onMounted(load);
+    const tab = ref("columns"), cols = ref([]), labels = ref([]), moves = reactive({}), removed = ref([]), saving = ref(false), err = ref(null);
+    watch(() => s.data, (v) => { if (v) { cols.value = v.config.columns.map((c) => ({ ...c })); labels.value = v.config.labels.map((l) => ({ ...l })); removed.value = []; } });
+    const count = (id) => (s.data?.cards || []).filter((c) => c.column === id).length;
+    const lcount = (id) => (s.data?.cards || []).filter((c) => c.labels.includes(id)).length;
+    const up = (l, i, dir) => { const j = i + dir; if (j < 0 || j >= l.length) return; [l[i], l[j]] = [l[j], l[i]]; };
+    const delCol = (i) => { const c = cols.value[i]; if (c.id && count(c.id)) { removed.value.push(c); moves[c.id] = cols.value.find((x) => x.id !== c.id && !x.deliver)?.id; } cols.value.splice(i, 1); };
+    const setDeliver = (c) => cols.value.forEach((x) => (x.deliver = x === c ? (x.deliver ? 0 : 1) : 0));
+    const save = async () => {
+      saving.value = true; err.value = null;
+      try {
+        await call("save_board", { config: JSON.stringify({ columns: cols.value, labels: labels.value }), moves: JSON.stringify(moves) }, true);
+        toast("حُفظ التخصيص"); await load(); state.rev++;
+      } catch (e) { err.value = e.message; } finally { saving.value = false; }
+    };
+    return { s, tab, cols, labels, moves, removed, saving, err, count, lcount, up, delCol, setDeliver, save, BOARD_COLORS, labelStyle, go };
+  },
+  template: `
+  <div class="page">
+    <div class="bd-head"><div><h1>تخصيص اللوحة</h1><div class="sub">للمدير فقط. التغييرات تظهر للفريق مباشرة.</div></div>
+      <button type="button" class="btn" @click="go('/')">← العودة إلى الطلبات</button></div>
+    <div class="cv-tabs" role="tablist" style="margin:12px 0 18px">
+      <button v-for="tb in [['columns','الأعمدة'],['labels','الحالات'],['team','الفريق']]" :key="tb[0]" type="button" role="tab" class="bs-tab" :aria-selected="tab===tb[0]" @click="tab=tb[0]">{{ tb[1] }}</button></div>
+    <div v-if="!s.data && tab !== 'team'" class="ws-loading">جارٍ التحميل…</div>
+    <div v-else-if="tab === 'columns'" class="bs-list">
+      <div v-for="(c, i) in cols" :key="c.id || i" class="bs-row">
+        <span class="bs-move"><button type="button" class="btn ghost icon-btn sm" :aria-label="'تقديم ' + c.name" @click="up(cols, i, -1)"><Icon name="up" :size="16"/></button><button type="button" class="btn ghost icon-btn sm" :aria-label="'تأخير ' + c.name" @click="up(cols, i, 1)"><Icon name="down" :size="16"/></button></span>
+        <input class="input" v-model="c.name" :aria-label="'اسم العمود ' + (i + 1)" placeholder="اسم العمود">
+        <span class="bs-colors" role="group" :aria-label="'لون ' + c.name"><button v-for="col in BOARD_COLORS" :key="col" type="button" class="bs-sw" :style="{background: col}" :aria-pressed="c.color === col" :aria-label="col" @click="c.color = col"></button></span>
+        <label class="bs-deliver"><input type="checkbox" :checked="!!c.deliver" @change="setDeliver(c)">🚚 عمود التسليم</label>
+        <span class="m">{{ c.id ? count(c.id) + ' بطاقة' : 'جديد' }}</span>
+        <button type="button" class="btn ghost icon-btn sm danger" :aria-label="'حذف ' + c.name" @click="delCol(i)"><Icon name="trash" :size="16"/></button>
+      </div>
+      <div v-for="r in removed" :key="r.id" class="bs-warn"><b>حذف «{{ r.name }}» وفيه {{ count(r.id) }} بطاقة</b> — تُنقل البطاقات إلى:
+        <select class="input" v-model="moves[r.id]" style="width:auto"><option v-for="c in cols.filter(c => c.id && !c.deliver)" :key="c.id" :value="c.id">{{ c.name }}</option></select></div>
+      <button type="button" class="bs-addrow" @click="cols.splice(cols.findIndex(c => c.deliver) >= 0 ? cols.findIndex(c => c.deliver) : cols.length, 0, {name: '', color: BOARD_COLORS[cols.length % BOARD_COLORS.length]})">+ إضافة عمود</button>
+      <span class="m">نقل بطاقة إلى «عمود التسليم» يصدر بون التسليم والفاتورة تلقائيًا. عمود واحد فقط يحمل هذه الصفة.</span>
+    </div>
+    <div v-else-if="tab === 'labels'" class="bs-list">
+      <div v-for="(l, i) in labels" :key="l.id || i" class="bs-row">
+        <span class="tl bs-prev" :style="labelStyle(l)">{{ l.name || 'حالة' }}</span>
+        <input class="input" v-model="l.name" :aria-label="'اسم الحالة ' + (i + 1)" placeholder="اسم الحالة">
+        <span class="bs-colors" role="group" :aria-label="'لون ' + l.name"><button v-for="col in BOARD_COLORS" :key="col" type="button" class="bs-sw" :style="{background: col}" :aria-pressed="l.color === col" :aria-label="col" @click="l.color = col"></button></span>
+        <span class="m">{{ l.id ? lcount(l.id) + ' بطاقة' : 'جديدة' }}</span>
+        <button type="button" class="btn ghost icon-btn sm danger" :aria-label="'حذف ' + l.name" @click="labels.splice(i, 1)"><Icon name="trash" :size="16"/></button>
+      </div>
+      <button type="button" class="bs-addrow" @click="labels.push({name: '', color: BOARD_COLORS[labels.length % BOARD_COLORS.length]})">+ إضافة حالة</button>
+    </div>
+    <TeamPage v-else-if="tab === 'team'" embedded/>
+    <template v-if="tab !== 'team' && s.data">
+      <div v-if="err" class="alert error" role="alert" style="margin-top:12px">{{ err }}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px"><button type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
+    </template>
   </div>`,
 };
 
@@ -2701,7 +2941,7 @@ const SECTION_NAV = [
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide, Board, SimpleCustomers, SimpleMoney },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide, Board, SimpleCustomers, SimpleMoney, BoardSettings },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -2717,7 +2957,7 @@ const App = {
     });
     const isActive = (n) => n.match.includes(route.value.name);
     const titles = { ds: "ds_title", "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
-      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team" };
+      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
     const initials = (n) => String(n || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join(" ");
     return { state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials };
@@ -2766,6 +3006,7 @@ const App = {
         <MorePage v-else-if="route.name==='more'"/>
         <PricesPage v-else-if="route.name==='prices'"/>
         <TeamPage v-else-if="route.name==='team'"/>
+        <BoardSettings v-else-if="route.name==='board-settings'"/>
         <StyleGuide v-else-if="route.name==='ds'"/>
       </main>
     </div>

@@ -186,3 +186,313 @@ def demo():
 	for i, so in enumerate(frappe.get_all("Sales Order", filters={"docstatus": ["<", 2]}, pluck="name")):
 		frappe.db.set_value("Sales Order", so, "atelier_assignee", people[i % len(people)])
 	frappe.db.commit()
+
+
+# ---------------------------------------------------------------- Trello-style board: custom columns, labels, card details
+# The manager shapes the board (columns, labels, team). A card is a Sales Order; its column, labels, members,
+# description and checklist live in custom fields, its files are Frappe attachments, its comments and activity
+# are Frappe Comments. Only the column marked «deliver» touches accounting (delivery note + invoice).
+
+COLORS = ["#F5D547", "#F59E0B", "#E5484D", "#2563EB", "#22A06B", "#D7F1A8", "#9B87F5", "#5C5670", "#1597A6", "#C2410C"]
+DEFAULT_CONFIG = {
+	"columns": [
+		{"id": "c-new", "name": "جديد", "color": "#9A94AC"},
+		{"id": "c-work", "name": "في العمل", "color": "#F59E0B"},
+		{"id": "c-ready", "name": "جاهز", "color": "#2563EB"},
+		{"id": "c-done", "name": "سُلّم", "color": "#22A06B", "deliver": 1},
+	],
+	"labels": [
+		{"id": "l-wait", "name": "En attente", "color": "#F5D547"},
+		{"id": "l-cours", "name": "En cours", "color": "#F59E0B"},
+		{"id": "l-valid", "name": "En validation", "color": "#22A06B"},
+		{"id": "l-done", "name": "Terminé", "color": "#2563EB"},
+		{"id": "l-urgent", "name": "عاجل", "color": "#E5484D"},
+		{"id": "l-important", "name": "مهم", "color": "#C2410C"},
+		{"id": "l-approve", "name": "في انتظار موافقة العميل", "color": "#1597A6"},
+	],
+}
+CARD_FIELDS = [
+	{"fieldname": "atelier_column", "label": "عمود اللوحة", "fieldtype": "Data", "insert_after": "atelier_assignee"},
+	{"fieldname": "atelier_labels", "label": "الحالات", "fieldtype": "Small Text", "insert_after": "atelier_column"},
+	{"fieldname": "atelier_members", "label": "الأعضاء", "fieldtype": "Small Text", "insert_after": "atelier_labels"},
+	{"fieldname": "atelier_description", "label": "الوصف", "fieldtype": "Text", "insert_after": "atelier_members"},
+	{"fieldname": "atelier_checklist", "label": "قائمة المهام", "fieldtype": "Text", "insert_after": "atelier_description"},
+	{"fieldname": "atelier_cover", "label": "الغلاف", "fieldtype": "Data", "insert_after": "atelier_checklist"},
+]
+
+
+def board_fields():
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	create_custom_fields({"Sales Order": [{**f, "module": "Atelier"} for f in CARD_FIELDS]})
+
+
+def _is_manager():
+	return bool(frappe.has_permission("Item Price", "write"))
+
+
+def get_config():
+	try:
+		cfg = json.loads(frappe.db.get_default("atelier_board") or "null")
+	except ValueError:
+		cfg = None
+	return cfg or json.loads(json.dumps(DEFAULT_CONFIG))
+
+
+def _deliver_col(cfg):
+	return next((c["id"] for c in cfg["columns"] if c.get("deliver")), None)
+
+
+def _jl(raw):
+	try:
+		v = json.loads(raw or "[]")
+		return v if isinstance(v, list) else []
+	except ValueError:
+		return []
+
+
+def _column_for(so, cfg):
+	"""The card's column; orders from before the board get one from their stage."""
+	ids = [c["id"] for c in cfg["columns"]]
+	if so.get("atelier_column") in ids:
+		return so.atelier_column
+	if flt(so.get("per_delivered")) >= 100 or so.get("atelier_stage") == "سُلّم":
+		return _deliver_col(cfg) or ids[-1]
+	old = column_of(so.get("atelier_stage"), so.get("per_delivered"))
+	work = [i for i in ids if i != _deliver_col(cfg)]
+	return {"new": work[0], "work": work[min(1, len(work) - 1)], "ready": work[-1]}.get(old, work[0])
+
+
+def _log(name, text):
+	frappe.get_doc({"doctype": "Comment", "comment_type": "Info", "reference_doctype": "Sales Order", "reference_name": name,
+		"content": text}).insert(ignore_permissions=True)
+
+
+@frappe.whitelist()
+def board2():
+	cfg = get_config()
+	label_by_name = {l["name"]: l["id"] for l in cfg["labels"]}
+	rows = api._order_rows({"docstatus": ["<", 2], "status": ["not in", ["Closed"]]}, limit=500)
+	names = [r.name for r in rows] or [""]
+	extra = {r.name: r for r in frappe.get_all("Sales Order", filters={"name": ["in", names]},
+		fields=["name", "atelier_column", "atelier_labels", "atelier_members", "atelier_checklist", "atelier_cover", "atelier_assignee"])}
+	comments = dict(frappe.db.sql("""select reference_name, count(*) from `tabComment` where reference_doctype='Sales Order'
+		and comment_type='Comment' and reference_name in %s group by reference_name""", [names]))
+	files = dict(frappe.db.sql("""select attached_to_name, count(*) from `tabFile` where attached_to_doctype='Sales Order'
+		and attached_to_name in %s group by attached_to_name""", [names]))
+	since = add_days(nowdate(), -21)
+	deliver = _deliver_col(cfg)
+	cards = []
+	for r in rows:
+		e = extra.get(r.name) or frappe._dict()
+		r.update({k: e.get(k) for k in ("atelier_column", "atelier_cover")})
+		r.column = _column_for(r, cfg)
+		if r.column == deliver and str(r.transaction_date) < since and r.paid >= flt(r.grand_total) - 0.005:
+			continue
+		labels = _jl(e.get("atelier_labels"))
+		if not e.get("atelier_labels"):  # before the board: tags become labels
+			labels = [label_by_name[t] for t in r.tags if t in label_by_name]
+		members = _jl(e.get("atelier_members")) or ([e.atelier_assignee] if e.get("atelier_assignee") else [])
+		checklist = _jl(e.get("atelier_checklist"))
+		cards.append({
+			"name": r.name, "title": r.atelier_subject or r.name, "customer": r.customer, "customer_name": r.customer_name,
+			"column": r.column, "labels": labels, "members": members, "due": r.delivery_date, "cover": r.atelier_cover,
+			"grand_total": r.grand_total, "paid": r.paid, "price_pending": r.price_pending, "docstatus": r.docstatus,
+			"per_delivered": r.per_delivered, "comments": comments.get(r.name, 0), "files": files.get(r.name, 0),
+			"check": [sum(1 for c in checklist if c.get("done")), len(checklist)],
+		})
+	return {"config": cfg, "cards": cards, "manager": _is_manager()}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_board(config, moves=None):
+	"""Columns and labels of the board. moves = {deleted column id: column id} for the cards of a removed column."""
+	if not _is_manager():
+		frappe.throw(_("التخصيص للمدير فقط"), frappe.PermissionError)
+	cfg = frappe.parse_json(config)
+	old = get_config()
+	cols = [{"id": (c.get("id") or frappe.generate_hash(length=8)), "name": (c.get("name") or "").strip()[:60],
+		"color": c.get("color") or COLORS[0], **({"deliver": 1} if c.get("deliver") else {})} for c in cfg.get("columns") or []]
+	labels = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0]}
+		for l in cfg.get("labels") or []]
+	if not cols:
+		frappe.throw(_("أبقِ عمودًا واحدًا على الأقل"))
+	if any(not c["name"] for c in cols) or any(not l["name"] for l in labels):
+		frappe.throw(_("لكل عمود وحالة اسم"))
+	if sum(1 for c in cols if c.get("deliver")) > 1:
+		frappe.throw(_("عمود تسليم واحد فقط"))
+	if len(cols) == 1 and cols[0].get("deliver"):
+		frappe.throw(_("أضف عمود عمل قبل عمود التسليم"))
+	ids = {c["id"] for c in cols}
+	moves = frappe.parse_json(moves) or {}
+	for gone in [c["id"] for c in old["columns"] if c["id"] not in ids]:
+		target = moves.get(gone)
+		if target not in ids:
+			target = next(c["id"] for c in cols if not c.get("deliver"))
+		frappe.db.sql("update `tabSales Order` set atelier_column=%s where atelier_column=%s", (target, gone))
+	new = {"columns": cols, "labels": labels}
+	frappe.db.set_default("atelier_board", json.dumps(new, ensure_ascii=False))
+	return new
+
+
+def _cash_customer():
+	name = frappe.db.get_value("Customer", {"customer_name": "زبون نقدي"})
+	if not name:
+		name = frappe.get_doc({"doctype": "Customer", "customer_name": "زبون نقدي", "customer_group": api._group("final"),
+			"customer_type": "Individual", "default_price_list": api._price_list("Individual")}).insert().name
+	return name
+
+
+@frappe.whitelist(methods=["POST"])
+def add_card(column, title):
+	"""«+ إضافة بطاقة»: just a title in a column; customer, price and the rest come later from the card."""
+	title = (title or "").strip()
+	if not title:
+		frappe.throw(_("اكتب عنوان البطاقة"))
+	cfg = get_config()
+	if column not in [c["id"] for c in cfg["columns"]] or column == _deliver_col(cfg):
+		frappe.throw(_("أضف البطاقة في عمود عمل"))
+	res = quick_order(json.dumps({"customer": _cash_customer(), "what": title, "price": None, "delivery_date": add_days(nowdate(), 3)}, ensure_ascii=False))
+	so = res["sales_order"]
+	frappe.db.set_value("Sales Order", so, "atelier_column", column)
+	_log(so, _("أنشأ البطاقة في «{0}»").format(next(c["name"] for c in cfg["columns"] if c["id"] == column)))
+	return so
+
+
+@frappe.whitelist(methods=["POST"])
+def move_card(name, column):
+	cfg = get_config()
+	col = next((c for c in cfg["columns"] if c["id"] == column), None)
+	if not col:
+		frappe.throw(_("عمود غير معروف"))
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission("write")
+	current = _column_for(so, cfg)
+	if current == column:
+		return column
+	if flt(so.per_delivered) >= 100 and not col.get("deliver"):
+		frappe.throw(_("هذا الطلب سُلّم ولا يمكن إرجاعه"))
+	if col.get("deliver"):
+		move(name, "done")
+	else:
+		first = column == cfg["columns"][0]["id"]
+		so.db_set("atelier_stage", "جديد" if first else "طباعة")
+	frappe.db.set_value("Sales Order", name, "atelier_column", column)
+	_log(name, _("نقل البطاقة إلى «{0}»").format(col["name"]))
+	return column
+
+
+@frappe.whitelist()
+def card(name):
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission("read")
+	cfg = get_config()
+	row = api._order_rows({"name": name}, limit=1)[0]
+	labels = _jl(so.get("atelier_labels"))
+	if not so.get("atelier_labels"):
+		by = {l["name"]: l["id"] for l in cfg["labels"]}
+		labels = [by[t] for t in row.tags if t in by]
+	files = frappe.get_all("File", filters={"attached_to_doctype": "Sales Order", "attached_to_name": name},
+		fields=["name", "file_name", "file_url", "file_size", "creation", "owner"], order_by="creation desc")
+	activity = frappe.get_all("Comment", filters={"reference_doctype": "Sales Order", "reference_name": name, "comment_type": ["in", ["Comment", "Info"]]},
+		fields=["name", "comment_type", "content", "owner", "creation"], order_by="creation desc", limit=100)
+	for a in activity + files:
+		a.by = frappe.utils.get_fullname(a.owner)
+	return {
+		"name": name, "title": so.atelier_subject or name, "customer": so.customer, "customer_name": so.customer_name,
+		"column": _column_for(so, cfg), "labels": labels,
+		"members": _jl(so.get("atelier_members")) or ([so.atelier_assignee] if so.get("atelier_assignee") else []),
+		"due": so.delivery_date, "description": so.get("atelier_description") or "", "checklist": _jl(so.get("atelier_checklist")),
+		"cover": so.get("atelier_cover"), "files": files, "activity": activity,
+		"grand_total": row.grand_total, "paid": row.paid, "price_pending": row.price_pending, "docstatus": so.docstatus,
+		"per_delivered": so.per_delivered, "can_edit": bool(frappe.has_permission("Sales Order", "write", so)),
+		"money": api._can("GL Entry"),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def update_card(name, changes):
+	"""Edit card fields; each change is written to the card's activity."""
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission("write")
+	ch = frappe.parse_json(changes) or {}
+	cfg = get_config()
+	if "title" in ch:
+		t = (ch["title"] or "").strip()[:140]
+		if not t:
+			frappe.throw(_("العنوان لا يكون فارغًا"))
+		so.db_set("atelier_subject", t)
+	if "labels" in ch:
+		ids = {l["id"] for l in cfg["labels"]}
+		so.db_set("atelier_labels", json.dumps([x for x in ch["labels"] if x in ids]))
+	if "members" in ch:
+		members = [m for m in ch["members"] if m][:10]
+		so.db_set("atelier_members", json.dumps(members, ensure_ascii=False))
+		so.db_set("atelier_assignee", members[0] if members else None)
+	if "description" in ch:
+		so.db_set("atelier_description", (ch["description"] or "")[:5000])
+	if "checklist" in ch:
+		before = {c.get("text"): c.get("done") for c in _jl(so.get("atelier_checklist"))}
+		items = [{"text": (c.get("text") or "").strip()[:200], "done": 1 if c.get("done") else 0} for c in ch["checklist"] if (c.get("text") or "").strip()]
+		so.db_set("atelier_checklist", json.dumps(items, ensure_ascii=False))
+		for c in items:
+			if c["done"] and not before.get(c["text"]):
+				_log(name, _("أكمل «{0}»").format(c["text"]))
+	if "cover" in ch:
+		so.db_set("atelier_cover", ch["cover"] or None)
+	if "due" in ch and ch["due"]:
+		if so.docstatus == 1:
+			frappe.db.sql("update `tabSales Order` set delivery_date=%s where name=%s", (ch["due"], name))
+			frappe.db.sql("update `tabSales Order Item` set delivery_date=%s where parent=%s", (ch["due"], name))
+		else:
+			so.delivery_date = ch["due"]
+			for i in so.items:
+				i.delivery_date = ch["due"]
+			so.save()
+		_log(name, _("غيّر الموعد إلى {0}").format(ch["due"]))
+	if ch.get("customer") and so.docstatus == 0 and ch["customer"] != so.customer:
+		so.customer = ch["customer"]
+		so.save()
+		_log(name, _("غيّر العميل إلى {0}").format(so.customer_name))
+	return card(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def add_comment(name, text):
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission("read")
+	text = (text or "").strip()
+	if not text:
+		frappe.throw(_("اكتب التعليق"))
+	so.add_comment("Comment", frappe.utils.escape_html(text)[:4000])
+	return card(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_file(name, file):
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission("write")
+	f = frappe.get_doc("File", file)
+	if f.attached_to_doctype != "Sales Order" or f.attached_to_name != name:
+		frappe.throw(_("هذا الملف ليس من هذه البطاقة"))
+	if so.get("atelier_cover") == f.file_url:
+		so.db_set("atelier_cover", None)
+	f.delete(ignore_permissions=True)
+	return card(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def file_added(name, file_url, file_name):
+	"""After an upload: log it, and make the first image the cover."""
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission("write")
+	if not so.get("atelier_cover") and str(file_name).lower().rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp", "gif"):
+		so.db_set("atelier_cover", file_url)
+	_log(name, _("أرفق {0}").format(file_name))
+	return card(name)
+
+
+def demo_board():
+	frappe.set_user("Administrator")
+	board_fields()
+	frappe.db.commit()

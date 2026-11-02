@@ -1105,5 +1105,5 @@ def statement_pdf(name, from_date=None, to_date=None):
 
 
 # Simple workshop endpoints (board, quick order, money) — imported last: simple.py builds on this module.
-from atelier.simple import board, move, quick_order, update_order  # noqa: E402, F401
+from atelier.simple import add_card, add_comment, board, board2, card, delete_file, file_added, move, move_card, quick_order, save_board, update_card, update_order  # noqa: E402, F401
 from atelier.simple import money as money_simple  # noqa: E402, F401
