@@ -798,3 +798,132 @@ def demo_customers():
 	frappe.set_user("Administrator")
 	customer_fields()
 	frappe.db.commit()
+
+
+# ---------------------------------------------------------------- money page: month figures, trend, categories, what we are owed and owe
+@frappe.whitelist()
+def money3(offset=0):
+	"""offset = months back from this one (0 = this month)."""
+	api._require("GL Entry")
+	from frappe.utils import add_months
+
+	company = api._company()
+	ref = add_months(nowdate(), -cint(offset))
+	start, end = get_first_day(ref), get_last_day(ref)
+	pstart, pend = get_first_day(add_months(ref, -1)), get_last_day(add_months(ref, -1))
+	accs = frappe.get_all("Account", filters={"company": company, "account_type": ["in", ["Cash", "Bank"]], "is_group": 0},
+		fields=["name", "account_name", "account_type"])
+	cash = [a.name for a in accs] or [""]
+
+	def one(sql, *args):
+		return flt(frappe.db.sql(sql, args)[0][0])
+
+	def inout(a, b):
+		return (one("select sum(debit) from `tabGL Entry` where is_cancelled=0 and posting_date between %s and %s and account in %s", a, b, cash),
+			one("select sum(credit) from `tabGL Entry` where is_cancelled=0 and posting_date between %s and %s and account in %s", a, b, cash))
+
+	income, expenses = inout(start, end)
+	pin, pout = inout(pstart, pend)
+	balances = {a.name: one("select sum(debit - credit) from `tabGL Entry` where is_cancelled=0 and account=%s", a.name) for a in accs}
+	# the French chart has many cash/bank accounts: show only the ones in use, plus the company defaults
+	used = {r[0] for r in frappe.db.sql("select distinct account from `tabGL Entry` where is_cancelled=0 and account in %s", [cash])}
+	defaults = set(frappe.get_cached_value("Company", company, ["default_cash_account", "default_bank_account"]) or [])
+	shown = [a for a in accs if a.name in used or a.name in defaults] or accs
+	weeks = []
+	for i in range(7, -1, -1):
+		wend = add_days(end if cint(offset) else nowdate(), -7 * i)
+		wstart = add_days(wend, -6)
+		a, b = inout(wstart, wend)
+		weeks.append({"from": str(wstart), "to": str(wend), "in": a, "out": b})
+	moves = frappe.db.sql(
+		"""select gle.voucher_type, gle.voucher_no, gle.posting_date, sum(gle.debit - gle.credit) amount, max(gle.owner) owner, max(gle.account) account
+		from `tabGL Entry` gle where gle.is_cancelled=0 and gle.account in %s and gle.posting_date between %s and %s
+		group by gle.voucher_type, gle.voucher_no, gle.posting_date order by gle.posting_date desc, max(gle.creation) desc limit 200""",
+		(cash, start, end), as_dict=True)
+	for m in moves:
+		m.title = _title(m)
+		m.by = frappe.utils.get_fullname(m.owner)
+		m.category, m.order, m.order_title = _move_meta(m)
+		m.files = frappe.db.count("File", {"attached_to_doctype": m.voucher_type, "attached_to_name": m.voucher_no})
+		m.fund = next((a.account_name for a in accs if a.name == m.account), "")
+	cats = frappe.db.sql(
+		"""select acc.account_name name, sum(gle.debit - gle.credit) amount from `tabGL Entry` gle join `tabAccount` acc on acc.name=gle.account
+		where gle.is_cancelled=0 and gle.company=%s and acc.root_type='Expense' and gle.posting_date between %s and %s
+		group by acc.account_name having amount > 0 order by amount desc limit 8""", (company, start, end), as_dict=True)
+	debtors = frappe.db.sql(
+		"""select si.customer, si.customer_name, sum(si.outstanding_amount) amount,
+		max(case when si.due_date < curdate() then datediff(curdate(), si.due_date) else 0 end) late, c.mobile_no
+		from `tabSales Invoice` si left join `tabCustomer` c on c.name=si.customer
+		where si.docstatus=1 and si.company=%s and si.outstanding_amount > 0.005 group by si.customer order by late desc, amount desc""", company, as_dict=True)
+	payables = frappe.db.sql(
+		"""select pi.name, pi.supplier, pi.supplier_name, pi.outstanding_amount amount, pi.due_date,
+		(select pii.description from `tabPurchase Invoice Item` pii where pii.parent=pi.name limit 1) what
+		from `tabPurchase Invoice` pi where pi.docstatus=1 and pi.company=%s and pi.outstanding_amount > 0.005 order by pi.due_date asc""", company, as_dict=True)
+	return {
+		"month": str(start), "offset": cint(offset),
+		"funds": [{"name": a.name, "label": a.account_name, "type": a.account_type, "balance": balances[a.name]} for a in shown],
+		"cash_balance": sum(balances.values()),
+		"income": income, "expenses": expenses, "profit": income - expenses, "prev_income": pin, "prev_expenses": pout,
+		"payers": cint(one("""select count(distinct party) from `tabPayment Entry` where docstatus=1 and payment_type='Receive'
+			and party_type='Customer' and posting_date between %s and %s""", start, end)),
+		"weeks": weeks, "moves": moves, "categories": cats, "debtors": debtors, "payables": payables,
+		"modes": [{"value": v, "label": l} for v, l in api.MODES if frappe.db.exists("Mode of Payment", v)],
+	}
+
+
+def _move_meta(m):
+	if m.voucher_type == "Payment Entry":
+		pe = frappe.db.get_value("Payment Entry", m.voucher_no, ["payment_type", "party_type"], as_dict=True) or {}
+		ref = frappe.db.get_value("Payment Entry Reference", {"parent": m.voucher_no}, ["reference_doctype", "reference_name"], as_dict=True)
+		order = None
+		if ref and ref.reference_doctype == "Sales Order":
+			order = ref.reference_name
+		elif ref and ref.reference_doctype == "Sales Invoice":
+			order = frappe.db.get_value("Sales Invoice Item", {"parent": ref.reference_name, "sales_order": ["is", "set"]}, "sales_order")
+		cat = _("دفعة عميل") if pe.get("payment_type") == "Receive" else (_("دفع لمورد") if pe.get("party_type") == "Supplier" else _("تحويل"))
+		return cat, order, frappe.db.get_value("Sales Order", order, "atelier_subject") if order else None
+	if m.voucher_type == "Journal Entry":
+		acc = frappe.db.sql("""select acc.account_name, jea.project from `tabJournal Entry Account` jea join `tabAccount` acc on acc.name=jea.account
+			where jea.parent=%s and acc.root_type in ('Expense','Asset') and acc.account_type not in ('Cash','Bank') limit 1""", m.voucher_no, as_dict=True)
+		if not acc:
+			return _("تحويل بين الصناديق"), None, None
+		order = frappe.db.get_value("Sales Order", {"project": acc[0].project}, "name") if acc[0].project else None
+		return acc[0].account_name, order, frappe.db.get_value("Sales Order", order, "atelier_subject") if order else None
+	return m.voucher_type, None, None
+
+
+@frappe.whitelist(methods=["POST"])
+def transfer_funds(from_account, to_account, amount, note=None):
+	"""Move money between the workshop's cash box and bank."""
+	if not frappe.has_permission("Journal Entry", "create"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	amount = flt(amount)
+	if amount <= 0 or from_account == to_account:
+		frappe.throw(_("اختر صندوقين مختلفين ومبلغًا أكبر من صفر"))
+	company = api._company()
+	for a in (from_account, to_account):
+		if frappe.db.get_value("Account", a, "account_type") not in ("Cash", "Bank"):
+			frappe.throw(_("حساب غير صالح"))
+	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Contra Entry", "company": company, "posting_date": nowdate(),
+		"user_remark": (note or _("تحويل بين الصناديق"))[:140],
+		"accounts": [{"account": to_account, "debit_in_account_currency": amount}, {"account": from_account, "credit_in_account_currency": amount}]})
+	je.insert()
+	je.submit()
+	return je.name
+
+
+@frappe.whitelist(methods=["POST"])
+def pay_supplier(invoice, mode_of_payment="Cash"):
+	"""Pay what is left on a supplier invoice."""
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+	if not frappe.has_permission("Payment Entry", "create"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	pe = get_payment_entry("Purchase Invoice", invoice, bank_account=api._cash_account(mode_of_payment, api._company()))
+	pe.mode_of_payment = mode_of_payment
+	pe.posting_date = nowdate()
+	pe.reference_no = pe.reference_no or "—"
+	pe.reference_date = nowdate()
+	pe.insert()
+	pe.submit()
+	return pe.name

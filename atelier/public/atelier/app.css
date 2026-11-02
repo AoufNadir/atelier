@@ -1106,3 +1106,49 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
   .sc2-panel { position: fixed; inset: 0; width: auto; max-height: none; border-radius: 0; z-index: 60; }
 }
 .sc2-grid { align-items: start; }
+
+/* money in the board identity */
+.sm3-only { padding: 2px 10px; border-radius: 999px; background: rgba(255,255,255,.14); color: #fff; font-size: 12px; }
+.tb-views button:disabled { opacity: .4; cursor: default; }
+.sm3-in, .sm3-out { min-height: 42px; border: 0; color: #fff; font-weight: 700; padding: 0 18px; }
+.sm3-in { background: #22A06B; } .sm3-out { background: #E5484D; }
+.sm3-tr { width: 300px; inset-inline-start: auto; inset-inline-end: 0; color: var(--ink); }
+.sm3-tr label { display: flex; flex-direction: column; gap: 4px; }
+.sm3-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 0 20px 14px; }
+.sm3-kpi { display: flex; flex-direction: column; padding: 14px 16px; border-radius: 14px; background: #fff; box-shadow: 0 1px 1px rgba(9,30,66,.2); min-width: 0; }
+.sm3-kpi > span:first-child { font-size: 13px; color: var(--ink-2); }
+.sm3-kpi b { font-size: 24px; line-height: 1.8; }
+.sm3-kpi.in { background: #E4F3EA; } .sm3-kpi.in b, .sm3-kpi.in > span:first-child { color: #1E6B44; }
+.sm3-kpi.out { background: #FDECEA; } .sm3-kpi.out b, .sm3-kpi.out > span:first-child { color: #B42318; }
+.sm3-kpi.profit { background: #F3F7D9; } .sm3-kpi.profit b, .sm3-kpi.profit > span:first-child, .sm3-kpi.profit .m { color: #4A5A12; }
+.sm3-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 14px; padding: 0 20px 20px; align-items: start; }
+.sm3-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.sm3-card { background: #fff; border-radius: 14px; padding: 16px; box-shadow: 0 1px 1px rgba(9,30,66,.2); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sm3-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-bottom: 6px; }
+.sm3-h > b:first-child { font-size: 16px; }
+.sm3-legend { display: flex; gap: 12px; align-items: center; font-size: 12px; }
+.sm3-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: middle; }
+.sm3-legend i.in, .sm3-bars .in { background: #22A06B; } .sm3-legend i.out, .sm3-bars .out { background: #E5484D; }
+.sm3-chart { display: flex; gap: 8px; align-items: flex-end; height: 190px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.sm3-wk { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
+.sm3-bars { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 3px; }
+.sm3-bars span { width: 34%; max-width: 18px; min-height: 2px; border-radius: 4px 4px 0 0; transition: height .3s; }
+.sm3-wk .m { font-size: 12px; white-space: nowrap; }
+.sm3-pill { all: unset; cursor: pointer; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line-strong); font-size: 12px; }
+.sm3-pill[aria-pressed="true"] { background: #1D1630; border-color: #1D1630; color: #fff; }
+.sm3-pill:focus-visible { outline: 2px solid var(--primary); }
+.sm3-search { width: 180px; min-height: 30px; font-size: 13px; }
+.sm3-mv { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-top: 1px solid #F1F0F5; }
+.sm3-cat { background: #F1F0F5; color: var(--ink-2); flex-shrink: 0; max-width: 140px; }
+.sm3-amt { min-width: 84px; text-align: left; }
+.sm3-link { all: unset; cursor: pointer; flex: 1; min-width: 0; } .sm3-link:hover .strong { color: var(--primary); } .sm3-link:focus-visible { outline: 2px solid var(--primary); }
+.sm3-wa { width: 30px; height: 30px; border-radius: 8px; border: 0; background: #25D366; color: #fff; cursor: pointer; flex-shrink: 0; }
+.sm3-sup { width: 34px; height: 34px; border-radius: 8px; background: #FFF1E0; display: grid; place-items: center; flex-shrink: 0; }
+.sm3-cat-row { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
+.sm3-catbar { height: 8px; border-radius: 4px; background: #F1F0F5; overflow: hidden; } .sm3-catbar span { display: block; height: 100%; border-radius: 4px; }
+.sm3 .sm-ic { flex-shrink: 0; }
+@media (max-width: 1023px) {
+  .sm3-kpis { grid-template-columns: 1fr 1fr; padding: 0 16px 12px; } .sm3-kpi b { font-size: 19px; }
+  .sm3-grid { grid-template-columns: 1fr; padding: 0 16px 16px; }
+  .sm3-cat { display: none; } .sm3-search { width: 100%; }
+}

@@ -2904,44 +2904,124 @@ const SimpleCustomers = {
 const SimpleMoney = {
   components: { Icon, Avatar },
   setup() {
-    const { s, load } = useLoad(() => call("money_simple"));
+    const offset = ref(0);
+    const { s, load } = useLoad(() => call("money3", { offset: offset.value }));
     onMounted(load);
-    watch(() => state.rev, load);
-    const month = computed(() => (s.data ? new Intl.DateTimeFormat("ar", { month: "long", year: "numeric" }).format(parseDate(s.data.month)) : ""));
-    const debt = computed(() => (s.data?.debtors || []).reduce((a, x) => a + x.amount, 0));
+    watch([() => state.rev, offset], load);
+    const d = computed(() => s.data);
+    const month = computed(() => (d.value ? new Intl.DateTimeFormat("ar", { month: "long", year: "numeric" }).format(parseDate(d.value.month)) : ""));
+    const pct = (now, prev) => (prev > 0.005 ? Math.round(((now - prev) / prev) * 100) : null);
+    const kind = ref("all"), q = ref("");
+    const moves = computed(() => (d.value?.moves || []).filter((m) => (kind.value === "all" || (kind.value === "in" ? m.amount > 0 : m.amount < 0))
+      && (!q.value || [m.title, m.category, m.order_title, m.by].some((v) => String(v || "").includes(q.value.trim())))));
+    const maxWeek = computed(() => Math.max(1, ...(d.value?.weeks || []).flatMap((w) => [w.in, w.out])));
+    const maxCat = computed(() => Math.max(1, ...(d.value?.categories || []).map((c) => c.amount)));
+    const catTotal = computed(() => (d.value?.categories || []).reduce((a, c) => a + c.amount, 0));
+    const owed = computed(() => (d.value?.debtors || []).reduce((a, x) => a + x.amount, 0));
+    const owe = computed(() => (d.value?.payables || []).reduce((a, x) => a + x.amount, 0));
+    const CAT_COLORS = ["#F59E0B", "#2563EB", "#9B87F5", "#5C5670", "#1597A6", "#C2410C", "#22A06B", "#E5484D"];
+    const fund = (type) => (d.value?.funds || []).filter((f) => f.type === type).reduce((a, f) => a + f.balance, 0);
     const pay = (c) => (state.sheet = { type: "payment", customer: c ? { name: c.customer, customer_name: c.customer_name } : null });
-    return { s, load, month, debt, pay, money, date, state, t };
+    const remind = (c) => {
+      const l = waLink(c.mobile_no); if (!l) { toast("لا يوجد هاتف لهذا العميل", "error"); return; }
+      const text = `السلام عليكم ${c.customer_name}،\nنذكّركم بأن المبلغ المتبقي هو ${fig(c.amount)} دج.\nشكرًا لثقتكم — ${state.boot.company_label || ""}`;
+      window.open(l + "?text=" + encodeURIComponent(text), "_blank", "noopener");
+    };
+    // transfer between funds
+    const tr = ref(null), trBusy = ref(false);
+    const openTransfer = () => { const f = d.value.funds; tr.value = { from: f[0]?.name, to: f[1]?.name || f[0]?.name, amount: "", note: "" }; };
+    const doTransfer = async () => {
+      trBusy.value = true;
+      try { await call("transfer_funds", { from_account: tr.value.from, to_account: tr.value.to, amount: +tr.value.amount, note: tr.value.note }, true); toast("تم التحويل"); tr.value = null; await load(); }
+      catch (e) { toast(e.message, "error"); } finally { trBusy.value = false; }
+    };
+    // pay a supplier
+    const paying = ref(null);
+    const paySupplier = async (p, mode) => {
+      paying.value = p.name;
+      try { await call("pay_supplier", { invoice: p.name, mode_of_payment: mode }, true); toast(`دُفع ${fig(p.amount)} دج لـ ${p.supplier_name}`); await load(); }
+      catch (e) { toast(e.message, "error"); } finally { paying.value = null; }
+    };
+    const supplierMode = ref("Cash");
+    return { s, load, d, offset, month, pct, kind, q, moves, maxWeek, maxCat, catTotal, owed, owe, CAT_COLORS, fund, pay, remind, tr, trBusy, openTransfer, doTransfer,
+      paying, paySupplier, supplierMode, waLink, money, fig, date, dueWord, daysFromToday, state, go, t };
   },
   template: `
-  <div class="page">
-    <div class="bd-head"><div><h1>المال</h1><div class="sub">{{ month }} · يراها المدير فقط</div></div>
-      <div class="bd-filters"><button v-if="state.boot.can.payment" type="button" class="btn bd-new in" @click="pay()">+ دخل</button>
-        <button v-if="state.boot.can.expense" type="button" class="btn bd-new out" @click="state.sheet = {type: 'expense'}">− مصروف</button></div></div>
+  <div class="page tb sm3">
+    <div class="tb-head">
+      <h1>المال</h1><span class="sm3-only">للمدير فقط</span>
+      <div class="tb-views" role="group" aria-label="الشهر"><button type="button" aria-label="الشهر السابق" @click="offset++">‹</button><button type="button" aria-pressed="true" @click="offset = 0">{{ month }}</button><button type="button" aria-label="الشهر التالي" :disabled="offset === 0" @click="offset > 0 && offset--">›</button></div>
+      <span class="spacer"></span>
+      <button v-if="state.boot.can.payment" type="button" class="btn sm3-in" @click="pay()">+ دخل</button>
+      <button v-if="state.boot.can.expense" type="button" class="btn sm3-out" @click="state.sheet = {type: 'expense'}">− مصروف</button>
+      <div class="tb-bell-host"><button v-if="d && d.funds.length > 1" type="button" class="bd-chip" @click.stop="tr ? (tr = null) : openTransfer()">⇄ تحويل بين الصناديق</button>
+        <form v-if="tr" class="tm-pop sm3-tr" @click.stop @submit.prevent="doTransfer"><b>تحويل بين الصناديق</b>
+          <label class="m">من<select class="input" v-model="tr.from"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }} ({{ fig(f.balance) }})</option></select></label>
+          <label class="m">إلى<select class="input" v-model="tr.to"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }}</option></select></label>
+          <label class="m">المبلغ<div class="unit-wrap"><input class="input num" inputmode="decimal" v-model="tr.amount" placeholder="0"><span class="u">دج</span></div></label>
+          <input class="input" v-model="tr.note" placeholder="ملاحظة (اختياري)" aria-label="ملاحظة">
+          <div class="row" style="gap:6px"><button type="submit" class="btn primary sm" :disabled="trBusy || !(+tr.amount > 0) || tr.from === tr.to">تحويل</button><button type="button" class="btn ghost sm" @click="tr = null">إلغاء</button></div></form></div>
+    </div>
     <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
-    <div v-else-if="s.error" class="alert error">{{ s.error }}</div>
-    <template v-else-if="s.data">
-      <div class="sm-kpis">
-        <div class="sm-kpi"><span class="m">في الصندوق الآن</span><span class="big money">{{ money(s.data.cash_balance) }}</span><span class="m">نقدًا + البنك</span></div>
-        <div class="sm-kpi"><span class="m">دخل هذا الشهر</span><span class="big money sc-ok">+ {{ money(s.data.income) }}</span><span class="m">من {{ s.data.payers }} عملاء</span></div>
-        <div class="sm-kpi"><span class="m">مصاريف هذا الشهر</span><span class="big money sc-bad">− {{ money(s.data.expenses) }}</span><span class="m">ورق، حبر، كراء…</span></div>
-        <div class="sm-kpi profit"><span class="m">الربح هذا الشهر</span><span class="big money">{{ money(s.data.profit) }}</span><span class="m">الدخل − المصاريف</span></div>
+    <div v-else-if="s.error" class="alert error" style="margin:0 20px">{{ s.error }}</div>
+    <template v-else-if="d">
+      <div class="sm3-kpis">
+        <div class="sm3-kpi"><span>في الصندوق الآن</span><b class="money">{{ money(d.cash_balance) }}</b><span class="m">نقدًا {{ fig(fund('Cash')) }} · البنك {{ fig(fund('Bank')) }}</span></div>
+        <div class="sm3-kpi in"><span>دخل {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money">+ {{ fig(d.income) }}</b>
+          <span class="m"><template v-if="pct(d.income, d.prev_income) !== null">{{ pct(d.income, d.prev_income) >= 0 ? '▲' : '▼' }} {{ Math.abs(pct(d.income, d.prev_income)) }}% عن الشهر السابق · </template>من {{ d.payers }} عملاء</span></div>
+        <div class="sm3-kpi out"><span>مصاريف {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money">− {{ fig(d.expenses) }}</b>
+          <span class="m"><template v-if="pct(d.expenses, d.prev_expenses) !== null">{{ pct(d.expenses, d.prev_expenses) >= 0 ? '▲' : '▼' }} {{ Math.abs(pct(d.expenses, d.prev_expenses)) }}% عن الشهر السابق</template><template v-else>ورق، حبر، كراء…</template></span></div>
+        <div class="sm3-kpi profit"><span>الربح</span><b class="money">{{ money(d.profit) }}</b><span class="m">الدخل − المصاريف</span></div>
       </div>
-      <div class="sm-grid">
-        <section class="sm-card"><h2>آخر الحركات</h2>
-          <div v-if="!s.data.moves.length" class="m">لا حركات بعد.</div>
-          <div v-for="m in s.data.moves" :key="m.voucher_no" class="sm-mv">
-            <span class="sm-ic" :class="m.amount >= 0 ? 'in' : 'out'">{{ m.amount >= 0 ? '+' : '−' }}</span>
-            <span><span class="strong">{{ m.title }}</span><span class="m">{{ date(m.posting_date) }}<template v-if="m.by"> · {{ m.by }}</template></span></span>
-            <span class="money strong" :class="m.amount >= 0 ? 'sc-ok' : 'sc-bad'">{{ m.amount >= 0 ? '+' : '−' }} {{ money(Math.abs(m.amount)) }}</span></div>
-        </section>
-        <section class="sm-card"><h2 class="row" style="justify-content:space-between">من عليه دين <span class="money sc-bad">{{ money(debt) }}</span></h2>
-          <div v-if="!s.data.debtors.length" class="m">لا أحد عليه دين.</div>
-          <button v-for="c in s.data.debtors" :key="c.customer" type="button" class="sm-mv sm-debtor" @click="pay(c)">
-            <Avatar :name="c.customer_name" :size="36"/>
-            <span><span class="strong">{{ c.customer_name }}</span><span class="m" :class="{'sc-bad': c.late}">{{ c.late ? 'متأخر ' + c.late + ' يومًا' : 'لم يحن موعده' }}</span></span>
-            <span class="money strong sc-bad">{{ money(c.amount) }}</span></button>
-          <span class="m" style="padding-top:12px">اضغط على الاسم لتسجيل دفعة.</span>
-        </section>
+      <div class="sm3-grid">
+        <div class="sm3-col">
+          <section class="sm3-card"><div class="sm3-h"><b>الدخل والمصاريف</b><span class="sm3-legend"><span><i class="in"></i> دخل</span><span><i class="out"></i> مصاريف</span><span class="m">آخر 8 أسابيع</span></span></div>
+            <div class="sm3-chart" role="img" :aria-label="'الدخل والمصاريف لآخر 8 أسابيع'">
+              <div v-for="w in d.weeks" :key="w.from" class="sm3-wk" :title="date(w.from) + ' — ' + date(w.to) + ': دخل ' + fig(w.in) + ' · مصاريف ' + fig(w.out)">
+                <div class="sm3-bars"><span class="in" :style="{height: (w.in / maxWeek * 100) + '%'}"></span><span class="out" :style="{height: (w.out / maxWeek * 100) + '%'}"></span></div>
+                <span class="m">{{ date(w.to) }}</span></div></div></section>
+          <section class="sm3-card"><div class="sm3-h"><b>الحركات</b>
+              <span class="row" style="gap:6px;flex-wrap:wrap"><button v-for="k in [['all','الكل'],['in','دخل'],['out','مصاريف']]" :key="k[0]" type="button" class="sm3-pill" :aria-pressed="kind === k[0]" @click="kind = k[0]">{{ k[1] }}</button>
+                <input type="search" class="input sm3-search" v-model="q" placeholder="🔍 بحث…" aria-label="بحث في الحركات"></span></div>
+            <div v-if="!moves.length" class="m">لا حركات.</div>
+            <div v-for="m in moves" :key="m.voucher_no" class="sm3-mv">
+              <span class="sm-ic" :class="m.amount >= 0 ? 'in' : 'out'">{{ m.amount >= 0 ? '+' : '−' }}</span>
+              <span style="flex:1;min-width:0"><span class="strong ellipsis" style="display:block">{{ m.title }}</span>
+                <span class="m">{{ date(m.posting_date) }}<template v-if="m.fund"> · {{ m.fund }}</template><template v-if="m.by"> · {{ m.by }}</template><template v-if="m.files"> · 📎 وصل</template>
+                  <template v-if="m.order"> · <a :href="'/atelier/?card=' + m.order" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">«{{ m.order_title || m.order }}»</a></template></span></span>
+              <span class="tl sm3-cat">{{ m.category }}</span>
+              <b class="money sm3-amt" :class="m.amount >= 0 ? 'sc-ok' : 'sc-bad'">{{ m.amount >= 0 ? '+' : '−' }} {{ fig(Math.abs(m.amount)) }}</b>
+            </div>
+          </section>
+        </div>
+        <div class="sm3-col">
+          <section class="sm3-card"><div class="sm3-h"><b>لنا عند العملاء</b><b class="sc-bad money">{{ money(owed) }}</b></div>
+            <div v-if="!d.debtors.length" class="m">لا أحد عليه دين.</div>
+            <div v-for="c in d.debtors" :key="c.customer" class="sm3-mv">
+              <Avatar :name="c.customer_name" :size="34"/>
+              <button type="button" class="sm3-link" @click="pay(c)"><span class="strong ellipsis" style="display:block">{{ c.customer_name }}</span><span class="m" :class="{'sc-bad': c.late}">{{ c.late ? 'متأخر ' + c.late + ' يومًا' : 'لم يحن موعده' }}</span></button>
+              <b class="sc-bad">{{ fig(c.amount) }}</b>
+              <button v-if="waLink(c.mobile_no)" type="button" class="sm3-wa" :aria-label="'تذكير ' + c.customer_name + ' بواتساب'" @click="remind(c)">💬</button>
+            </div>
+            <span class="m">اضغط على الاسم لتسجيل دفعة.</span></section>
+          <section class="sm3-card"><div class="sm3-h"><b>علينا للموردين</b><b class="bd-warn money">{{ money(owe) }}</b></div>
+            <div v-if="!d.payables.length" class="m">لا ديون للموردين.</div>
+            <div v-for="p in d.payables" :key="p.name" class="sm3-mv">
+              <span class="sm3-sup" aria-hidden="true">🏭</span>
+              <span style="flex:1;min-width:0"><span class="strong ellipsis" style="display:block">{{ p.supplier_name }}</span>
+                <span class="m" style="display:block;overflow-wrap:anywhere">{{ p.what }}<template v-if="p.due_date"> · <span :class="{'sc-bad': daysFromToday(p.due_date) < 0}">يستحق {{ dueWord(p.due_date) }}</span></template></span></span>
+              <b>{{ fig(p.amount) }}</b>
+              <button v-if="state.boot.can.payment" type="button" class="btn sm" :disabled="paying === p.name" @click="paySupplier(p, supplierMode)">{{ paying === p.name ? '…' : 'دفعت' }}</button>
+            </div>
+            <label v-if="d.payables.length && d.modes.length > 1" class="m row" style="gap:6px">طريقة الدفع للمورد<select class="input" style="width:auto;min-height:32px" v-model="supplierMode"><option v-for="m in d.modes" :key="m.value" :value="m.value">{{ m.label }}</option></select></label>
+          </section>
+          <section class="sm3-card"><div class="sm3-h"><b>أين يذهب المال</b><span class="m">{{ month }}</span></div>
+            <div v-if="!d.categories.length" class="m">لا مصاريف هذا الشهر.</div>
+            <div v-for="(c, i) in d.categories" :key="c.name" class="sm3-cat-row">
+              <div class="row" style="justify-content:space-between"><span>{{ c.name }}</span><b>{{ fig(c.amount) }} <span class="m" style="display:inline">· {{ Math.round(c.amount / catTotal * 100) }}%</span></b></div>
+              <div class="sm3-catbar"><span :style="{width: (c.amount / maxCat * 100) + '%', background: CAT_COLORS[i % CAT_COLORS.length]}"></span></div></div>
+          </section>
+        </div>
       </div>
     </template>
   </div>`,
