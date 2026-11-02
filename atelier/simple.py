@@ -85,6 +85,7 @@ def quick_order(data):
 		"advance": {"amount": flt(d.get("advance")), "mode_of_payment": d.get("mode") or "Cash"},
 	}, ensure_ascii=False))
 	so = res["sales_order"]
+	_apply_customer_note(so)
 	if d.get("assignee"):
 		frappe.db.set_value("Sales Order", so, "atelier_assignee", d["assignee"].strip()[:80])
 	if d.get("tags"):
@@ -683,4 +684,110 @@ def demo_extras():
 			{"title": "لافتة", "items": ["أخذ المقاسات", "تصميم", "موافقة العميل", "طباعة", "تركيب الإطار", "تركيب عند العميل"]},
 			{"title": "ملصقات", "items": ["تصميم", "موافقة العميل", "طباعة", "قص"]},
 		], ensure_ascii=False))
+	frappe.db.commit()
+
+
+# ---------------------------------------------------------------- customers page: list numbers, sticky note, star, files, reorder
+CUSTOMER_FIELDS = [
+	{"fieldname": "atelier_note", "label": "ملاحظة ثابتة", "fieldtype": "Small Text", "insert_after": "customer_details"},
+	{"fieldname": "atelier_vip", "label": "زبون مميز", "fieldtype": "Check", "insert_after": "atelier_note"},
+]
+AWAY_DAYS = 60
+
+
+def customer_fields():
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	create_custom_fields({"Customer": [{**f, "module": "Atelier"} for f in CUSTOMER_FIELDS]})
+
+
+@frappe.whitelist()
+def customers2():
+	rows = api.customers(full=1)
+	names = [r.name for r in rows] or [""]
+	extra = {r.name: r for r in frappe.get_all("Customer", filters={"name": ["in", names]}, fields=["name", "atelier_vip", "creation"])}
+	counts = dict(frappe.db.sql("""select customer, count(*) from `tabSales Order` where docstatus<2 and customer in %s group by customer""", [names]))
+	month = str(get_first_day(nowdate()))
+	for r in rows:
+		e = extra.get(r.name) or {}
+		r.vip = cint(e.get("atelier_vip"))
+		r.orders = counts.get(r.name, 0)
+		r.since = str(e.get("creation") or "")[:10]
+		r.new = r.since >= month
+		r.away = bool(r.last_order) and (frappe.utils.getdate(nowdate()) - frappe.utils.getdate(r.last_order)).days >= AWAY_DAYS
+	cash = frappe.db.get_value("Customer", {"customer_name": "زبون نقدي"})
+	return {"rows": [r for r in rows if r.name != cash], "away_days": AWAY_DAYS}
+
+
+@frappe.whitelist()
+def customer2(name):
+	res = api.customer(name)
+	doc = frappe.db.get_value("Customer", name, ["atelier_note", "atelier_vip", "customer_name"], as_dict=True)
+	res["note"] = doc.atelier_note or ""
+	res["vip"] = cint(doc.atelier_vip)
+	orders = [o.name for o in res.get("orders") or []] or [""]
+	extra = {r.name: r for r in frappe.get_all("Sales Order", filters={"name": ["in", orders]}, fields=["name", "atelier_cover", "atelier_column", "atelier_archived"])}
+	cfg = get_config()
+	for o in res.get("orders") or []:
+		e = extra.get(o.name) or frappe._dict()
+		o.cover, o.atelier_column, o.archived = e.atelier_cover, e.atelier_column, cint(e.atelier_archived)
+		o.column = next((c["name"] for c in cfg["columns"] if c["id"] == _column_for(o, cfg)), "")
+	files = frappe.db.sql(
+		"""select f.name, f.file_name, f.file_url, f.creation, f.attached_to_doctype, f.attached_to_name, so.atelier_subject
+		from `tabFile` f left join `tabSales Order` so on f.attached_to_doctype='Sales Order' and so.name=f.attached_to_name
+		where (f.attached_to_doctype='Customer' and f.attached_to_name=%s) or (f.attached_to_doctype='Sales Order' and so.customer=%s)
+		order by f.creation desc limit 100""", (name, name), as_dict=True)
+	seen, res["card_files"] = set(), []
+	for f in files:  # a copied card shares its source's file: show it once
+		if f.file_url not in seen:
+			seen.add(f.file_url)
+			res["card_files"].append(f)
+	if api._can("Sales Invoice"):
+		res["avg_pay_days"] = frappe.db.sql(
+			"""select round(avg(datediff(pe.posting_date, si.posting_date))) from `tabSales Invoice` si
+			join `tabPayment Entry Reference` per on per.reference_doctype='Sales Invoice' and per.reference_name=si.name
+			join `tabPayment Entry` pe on pe.name=per.parent and pe.docstatus=1
+			where si.customer=%s and si.docstatus=1""", name)[0][0]
+		res["oldest_unpaid"] = frappe.db.sql(
+			"""select si.name, si.posting_date, si.outstanding_amount,
+			(select so.atelier_subject from `tabSales Invoice Item` sii join `tabSales Order` so on so.name=sii.sales_order
+				where sii.parent=si.name and sii.sales_order is not null limit 1) subject
+			from `tabSales Invoice` si where si.customer=%s and si.docstatus=1 and si.outstanding_amount > 0.005
+			order by si.posting_date asc limit 1""", name, as_dict=True)
+		res["oldest_unpaid"] = res["oldest_unpaid"][0] if res["oldest_unpaid"] else None
+	res["workshop"] = frappe.get_cached_value("Company", api._company(), "company_name")
+	return res
+
+
+@frappe.whitelist(methods=["POST"])
+def set_customer_extra(name, note=None, vip=None):
+	doc = frappe.get_doc("Customer", name)
+	doc.check_permission("write")
+	if note is not None:
+		doc.db_set("atelier_note", (note or "").strip()[:1000] or None)
+	if vip is not None:
+		doc.db_set("atelier_vip", cint(vip))
+	return customer2(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def reorder_card(name):
+	"""«↻ أعد الطلب»: the same work again, in the board's first column, no price yet."""
+	new = copy_card(name)
+	cfg = get_config()
+	frappe.db.set_value("Sales Order", new, {"atelier_column": cfg["columns"][0]["id"], "atelier_subject": frappe.db.get_value("Sales Order", name, "atelier_subject") or name})
+	return new
+
+
+def _apply_customer_note(so_name):
+	"""New card: the customer's sticky note goes on top of the description."""
+	customer = frappe.db.get_value("Sales Order", so_name, "customer")
+	note = frappe.db.get_value("Customer", customer, "atelier_note")
+	if note:
+		frappe.db.set_value("Sales Order", so_name, "atelier_description", "📌 " + note)
+
+
+def demo_customers():
+	frappe.set_user("Administrator")
+	customer_fields()
 	frappe.db.commit()
