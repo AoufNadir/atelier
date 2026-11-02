@@ -2230,10 +2230,12 @@ const ago = (iso) => { const m = Math.round((Date.now() - new Date(String(iso).r
   return m < 1 ? "الآن" : m < 60 ? `منذ ${m} دقيقة` : m < 1440 ? `منذ ${Math.round(m / 60)} ساعة` : `منذ ${Math.round(m / 1440)} يوم`; };
 
 const BoardCard = {
-  props: ["c", "labels", "busy"], emits: ["open", "drag"], components: { Avatar },
+  props: ["c", "labels", "busy", "dropBefore", "columns"], emits: ["open", "drag", "dropon", "menu"], components: { Avatar },
   setup() { return { labelStyle, dueWord, daysFromToday, money }; },
   template: `
-  <article class="tc" :class="{busy}" draggable="true" tabindex="0" @dragstart="$emit('drag', c)" @click="$emit('open', c)" @keydown.enter="$emit('open', c)" :aria-label="c.title + ' — ' + c.customer_name">
+  <article class="tc" :class="{busy, 'drop-before': dropBefore}" draggable="true" tabindex="0" @dragstart="$emit('drag', c)" @click="$emit('open', c)" @keydown.enter="$emit('open', c)"
+    @dragover.prevent.stop="$emit('dropon', c, false)" @drop.prevent.stop="$emit('dropon', c, true)" :aria-label="c.title + ' — ' + c.customer_name">
+    <button type="button" class="tc-menu-btn" aria-label="خيارات البطاقة" @click.stop="$emit('menu', c, $event)">···</button>
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
     <div class="tc-body">
       <div v-if="c.labels.length" class="tc-labels"><span v-for="id in c.labels.filter(id => labels[id])" :key="id" class="tl" :style="labelStyle(labels[id])">{{ labels[id].name }}</span></div>
@@ -2252,8 +2254,21 @@ const BoardCard = {
   </article>`,
 };
 
+// card actions shared by the board menu and the card window
+const cardActions = {
+  copy: async (name) => { const n = await call("copy_card", { name }, true); toast("نُسخت البطاقة"); return n; },
+  archive: async (name, on = 1) => { await call("archive_card", { name, archived: on }, true); toast(on ? "أُرشفت البطاقة" : "استُرجعت البطاقة"); },
+  photo: async (name, file) => {
+    const up = await uploadPrivate(await shrinkImage(file), "Sales Order", name);
+    await call("file_added", { name, file_url: up.file_url, file_name: up.file_name }, true); toast("أُرفقت الصورة");
+  },
+};
+
+const WEEK = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 const CardModal = {
-  props: ["name", "config"], emits: ["close", "changed"], components: { Icon, Avatar, CustomerField },
+  props: ["name", "config"], emits: ["close", "changed", "open"], components: { Icon, Avatar, CustomerField },
   setup(props, { emit }) {
     const d = ref(null), err = ref(null), busy = ref(false), fileInput = ref(null);
     const labels = computed(() => Object.fromEntries(props.config.labels.map((l) => [l.id, l])));
@@ -2320,8 +2335,19 @@ const CardModal = {
     onMounted(() => window.addEventListener("keydown", onKey));
     onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     const column = computed(() => props.config.columns.find((c) => c.id === d.value?.column));
-    // drop-downs: members (team people with a login) and labels (editable here by the manager)
     const pop = ref(null), who = ref(""), editing = ref(null), pickClient = ref(false);
+    // checklist templates, copy, archive
+    const tpls = ref([]);
+    const openTpl = async () => { pop.value = pop.value === "tpl" ? null : "tpl"; if (pop.value) { try { tpls.value = await call("checklist_templates"); } catch { tpls.value = []; } } };
+    const applyTpl = (tp) => { pop.value = null; save({ checklist: [...d.value.checklist, ...tp.items.filter((x) => !d.value.checklist.some((c) => c.text === x)).map((x) => ({ text: x, done: 0 }))] }); };
+    const saveTpl = async () => {
+      const title = prompt("اسم القالب:", d.value.title.split(":")[0].slice(0, 40)); if (!title) return;
+      try { tpls.value = await call("save_checklist_template", { title, items: JSON.stringify(d.value.checklist.map((c) => c.text)) }, true); toast("حُفظ القالب"); } catch (e) { err.value = e.message; }
+    };
+    const dropTpl = async (tp) => { if (!confirm(`حذف القالب «${tp.title}»؟`)) return; try { tpls.value = await call("delete_checklist_template", { title: tp.title }, true); } catch (e) { err.value = e.message; } };
+    const copyCard = async () => { try { const n = await cardActions.copy(props.name); emit("changed"); emit("open", n); } catch (e) { err.value = e.message; } };
+    const archiveCard = async () => { if (!confirm("أرشفة هذه البطاقة؟ تجدها لاحقًا في «الأرشيف».")) return; try { await cardActions.archive(props.name); emit("changed"); emit("close"); } catch (e) { err.value = e.message; } };
+    // drop-downs: members (team people with a login) and labels (editable here by the manager)
     const closePop = () => { pop.value = null; editing.value = null; };
     onMounted(() => window.addEventListener("click", closePop));
     onBeforeUnmount(() => window.removeEventListener("click", closePop));
@@ -2343,7 +2369,7 @@ const CardModal = {
     const deleteLabel = (l) => { if (confirm(`حذف الحالة «${l.name}» من كل البطاقات؟`)) saveConfig(props.config.labels.filter((x) => x.id !== l.id)); };
     const dueTone = computed(() => { if (!d.value?.due || d.value.per_delivered >= 100) return ""; const n = daysFromToday(d.value.due); return n < 0 ? "late" : n <= 1 ? "soon" : ""; });
     watch(customer, () => (pickClient.value = false));
-    return { pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
+    return { tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
       uploading, onFiles, delFile, comment, addComment, price, setPrice, pay, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
@@ -2356,6 +2382,7 @@ const CardModal = {
           <select class="input" :value="d.column" :disabled="busy || !d.can_edit" @change="moveTo($event.target.value)">
             <option v-for="c in config.columns" :key="c.id" :value="c.id">{{ c.name }}{{ c.deliver ? ' 🚚' : '' }}</option></select></label>
         <button type="button" class="btn icon-btn tm-close" aria-label="إغلاق" @click="$emit('close')"><Icon name="x"/></button>
+        <div v-if="d.can_edit" class="tm-actions"><button type="button" class="btn sm" @click="copyCard">📋 نسخ</button><button type="button" class="btn sm" @click="archiveCard">🗄 أرشفة</button></div>
       </div>
       <div class="tm-body">
         <div class="tm-main">
@@ -2428,7 +2455,13 @@ const CardModal = {
             <div v-else class="tm-desc-v" :class="{empty: !d.description}" @click="d.can_edit && startDesc()">{{ d.description || 'أضف وصفًا: المقاسات، الورق، رقم العميل…' }}</div>
           </section>
 
-          <section class="tm-sec"><h3>☑ قائمة المهام <span v-if="d.checklist.length" class="m" style="display:inline">{{ checkDone }}/{{ d.checklist.length }}</span></h3>
+          <section class="tm-sec"><h3>☑ قائمة المهام <span v-if="d.checklist.length" class="m" style="display:inline">{{ checkDone }}/{{ d.checklist.length }}</span><span class="spacer"></span>
+            <span v-if="d.can_edit" class="tm-pop-host"><button type="button" class="btn sm tm-tpl-btn" :aria-expanded="pop === 'tpl'" @click.stop="openTpl">📑 من قالب ▾</button>
+              <div v-if="pop === 'tpl'" class="tm-pop" style="inset-inline-start:auto;inset-inline-end:0" @click.stop><b>القوالب</b>
+                <div v-for="tp in tpls" :key="tp.title" class="tm-lrow"><button type="button" class="tm-pop-row" style="flex:1" @click="applyTpl(tp)">{{ tp.title }} <span class="m" style="display:inline">({{ tp.items.length }})</span></button>
+                  <button v-if="manager" type="button" class="btn ghost icon-btn sm" :aria-label="'حذف قالب ' + tp.title" @click="dropTpl(tp)"><Icon name="x" :size="14"/></button></div>
+                <span v-if="!tpls.length" class="m">لا قوالب بعد.</span>
+                <button v-if="d.checklist.length" type="button" class="tm-pop-add" @click="saveTpl">+ حفظ قائمة هذه البطاقة كقالب</button></div></span></h3>
             <div v-if="d.checklist.length" class="tm-bar"><span :style="{width: (checkDone / d.checklist.length * 100) + '%'}"></span></div>
             <div v-for="(c, i) in d.checklist" :key="i" class="tm-ck">
               <label class="row" style="gap:10px;flex:1"><input type="checkbox" :checked="!!c.done" :disabled="busy || !d.can_edit" @change="tick(i)"><span :class="{done: c.done}">{{ c.text }}</span></label>
@@ -2437,6 +2470,7 @@ const CardModal = {
           </section>
 
           <section class="tm-sec"><h3>📎 المرفقات <span class="spacer"></span>
+            <label v-if="d.can_edit" class="btn sm">📷 تصوير<input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFiles"></label>
             <label v-if="d.can_edit" class="btn sm">{{ uploading ? 'جارٍ الرفع…' : '+ إضافة' }}<input ref="fileInput" type="file" multiple class="sr-only" @change="onFiles"></label></h3>
             <div v-if="!d.files.length" class="m">اسحب الملفات إلى هنا، أو اضغط «+ إضافة».</div>
             <div v-for="f in d.files" :key="f.name" class="tm-file">
@@ -2483,22 +2517,39 @@ const Board = {
     watch(() => state.rev, load);
     const cfg = computed(() => s.data?.config || { columns: [], labels: [] });
     const labels = computed(() => Object.fromEntries(cfg.value.labels.map((l) => [l.id, l])));
-    const mine = ref(false), label = ref("");
+    const mine = ref(false), label = ref(""), q = ref(""), view = ref(localStorage.getItem("atelier.view") || "board");
+    watch(view, (v) => { try { localStorage.setItem("atelier.view", v); } catch { /* private mode */ } });
     const me = computed(() => state.boot.me || state.boot.full_name || "");
-    const rows = computed(() => (s.data?.cards || []).filter((c) => (!mine.value || c.members.includes(me.value)) && (!label.value || c.labels.includes(label.value))));
-    const cols = computed(() => cfg.value.columns.map((col) => ({ ...col, items: rows.value.filter((c) => c.column === col.id)
-      .sort((a, b) => (a.labels.some((x) => labels.value[x]?.name === "عاجل") ? 0 : 1) - (b.labels.some((x) => labels.value[x]?.name === "عاجل") ? 0 : 1) || String(a.due || "9").localeCompare(String(b.due || "9"))) })));
+    const needle = computed(() => q.value.trim().toLowerCase());
+    const rows = computed(() => (s.data?.cards || []).filter((c) => (!mine.value || c.members.includes(me.value)) && (!label.value || c.labels.includes(label.value))
+      && (!needle.value || [c.title, c.customer_name, c.name].some((v) => String(v || "").toLowerCase().includes(needle.value)))));
+    const urgent = (c) => (c.labels.some((x) => labels.value[x]?.name === "عاجل") ? 0 : 1);
+    const order = (a, b) => (a.pos && b.pos ? a.pos - b.pos : a.pos ? -1 : b.pos ? 1 : urgent(a) - urgent(b) || String(a.due || "9").localeCompare(String(b.due || "9")));
+    const cols = computed(() => cfg.value.columns.map((col) => ({ ...col, items: rows.value.filter((c) => c.column === col.id).sort(order) })));
     const panel = ref(props.startNew ? { mode: "new", preset: state.quickCustomer || null } : null);
     state.quickCustomer = null;
     const open = ref(state.query.get("card") || null);
-    const busy = ref(null), dragging = ref(null), over = ref(null);
-    async function moveTo(c, col) {
-      if (c.column === col) return;
+    const busy = ref(null), dragging = ref(null), over = ref(null), before = ref(null);
+    async function moveTo(c, col, beforeName) {
       busy.value = c.name;
-      try { await call("move_card", { name: c.name, column: col }, true); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); await load(); }
-      catch (e) { toast(e.message, "error"); } finally { busy.value = null; }
+      try {
+        if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
+        if (beforeName !== undefined) {
+          const list = cols.value.find((x) => x.id === col).items.map((x) => x.name).filter((n) => n !== c.name);
+          const i = beforeName ? list.indexOf(beforeName) : -1;
+          list.splice(i >= 0 ? i : list.length, 0, c.name);
+          await call("reorder", { column: col, names: JSON.stringify(list) }, true);
+        }
+        await load();
+      } catch (e) { toast(e.message, "error"); await load(); } finally { busy.value = null; }
     }
-    const drop = (col) => { const c = dragging.value; dragging.value = null; over.value = null; if (c) moveTo(c, col); };
+    const drop = (col) => { const c = dragging.value; dragging.value = null; over.value = null; before.value = null; if (c) moveTo(c, col, null); };
+    const dropOn = (target, done) => {
+      if (!dragging.value || dragging.value.name === target.name) return;
+      over.value = target.column; before.value = target.name;
+      if (done) { const c = dragging.value; dragging.value = null; over.value = null; before.value = null; moveTo(c, target.column, target.name); }
+    };
+    // inline add card / column
     const adding = ref(null), newTitle = ref("");
     const addCard = async (col) => {
       const v = newTitle.value.trim(); if (!v) { adding.value = null; return; }
@@ -2508,36 +2559,115 @@ const Board = {
     const newCol = ref(""), addingCol = ref(false);
     const addColumn = async () => {
       const v = newCol.value.trim(); if (!v) { addingCol.value = false; return; }
-      const cols = [...cfg.value.columns]; const di = cols.findIndex((c) => c.deliver);
-      cols.splice(di >= 0 ? di : cols.length, 0, { name: v, color: BOARD_COLORS[cols.length % BOARD_COLORS.length] });
-      try { await call("save_board", { config: JSON.stringify({ columns: cols, labels: cfg.value.labels }) }, true); newCol.value = ""; addingCol.value = false; await load(); } catch (e) { toast(e.message, "error"); }
+      const list = [...cfg.value.columns]; const di = list.findIndex((c) => c.deliver);
+      list.splice(di >= 0 ? di : list.length, 0, { name: v, color: BOARD_COLORS[list.length % BOARD_COLORS.length] });
+      try { await call("save_board", { config: JSON.stringify({ columns: list, labels: cfg.value.labels }) }, true); newCol.value = ""; addingCol.value = false; await load(); } catch (e) { toast(e.message, "error"); }
     };
     const startCol = () => { addingCol.value = true; nextTick(() => document.getElementById("new-col")?.focus()); };
+    const archivePaid = async (col) => {
+      if (!confirm("أرشفة كل البطاقات المسلّمة والمدفوعة في هذا العمود؟")) return;
+      try { const n = await call("archive_paid", { column: col }, true); toast(`أُرشفت ${n} بطاقة`); await load(); } catch (e) { toast(e.message, "error"); }
+    };
+    const paidCount = (col) => col.items.filter((c) => c.per_delivered >= 100 && c.paid >= c.grand_total - 0.005).length;
+    // card menu
+    const menu = ref(null), photoInput = ref(null);
+    const openMenu = (c, ev) => { const r = ev.currentTarget.getBoundingClientRect(); menu.value = { c, top: r.bottom + 4, left: Math.max(8, r.left - 180) }; };
+    const closeMenu = () => (menu.value = null);
+    onMounted(() => window.addEventListener("click", closeMenu));
+    onBeforeUnmount(() => window.removeEventListener("click", closeMenu));
+    const act = async (kind, extra) => {
+      const c = menu.value?.c; menu.value = null; if (!c) return;
+      try {
+        if (kind === "copy") { const n = await cardActions.copy(c.name); await load(); open.value = n; }
+        else if (kind === "archive") { await cardActions.archive(c.name); await load(); }
+        else if (kind === "move") await moveTo(c, extra, undefined);
+        else if (kind === "photo") { photoFor.value = c.name; photoInput.value.click(); }
+      } catch (e) { toast(e.message, "error"); }
+    };
+    const photoFor = ref(null);
+    const onPhoto = async (e) => { const f = e.target.files?.[0]; if (!f || !photoFor.value) return; try { await cardActions.photo(photoFor.value, f); await load(); } catch (x) { toast(x.message, "error"); } e.target.value = ""; };
+    // archive list
+    const archive = ref(null);
+    const showArchive = async () => { archive.value = []; try { archive.value = await call("archived_cards"); } catch (e) { toast(e.message, "error"); } };
+    const restore = async (n) => { await cardActions.archive(n, 0); archive.value = archive.value.filter((x) => x.name !== n); await load(); };
+    // notifications
+    const notes = ref({ logs: [], due: [], unread: 0 }), bell = ref(false);
+    const loadNotes = async () => { try { notes.value = await call("notifications"); } catch { /* bell stays quiet */ } };
+    let timer;
+    onMounted(() => { loadNotes(); timer = setInterval(loadNotes, 60000); });
+    onBeforeUnmount(() => clearInterval(timer));
+    const toggleBell = async () => { bell.value = !bell.value; if (bell.value && notes.value.logs.some((l) => !l.read)) { await call("mark_read", {}, true).catch(() => {}); } };
+    watch(bell, (v) => !v && loadNotes());
+    // calendar
+    const weekStart = ref(0);
+    const days = computed(() => {
+      const base = parseDate(todayISO()); base.setDate(base.getDate() - base.getDay() + weekStart.value * 7);
+      return Array.from({ length: 7 }, (_, i) => { const d = new Date(base); d.setDate(base.getDate() + i); const iso = isoOf(d);
+        return { iso, name: WEEK[d.getDay()], num: d.getDate(), today: iso === todayISO(), items: rows.value.filter((c) => c.due === iso && c.per_delivered < 100) }; });
+    });
+    const lateCount = computed(() => rows.value.filter((c) => c.due && c.per_delivered < 100 && daysFromToday(c.due) < 0).length);
+    const dropDay = async (iso) => {
+      const c = dragging.value; dragging.value = null; over.value = null; if (!c || c.due === iso) return;
+      try { await call("update_card", { name: c.name, changes: JSON.stringify({ due: iso }) }, true); toast("تغيّر الموعد"); await load(); } catch (e) { toast(e.message, "error"); }
+    };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { s, load, cfg, labels, mine, label, cols, panel, open, busy, dragging, over, moveTo, drop, adding, newTitle, addCard, startAdd,
-      newCol, addingCol, addColumn, startCol, saved, closePanel, labelStyle, state, go, t };
+    return { s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
+      newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
+      notes, bell, toggleBell, weekStart, days, lateCount, dropDay, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
   },
   template: `
   <div class="page tb">
     <div class="tb-head">
       <h1>الطلبات</h1>
-      <div class="tb-team" aria-label="الفريق"><Avatar v-for="p in state.boot.team" :key="p" :name="p"/></div>
+      <div class="tb-views" role="group" aria-label="طريقة العرض"><button type="button" :aria-pressed="view === 'board'" @click="view = 'board'">▦ لوحة</button><button type="button" :aria-pressed="view === 'calendar'" @click="view = 'calendar'">📅 تقويم</button></div>
+      <input type="search" class="input tb-search" v-model="q" placeholder="🔍 ابحث: عميل، عنوان، رقم…" aria-label="بحث في البطاقات">
       <span class="spacer"></span>
+      <div class="tb-team" aria-label="الفريق"><Avatar v-for="p in state.boot.team" :key="p" :name="p"/></div>
       <label class="tb-filter"><span class="sr-only">تصفية بالحالة</span><select class="input" v-model="label"><option value="">كل الحالات</option><option v-for="l in cfg.labels" :key="l.id" :value="l.id">{{ l.name }}</option></select></label>
       <button type="button" class="bd-chip" :aria-pressed="mine" @click="mine = !mine">مهامي</button>
-      <button v-if="s.data && s.data.manager" type="button" class="btn tb-gear" @click="go('/board-settings')"><Icon name="gear" :size="18"/>تخصيص اللوحة</button>
+      <button type="button" class="bd-chip" @click="showArchive">🗄 الأرشيف</button>
+      <div class="tb-bell-host"><button type="button" class="tb-bell" :aria-label="'التنبيهات' + (notes.unread ? ' — ' + notes.unread + ' جديدة' : '')" :aria-expanded="bell" @click.stop="toggleBell">🔔<span v-if="notes.unread" class="tb-bell-n">{{ notes.unread }}</span></button>
+        <div v-if="bell" class="tm-pop tb-bell-pop" @click.stop>
+          <b>التنبيهات</b>
+          <button v-for="d in notes.due" :key="'d' + d.name" type="button" class="tm-pop-row" @click="open = d.name; bell = false">
+            <span class="tb-due-ic" :class="{late: d.late}">⏰</span><span style="flex:1">«{{ d.title }}» <span :class="d.late ? 'bd-late' : 'bd-warn'">{{ dueWord(d.due) }}<template v-if="d.due_time"> {{ d.due_time }}</template></span></span></button>
+          <button v-for="l in notes.logs" :key="l.name" type="button" class="tm-pop-row" :class="{unread: !l.read}" @click="open = l.document_name; bell = false">
+            <Avatar :name="l.by" :size="28"/><span style="flex:1;min-width:0"><span>{{ l.subject }}</span><span class="m">{{ ago(l.creation) }}</span></span></button>
+          <span v-if="!notes.due.length && !notes.logs.length" class="m">لا تنبيهات.</span>
+        </div></div>
+      <button v-if="s.data && s.data.manager" type="button" class="btn tb-gear" @click="go('/board-settings')"><Icon name="gear" :size="18"/>تخصيص</button>
       <button type="button" class="btn primary bd-new" @click="panel = {mode: 'new'}">+ طلب جديد</button>
     </div>
     <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
     <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
+
+    <div v-else-if="view === 'calendar'" class="tb-cal">
+      <div class="tb-cal-head"><b>{{ date(days[0].iso) }} — {{ date(days[6].iso) }}</b><span v-if="lateCount" class="bd-chip debt" style="cursor:default">{{ lateCount }} متأخرة</span><span class="spacer"></span>
+        <button type="button" class="bd-chip" @click="weekStart--">‹ السابق</button><button type="button" class="bd-chip" :aria-pressed="weekStart === 0" @click="weekStart = 0">هذا الأسبوع</button><button type="button" class="bd-chip" @click="weekStart++">التالي ›</button></div>
+      <div class="tb-cal-grid">
+        <section v-for="d in days" :key="d.iso" class="tb-day" :class="{today: d.today, over: over === d.iso}" :aria-label="d.name + ' ' + d.num"
+          @dragover.prevent="over = d.iso" @dragleave="over === d.iso && (over = null)" @drop.prevent="dropDay(d.iso)">
+          <h2><span>{{ d.name }}</span><span class="tb-day-n">{{ d.num }}</span></h2>
+          <button v-for="c in d.items" :key="c.name" type="button" class="tb-ev" draggable="true" @dragstart="dragging = c" @click="open = c.name"
+            :style="{borderInlineStartColor: (c.labels[0] && labels[c.labels[0]]) ? labels[c.labels[0]].color : '#9B87F5'}">
+            <span class="strong">{{ c.title }}</span><span class="m">{{ c.due_time || '' }} {{ c.customer_name }}</span>
+            <span class="tc-members"><Avatar v-for="m in c.members.slice(0, 3)" :key="m" :name="m"/></span></button>
+        </section>
+      </div>
+      <span class="m" style="color:#fff">اسحب بطاقة إلى يوم آخر لتغيير موعدها.</span>
+    </div>
+
     <div v-else class="tb-cols">
-      <section v-for="c in cols" :key="c.id" class="tb-col" :class="{over: over === c.id, deliver: c.deliver}" :aria-label="c.name"
-        @dragover.prevent="over = c.id" @dragleave="over === c.id && (over = null)" @drop.prevent="drop(c.id)">
-        <h2 class="tb-ch"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم"> 🚚</span><span class="bd-n">{{ c.items.length }}</span></h2>
+      <section v-for="c in cols" :key="c.id" class="tb-col" :class="{over: over === c.id, deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name"
+        @dragover.prevent="over = c.id; before = null" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="drop(c.id)">
+        <h2 class="tb-ch"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم"> 🚚</span>
+          <span class="bd-n" :class="{over: c.limit && c.items.length > c.limit}">{{ c.items.length }}<template v-if="c.limit"> / {{ c.limit }}<template v-if="c.items.length > c.limit"> ⚠</template></template></span></h2>
         <TransitionGroup name="tcm" tag="div" class="tb-list">
-          <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :busy="busy === card.name" @open="open = card.name" @drag="dragging = $event"/>
+          <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :busy="busy === card.name" :drop-before="before === card.name"
+            @open="open = card.name" @drag="dragging = $event" @dropon="dropOn" @menu="openMenu"/>
         </TransitionGroup>
+        <button v-if="c.deliver && paidCount(c)" type="button" class="tb-addbtn" @click="archivePaid(c.id)">🗄 أرشفة المدفوع كله ({{ paidCount(c) }})</button>
         <template v-if="!c.deliver">
           <form v-if="adding === c.id" class="tb-add" @submit.prevent="addCard(c.id)">
             <textarea :id="'add-' + c.id" class="input" v-model="newTitle" rows="2" placeholder="عنوان البطاقة…" aria-label="عنوان البطاقة" @keydown.enter.prevent="addCard(c.id)" @keydown.esc="adding = null"></textarea>
@@ -2551,8 +2681,30 @@ const Board = {
         <button v-else type="button" class="tb-newcol-btn" @click="startCol">+ إضافة عمود</button>
       </div>
     </div>
+
+    <div v-if="menu" class="tm-pop tb-menu" :style="{top: menu.top + 'px', left: menu.left + 'px'}" @click.stop>
+      <b class="ellipsis">{{ menu.c.title }}</b>
+      <button type="button" class="tm-pop-row" @click="act('copy')">📋 نسخ البطاقة</button>
+      <button type="button" class="tm-pop-row" @click="act('archive')">🗄 أرشفة</button>
+      <button type="button" class="tm-pop-row" @click="act('photo')">📷 تصوير وإرفاق</button>
+      <label class="tm-pop-row">↔ نقل إلى <select class="input" style="width:auto;min-height:32px" @change="act('move', $event.target.value)"><option value="">…</option>
+        <option v-for="col in cfg.columns.filter(x => x.id !== menu.c.column)" :key="col.id" :value="col.id">{{ col.name }}</option></select></label>
+    </div>
+    <input ref="photoInput" type="file" accept="image/*" capture="environment" class="sr-only" tabindex="-1" aria-hidden="true" @change="onPhoto">
+
+    <div v-if="archive" class="overlay tm-overlay" @click.self="archive = null">
+      <div class="tm tb-archive" role="dialog" aria-modal="true" aria-label="الأرشيف">
+        <div class="bd-ph" style="padding:20px 22px 0"><h2>🗄 الأرشيف</h2><button type="button" class="btn ghost icon-btn" aria-label="إغلاق" @click="archive = null"><Icon name="x"/></button></div>
+        <div style="padding:16px 22px 22px;display:flex;flex-direction:column;gap:8px">
+          <div v-if="!archive.length" class="m">لا بطاقات مؤرشفة.</div>
+          <div v-for="a in archive" :key="a.name" class="bs-row"><span style="flex:1;min-width:0"><b>{{ a.title || a.name }}</b><span class="m">{{ a.customer_name }} · {{ ago(a.modified) }}</span></span>
+            <button type="button" class="btn sm" @click="open = a.name">فتح</button><button type="button" class="btn sm" @click="restore(a.name)">استرجاع</button></div>
+        </div>
+      </div>
+    </div>
+
     <BoardPanel v-if="panel" :mode="panel.mode" :preset="panel.preset" @close="closePanel" @saved="saved"/>
-    <CardModal v-if="open && s.data" :key="open" :name="open" :config="cfg" @close="open = null" @changed="load"/>
+    <CardModal v-if="open && s.data" :key="open" :name="open" :config="cfg" @close="open = null" @changed="load" @open="open = $event"/>
   </div>`,
 };
 
@@ -2741,6 +2893,7 @@ const BoardSettings = {
         <input class="input" v-model="c.name" :aria-label="'اسم العمود ' + (i + 1)" placeholder="اسم العمود">
         <span class="bs-colors" role="group" :aria-label="'لون ' + c.name"><button v-for="col in BOARD_COLORS" :key="col" type="button" class="bs-sw" :style="{background: col}" :aria-pressed="c.color === col" :aria-label="col" @click="c.color = col"></button></span>
         <label class="bs-deliver"><input type="checkbox" :checked="!!c.deliver" @change="setDeliver(c)">🚚 عمود التسليم</label>
+        <label class="bs-limit">حدّ <input type="number" min="0" class="input" v-model.number="c.limit" :aria-label="'أقصى عدد بطاقات في ' + c.name" placeholder="∞"></label>
         <span class="m">{{ c.id ? count(c.id) + ' بطاقة' : 'جديد' }}</span>
         <button type="button" class="btn ghost icon-btn sm danger" :aria-label="'حذف ' + c.name" @click="delCol(i)"><Icon name="trash" :size="16"/></button>
       </div>
