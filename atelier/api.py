@@ -608,7 +608,8 @@ def create_order(data):
 		],
 	})
 	so.insert()
-	production.create_default_steps(so)
+	if not data.get("no_steps"):
+		production.create_default_steps(so)
 	price_pending = any(i.atelier_price_pending for i in so.items)
 	if not price_pending and data.get("confirm", True):
 		so.submit()
@@ -1101,3 +1102,8 @@ def statement_pdf(name, from_date=None, to_date=None):
 	frappe.local.response.filename = f"كشف حساب {doc.customer_name}.pdf"
 	frappe.local.response.filecontent = get_pdf(html)
 	frappe.local.response.type = "pdf"
+
+
+# Simple workshop endpoints (board, quick order, money) — imported last: simple.py builds on this module.
+from atelier.simple import board, move, quick_order, update_order  # noqa: E402, F401
+from atelier.simple import money as money_simple  # noqa: E402, F401

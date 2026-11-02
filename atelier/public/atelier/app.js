@@ -2085,6 +2085,342 @@ const ItemSheet = {
   </div>`,
 };
 
+// ------------------------------------------------------------------ simple workshop: board, customers, money
+const COLS = [["new", "جديد"], ["work", "في العمل"], ["ready", "جاهز"], ["done", "سُلّم"]];
+const colOf = (o) => (o.per_delivered >= 100 || o.atelier_stage === "سُلّم" ? "done" : o.atelier_stage === "جاهز للتسليم" ? "ready" : !o.atelier_stage || o.atelier_stage === "جديد" ? "new" : "work");
+const weekday = new Intl.DateTimeFormat("ar", { weekday: "long" });
+const dueWord = (iso) => {
+  if (!iso) return "";
+  const n = daysFromToday(iso);
+  if (n < 0) return `متأخر ${-n} ${-n === 1 ? "يوم" : "أيام"}`;
+  if (n === 0) return "اليوم";
+  if (n === 1) return "غدًا";
+  return n < 7 ? weekday.format(parseDate(iso)) : date(iso);
+};
+const isoIn = (days) => { const d = parseDate(todayISO()); d.setDate(d.getDate() + days); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const avatarStyle = (name) => ({ background: name ? thumbTone(name) : "#C9C3D8", color: name && !darkTone(thumbTone(name)) ? "#2B2B2B" : "#fff" });
+const waLink = (phone) => { const d = String(phone || "").replace(/\D/g, ""); return d ? "https://wa.me/" + (d.startsWith("0") ? "213" + d.slice(1) : d) : null; };
+
+const Avatar = {
+  props: ["name", "size"],
+  setup: () => ({ avatarStyle }),
+  template: `<span class="bd-av" :style="[avatarStyle(name), size ? {width: size + 'px', height: size + 'px', fontSize: (size * 0.4) + 'px'} : {}]" :title="name || 'بلا مسؤول'" aria-hidden="true">{{ name ? [...name][0] : '؟' }}</span>`,
+};
+
+// Order card on the board.
+const BoardCard = {
+  props: ["o", "busy"], emits: ["open", "move", "drag"], components: { Avatar },
+  setup() {
+    const next = (o) => COLS[COLS.findIndex((c) => c[0] === o.column) + 1];
+    const left = (o) => Math.max(0, o.grand_total - (o.paid || 0));
+    return { next, left, dueWord, daysFromToday, money, tagTone };
+  },
+  template: `
+  <article class="bd-card" :class="{busy: busy}" draggable="true" tabindex="0" @dragstart="$emit('drag', o)" @click="$emit('open', o)" @keydown.enter="$emit('open', o)"
+    :aria-label="(o.atelier_subject || o.name) + ' — ' + o.customer_name">
+    <div v-if="o.tags && o.tags.length" class="bd-tags"><span v-for="tg in o.tags" :key="tg" :class="['tag-chip', 'tg-' + tagTone(tg)]">{{ tg }}</span></div>
+    <div class="bd-title">{{ o.atelier_subject || o.name }}</div>
+    <div class="bd-meta">{{ o.customer_name }}<template v-if="o.price_pending"> · <span class="bd-warn">بلا سعر</span></template><template v-else-if="o.column !== 'done'"> · <span class="money">{{ money(o.grand_total) }}</span></template></div>
+    <div class="bd-foot">
+      <span v-if="o.column === 'done'" :class="left(o) > 0.005 ? 'bd-late' : 'bd-ok'">{{ left(o) > 0.005 ? 'باقي ' + money(left(o)) : '✓ مدفوع' }}</span>
+      <span v-else-if="o.column === 'ready' && left(o) > 0.005" class="bd-late">باقي {{ money(left(o)) }}</span>
+      <span v-else :class="{'bd-late': o.delivery_date && daysFromToday(o.delivery_date) < 0}">{{ dueWord(o.delivery_date) }}</span>
+      <span class="spacer"></span>
+      <Avatar :name="o.assignee"/>
+      <button v-if="next(o)" type="button" class="bd-next" :disabled="busy" :aria-label="'نقل إلى ' + next(o)[1]" :title="'نقل إلى ' + next(o)[1]" @click.stop="$emit('move', o, next(o)[0])">‹</button>
+    </div>
+  </article>`,
+};
+
+// Customer search-or-create field used by the quick order form.
+const CustomerField = {
+  props: ["modelValue"], emits: ["update:modelValue"],
+  setup(props, { emit }) {
+    const q = ref(props.modelValue?.customer_name || ""), list = ref([]), open = ref(false);
+    let timer;
+    watch(q, (v) => {
+      if (props.modelValue && v !== props.modelValue.customer_name) emit("update:modelValue", null);
+      clearTimeout(timer);
+      if (!v.trim()) { list.value = []; return; }
+      timer = setTimeout(async () => { try { list.value = await call("customers", { q: v.trim() }); open.value = true; } catch { list.value = []; } }, 200);
+    });
+    const pick = (c) => { emit("update:modelValue", { name: c.name, customer_name: c.customer_name }); q.value = c.customer_name; open.value = false; };
+    const blur = () => setTimeout(() => (open.value = false), 150);
+    return { q, list, open, pick, blur };
+  },
+  template: `
+  <div class="cf">
+    <input id="qo-customer" class="input" v-model="q" autocomplete="off" placeholder="اكتب اسم العميل أو هاتفه…" @focus="open = true" @blur="blur" role="combobox" :aria-expanded="open && list.length > 0">
+    <div v-if="open && list.length && !modelValue" class="cf-list" role="listbox">
+      <button v-for="c in list" :key="c.name" type="button" role="option" @mousedown.prevent="pick(c)">{{ c.customer_name }} <span class="m" dir="ltr">{{ c.mobile_no || '' }}</span></button>
+    </div>
+  </div>`,
+};
+
+// Side panel: a new order (one short form) or an existing order card.
+const BoardPanel = {
+  props: ["mode", "order", "preset"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
+  setup(props, { emit }) {
+    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", what: "", price: "", advance: "", due: isoIn(0), assignee: "", tags: [] });
+    const dueChips = [["اليوم", 0], ["غدًا", 1], ["بعد 3 أيام", 3], ["بعد أسبوع", 7]];
+    const saving = ref(false), error = ref(null), newName = ref("");
+    const toggle = (l, v) => { const i = l.indexOf(v); if (i >= 0) l.splice(i, 1); else l.push(v); };
+    const onCustomerInput = () => { newName.value = document.getElementById("qo-customer")?.value?.trim() || ""; };
+    async function save() {
+      error.value = null; onCustomerInput();
+      if (!f.customer && !newName.value) return (error.value = "اكتب اسم العميل");
+      if (!f.what.trim()) return (error.value = "اكتب ماذا يريد العميل");
+      if (f.price !== "" && !(+f.price >= 0)) return (error.value = "السعر غير صحيح");
+      if (f.advance !== "" && !(+f.advance >= 0)) return (error.value = "التسبيق غير صحيح");
+      saving.value = true;
+      try {
+        await call("quick_order", { data: JSON.stringify({
+          customer: f.customer?.name || null, new_customer: f.customer ? {} : { name: newName.value, phone: f.phone, type: f.type },
+          what: f.what, price: f.price === "" ? null : +f.price, advance: +f.advance || 0, mode: "Cash", delivery_date: f.due, assignee: f.assignee, tags: f.tags,
+        }) }, true);
+        toast("حُفظ الطلب"); emit("saved");
+      } catch (e) { error.value = e.message; } finally { saving.value = false; }
+    }
+    // existing order
+    const o = computed(() => props.order || {});
+    const left = computed(() => Math.max(0, (o.value.grand_total || 0) - (o.value.paid || 0)));
+    const price = ref(""), busy = ref(false);
+    const act = async (fn, msg) => { busy.value = true; error.value = null; try { await fn(); if (msg) toast(msg); emit("saved", o.value.name); } catch (e) { error.value = e.message; } finally { busy.value = false; } };
+    const setAssignee = (p) => act(() => call("update_order", { name: o.value.name, assignee: o.value.assignee === p ? "" : p }, true));
+    const setPrice = () => (+price.value > 0 ? act(() => call("update_order", { name: o.value.name, price: +price.value }, true), "حُفظ السعر") : (error.value = "أدخل السعر"));
+    const toggleTag = (tg) => { const l = [...(o.value.tags || [])]; toggle(l, tg); act(() => call("set_tags", { name: o.value.name, tags: JSON.stringify(l) }, true)); };
+    const pay = () => (state.sheet = { type: "payment", customer: { name: o.value.customer, customer_name: o.value.customer_name }, order: o.value.name });
+    const next = computed(() => COLS[COLS.findIndex((c) => c[0] === o.value.column) + 1]);
+    const onKey = (e) => { if (e.key === "Escape" && !state.sheet) emit("close"); };
+    onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.querySelector(".bd-panel input, .bd-panel button")?.focus(), 50); });
+    onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+    return { f, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
+      QUICK_TAGS, tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
+  },
+  template: `
+  <aside class="bd-panel" :aria-label="mode === 'new' ? 'طلب جديد' : 'الطلب'">
+    <form v-if="mode === 'new'" class="bd-form" novalidate @submit.prevent="save">
+      <div class="bd-ph"><h2>طلب جديد</h2><button type="button" class="btn ghost icon-btn" aria-label="إغلاق" @click="$emit('close')"><Icon name="x"/></button></div>
+      <div class="f"><label for="qo-customer">العميل</label><CustomerField v-model="f.customer" @input="onCustomerInput"/>
+        <div v-if="!f.customer && newName" class="bd-newc"><span class="m">عميل جديد</span>
+          <input class="input" v-model="f.phone" inputmode="tel" dir="ltr" placeholder="الهاتف (اختياري)" aria-label="هاتف العميل الجديد">
+          <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div>
+      <div class="f"><label for="qo-what">ماذا يريد؟</label><input id="qo-what" class="input" v-model="f.what" placeholder="مثلًا: بطاقات زيارة 500"></div>
+      <div class="bd-two"><div class="f"><label for="qo-price">السعر</label><div class="unit-wrap"><input id="qo-price" class="input num" inputmode="decimal" v-model="f.price" placeholder="لاحقًا"><span class="u">دج</span></div></div>
+        <div class="f"><label for="qo-adv">تسبيق</label><div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0"><span class="u">دج</span></div></div></div>
+      <div class="f"><span class="lbl">متى يستلم؟</span><div class="bd-chips">
+        <button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button>
+        <input type="date" class="input bd-date" v-model="f.due" :min="isoIn(0)" aria-label="تاريخ آخر"></div></div>
+      <div class="f"><span class="lbl">من يعمل عليه؟</span><div class="bd-chips">
+        <button v-for="p in state.boot.team" :key="p" type="button" class="bd-person" :aria-pressed="f.assignee === p" @click="f.assignee = f.assignee === p ? '' : p"><Avatar :name="p"/>{{ p }}</button>
+        <a v-if="!state.boot.team.length" href="/atelier/team" class="m" @click.prevent="go('/team')">أضف أسماء الفريق أولًا</a></div></div>
+      <div class="f"><span class="lbl">وسم</span><div class="bd-chips">
+        <button v-for="q in QUICK_TAGS" :key="q[0]" type="button" class="qtag" :class="['tg-' + q[1], {on: f.tags.includes(q[0])}]" :aria-pressed="f.tags.includes(q[0])" @click="toggle(f.tags, q[0])">{{ f.tags.includes(q[0]) ? '✓ ' : '' }}{{ q[0] }}</button></div></div>
+      <div v-if="error" class="alert error" role="alert">{{ error }}</div>
+      <div class="spacer"></div>
+      <button type="submit" class="btn primary bd-save" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ الطلب' }}</button>
+    </form>
+
+    <div v-else class="bd-form">
+      <div class="bd-ph"><div><h2>{{ o.atelier_subject || o.name }}</h2><a class="m" :href="'/atelier/customers?c=' + encodeURIComponent(o.customer)" @click.prevent="go('/customers?c=' + encodeURIComponent(o.customer))">{{ o.customer_name }}</a></div>
+        <button type="button" class="btn ghost icon-btn" aria-label="إغلاق" @click="$emit('close')"><Icon name="x"/></button></div>
+      <div class="bd-tags"><button v-for="q in QUICK_TAGS" :key="q[0]" type="button" class="qtag" :class="['tg-' + q[1], {on: (o.tags||[]).includes(q[0])}]" :aria-pressed="(o.tags||[]).includes(q[0])" :disabled="busy" @click="toggleTag(q[0])">{{ (o.tags||[]).includes(q[0]) ? '✓ ' : '' }}{{ q[0] }}</button></div>
+      <div v-if="o.price_pending" class="bd-box warn"><label for="op-price" class="strong">لم يُحدَّد السعر بعد</label>
+        <div class="row" style="gap:8px"><div class="unit-wrap" style="flex:1"><input id="op-price" class="input num" inputmode="decimal" v-model="price" placeholder="0"><span class="u">دج</span></div><button type="button" class="btn primary" :disabled="busy" @click="setPrice">حفظ</button></div></div>
+      <div v-else class="bd-sums">
+        <div><span class="m">السعر</span><span class="money strong">{{ money(o.grand_total) }}</span></div>
+        <div><span class="m">دفع</span><span class="money">{{ money(o.paid) }}</span></div>
+        <div><span class="m">الباقي</span><span class="money strong" :class="{'bd-late': left > 0.005}">{{ money(left) }}</span></div>
+      </div>
+      <div class="bd-line"><span class="m">الموعد</span><span>{{ date(o.delivery_date) }} · {{ dueWord(o.delivery_date) }}</span></div>
+      <div class="f"><span class="lbl">من يعمل عليه؟</span><div class="bd-chips">
+        <button v-for="p in state.boot.team" :key="p" type="button" class="bd-person" :aria-pressed="o.assignee === p" :disabled="busy" @click="setAssignee(p)"><Avatar :name="p"/>{{ p }}</button></div></div>
+      <div v-if="error" class="alert error" role="alert">{{ error }}</div>
+      <div class="spacer"></div>
+      <button v-if="next" type="button" class="btn primary bd-save" :disabled="busy || (next[0]==='done' && o.price_pending)" @click="$emit('move', o, next[0])">{{ next[0] === 'done' ? 'سلّمته للعميل ‹' : 'نقل إلى «' + next[1] + '» ‹' }}</button>
+      <span v-if="next && next[0]==='done'" class="hint">يُصدر بون التسليم والفاتورة تلقائيًا، ويُخصم التسبيق.</span>
+      <div class="row" style="gap:8px">
+        <button v-if="state.boot.can.payment && left > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
+        <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', o.name, 'الورشة — عربي')">بون الطلب PDF</a></div>
+      <a class="m bd-more" :href="'/atelier/orders/' + o.name" @click.prevent="go('/orders/' + encodeURIComponent(o.name))">كل التفاصيل ›</a>
+    </div>
+  </aside>`,
+};
+
+const Board = {
+  props: ["startNew"], components: { Icon, BoardCard, BoardPanel },
+  setup(props) {
+    const { s, load } = useLoad(() => call("board"));
+    onMounted(load);
+    watch(() => state.rev, load);
+    const filter = ref("all");
+    const me = computed(() => state.boot.full_name || "");
+    const isMine = (o) => !!o.assignee && (me.value === o.assignee || firstName(me.value) === firstName(o.assignee));
+    const FILTERS = [["all", "الكل", () => true], ["mine", "مهامي", isMine], ["urgent", "عاجل", (o) => (o.tags || []).includes("عاجل")]];
+    const rows = computed(() => (s.data || []).filter(FILTERS.find((x) => x[0] === filter.value)[2]));
+    const cols = computed(() => COLS.map(([k, l]) => ({ k, l, items: rows.value.filter((o) => o.column === k)
+      .sort((a, b) => tagRank(a) - tagRank(b) || String(a.delivery_date || "9").localeCompare(String(b.delivery_date || "9"))) })));
+    const panel = ref(props.startNew ? { mode: "new", preset: state.quickCustomer || null } : null);
+    state.quickCustomer = null;
+    const view = (o) => (panel.value = { mode: "view", name: o.name });
+    const current = computed(() => panel.value?.name && (s.data || []).find((o) => o.name === panel.value.name));
+    const busy = ref(null), dragging = ref(null), over = ref(null);
+    async function moveTo(o, col) {
+      if (o.column === col) return;
+      busy.value = o.name;
+      try {
+        await call("move", { name: o.name, column: col }, true);
+        toast(col === "done" ? "سُلّم الطلب وصدرت فاتورته" : `نُقل إلى «${COLS.find((c) => c[0] === col)[1]}»`);
+        await load();
+      } catch (e) { toast(e.message, "error"); } finally { busy.value = null; }
+    }
+    const drop = (col) => { const o = dragging.value; dragging.value = null; over.value = null; if (o) moveTo(o, col); };
+    const saved = async (name) => { await load(); if (!name) panel.value = null; };
+    const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
+    return { s, load, filter, FILTERS, cols, panel, view, current, busy, dragging, over, moveTo, drop, saved, closePanel, t };
+  },
+  template: `
+  <div class="page bd" :class="{'with-panel': panel}">
+    <div class="bd-main">
+      <div class="bd-head">
+        <div><h1>الطلبات</h1><div class="sub">اسحب البطاقة إلى العمود التالي عند الانتهاء.</div></div>
+        <div class="bd-filters" role="group" aria-label="تصفية">
+          <button v-for="x in FILTERS" :key="x[0]" type="button" class="bd-chip" :aria-pressed="filter === x[0]" @click="filter = x[0]">{{ x[1] }}</button>
+          <button type="button" class="btn primary bd-new" @click="panel = {mode: 'new'}">+ طلب جديد</button>
+        </div>
+      </div>
+      <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
+      <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
+      <div v-else class="bd-cols">
+        <section v-for="c in cols" :key="c.k" class="bd-col" :class="['bd-' + c.k, {over: over === c.k}]" :aria-label="c.l"
+          @dragover.prevent="over = c.k" @dragleave="over === c.k && (over = null)" @drop.prevent="drop(c.k)">
+          <h2 class="bd-ch">{{ c.l }} <span class="bd-n">{{ c.items.length }}</span></h2>
+          <BoardCard v-for="o in c.items" :key="o.name" :o="o" :busy="busy === o.name" @open="view" @move="moveTo" @drag="dragging = $event"/>
+          <div v-if="!c.items.length" class="bd-empty">{{ c.k === 'new' ? 'لا طلبات جديدة' : 'فارغ' }}</div>
+        </section>
+      </div>
+    </div>
+    <BoardPanel v-if="panel && (panel.mode === 'new' || current)" :key="panel.mode + (panel.name || '')" :mode="panel.mode" :order="current" :preset="panel.preset"
+      @close="closePanel" @saved="saved" @move="moveTo"/>
+  </div>`,
+};
+
+const SimpleCustomers = {
+  components: { Icon, Avatar },
+  setup() {
+    const { s, load } = useLoad(() => call("customers", { full: 1 }));
+    onMounted(load);
+    watch(() => state.rev, () => { load(); if (sel.value) open(sel.value); });
+    const q = ref(""), filter = ref("all"), sel = ref(state.query.get("c") || null), d = ref(null), err = ref(null);
+    const owes = (c) => (c.balance || 0) > 0.005;
+    const rows = computed(() => (s.data || []).filter((c) => (filter.value === "all" || owes(c)) &&
+      (!q.value || (c.customer_name + " " + (c.mobile_no || "")).toLowerCase().includes(q.value.toLowerCase()))));
+    const debtCount = computed(() => (s.data || []).filter(owes).length);
+    async function open(name) { sel.value = name; d.value = null; err.value = null; try { d.value = await call("customer", { name }); } catch (e) { err.value = e.message; } }
+    if (sel.value) open(sel.value);
+    const bal = (v) => (v > 0.005 ? { text: "عليه " + money(v), cls: "bad" } : v < -0.005 ? { text: "له " + money(-v), cls: "ok" } : { text: "خالص", cls: "" });
+    const newOrder = () => { state.quickCustomer = { name: d.value.name, customer_name: d.value.customer_name }; go("/orders/new"); };
+    const pay = () => (state.sheet = { type: "payment", customer: { name: d.value.name, customer_name: d.value.customer_name } });
+    const stateWord = (o) => ({ new: "جديد", work: "في العمل", ready: "جاهز", done: "سُلّم" })[colOf(o)];
+    return { s, load, q, filter, rows, debtCount, sel, d, err, open, bal, newOrder, pay, stateWord, waLink, money, date, dueWord, state, go, t };
+  },
+  template: `
+  <div class="page bd" :class="{'with-panel': sel}">
+    <div class="bd-main">
+      <div class="bd-head"><div><h1>العملاء</h1><div class="sub">من يطلب منك، ومن عليه دين.</div></div>
+        <button v-if="state.boot.can.customer" type="button" class="btn primary bd-new" @click="state.sheet = {type: 'customer'}">+ عميل جديد</button></div>
+      <div class="bd-filters" style="justify-content:flex-start">
+        <input type="search" class="input sc-search" v-model="q" placeholder="ابحث بالاسم أو الهاتف…" aria-label="بحث">
+        <button type="button" class="bd-chip" :aria-pressed="filter === 'all'" @click="filter = 'all'">الكل {{ (s.data || []).length }}</button>
+        <button type="button" class="bd-chip debt" :aria-pressed="filter === 'debt'" @click="filter = 'debt'">عليهم دين {{ debtCount }}</button>
+      </div>
+      <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
+      <div v-else-if="s.error" class="alert error">{{ s.error }}</div>
+      <div v-else class="sc-table">
+        <div class="sc-tr sc-th desktop-only"><span>العميل</span><span>الهاتف</span><span>طلبات جارية</span><span class="n">الحساب</span></div>
+        <div v-if="!rows.length" class="empty">لا عملاء هنا</div>
+        <button v-for="c in rows" :key="c.name" type="button" class="sc-tr" :class="{sel: sel === c.name}" @click="open(c.name)">
+          <span class="sc-who"><Avatar :name="c.customer_name" :size="40"/><span><span class="strong">{{ c.customer_name }}</span><span class="m">{{ c.customer_type === 'Company' ? 'مؤسسة' : 'فرد' }}</span></span></span>
+          <span class="desktop-only" dir="ltr" style="text-align:right">{{ c.mobile_no || '—' }}</span>
+          <span class="desktop-only">{{ c.open_orders || '—' }}</span>
+          <span class="n strong" :class="'sc-' + bal(c.balance).cls">{{ c.balance === null ? '' : bal(c.balance).text }}</span>
+        </button>
+      </div>
+    </div>
+    <aside v-if="sel" class="bd-panel" aria-label="بطاقة العميل">
+      <div v-if="err" class="alert error">{{ err }}</div>
+      <div v-else-if="!d" class="ws-loading">{{ t('loading') }}</div>
+      <div v-else class="bd-form">
+        <div class="bd-ph"><div class="row" style="gap:12px"><Avatar :name="d.customer_name" :size="52"/><div><h2>{{ d.customer_name }}</h2><span class="m">{{ d.customer_type === 'Company' ? 'مؤسسة' : 'فرد' }}<template v-if="d.contact_person"> · {{ d.contact_person }}</template></span></div></div>
+          <button type="button" class="btn ghost icon-btn" aria-label="إغلاق" @click="sel = null"><Icon name="x"/></button></div>
+        <div class="row" style="gap:8px">
+          <a v-if="d.mobile_no" class="btn" style="flex:1" :href="'tel:' + d.mobile_no">اتصال</a>
+          <a v-if="waLink(d.mobile_no)" class="btn" style="flex:1" target="_blank" rel="noopener" :href="waLink(d.mobile_no)">واتساب</a>
+          <button v-if="d.can_edit" type="button" class="btn" style="flex:1" @click="state.sheet = {type: 'customer', name: d.name}">تعديل</button></div>
+        <div v-if="d.balance !== undefined" class="bd-box" :class="bal(d.balance).cls">
+          <span class="m">{{ d.balance > 0.005 ? 'عليه' : d.balance < -0.005 ? 'له (تسبيق)' : 'الحساب' }}</span>
+          <span class="big">{{ d.balance > 0.005 ? money(d.balance) : d.balance < -0.005 ? money(-d.balance) : 'خالص' }}</span>
+          <span v-if="d.overdue_days" class="m">متأخر {{ d.overdue_days }} يومًا</span>
+          <button v-if="state.boot.can.payment" type="button" class="btn" :class="d.balance > 0.005 ? 'danger-solid' : ''" @click="pay">استلمت دفعة</button></div>
+        <span class="strong">طلباته</span>
+        <div v-if="!d.orders.length" class="m">لا طلبات بعد.</div>
+        <a v-for="o in d.orders.slice(0, 8)" :key="o.name" class="sc-order" :href="'/atelier/orders/' + o.name" @click.prevent="go('/orders/' + encodeURIComponent(o.name))">
+          <span class="row" style="justify-content:space-between"><span class="strong">{{ o.atelier_subject || o.name }}</span><span class="m">{{ stateWord(o) }}</span></span>
+          <span class="m">{{ dueWord(o.delivery_date) }} · {{ money(o.grand_total) }}</span></a>
+        <div class="spacer"></div>
+        <button v-if="state.boot.can.order" type="button" class="btn primary bd-save" @click="newOrder">+ طلب لهذا العميل</button>
+        <a class="m bd-more" target="_blank" rel="noopener" :href="'/api/method/atelier.api.statement_pdf?name=' + encodeURIComponent(d.name)">كشف الحساب PDF</a>
+      </div>
+    </aside>
+  </div>`,
+};
+
+const SimpleMoney = {
+  components: { Icon, Avatar },
+  setup() {
+    const { s, load } = useLoad(() => call("money_simple"));
+    onMounted(load);
+    watch(() => state.rev, load);
+    const month = computed(() => (s.data ? new Intl.DateTimeFormat("ar", { month: "long", year: "numeric" }).format(parseDate(s.data.month)) : ""));
+    const debt = computed(() => (s.data?.debtors || []).reduce((a, x) => a + x.amount, 0));
+    const pay = (c) => (state.sheet = { type: "payment", customer: c ? { name: c.customer, customer_name: c.customer_name } : null });
+    return { s, load, month, debt, pay, money, date, state, t };
+  },
+  template: `
+  <div class="page">
+    <div class="bd-head"><div><h1>المال</h1><div class="sub">{{ month }} · يراها المدير فقط</div></div>
+      <div class="bd-filters"><button v-if="state.boot.can.payment" type="button" class="btn bd-new in" @click="pay()">+ دخل</button>
+        <button v-if="state.boot.can.expense" type="button" class="btn bd-new out" @click="state.sheet = {type: 'expense'}">− مصروف</button></div></div>
+    <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
+    <div v-else-if="s.error" class="alert error">{{ s.error }}</div>
+    <template v-else-if="s.data">
+      <div class="sm-kpis">
+        <div class="sm-kpi"><span class="m">في الصندوق الآن</span><span class="big money">{{ money(s.data.cash_balance) }}</span><span class="m">نقدًا + البنك</span></div>
+        <div class="sm-kpi"><span class="m">دخل هذا الشهر</span><span class="big money sc-ok">+ {{ money(s.data.income) }}</span><span class="m">من {{ s.data.payers }} عملاء</span></div>
+        <div class="sm-kpi"><span class="m">مصاريف هذا الشهر</span><span class="big money sc-bad">− {{ money(s.data.expenses) }}</span><span class="m">ورق، حبر، كراء…</span></div>
+        <div class="sm-kpi profit"><span class="m">الربح هذا الشهر</span><span class="big money">{{ money(s.data.profit) }}</span><span class="m">الدخل − المصاريف</span></div>
+      </div>
+      <div class="sm-grid">
+        <section class="sm-card"><h2>آخر الحركات</h2>
+          <div v-if="!s.data.moves.length" class="m">لا حركات بعد.</div>
+          <div v-for="m in s.data.moves" :key="m.voucher_no" class="sm-mv">
+            <span class="sm-ic" :class="m.amount >= 0 ? 'in' : 'out'">{{ m.amount >= 0 ? '+' : '−' }}</span>
+            <span><span class="strong">{{ m.title }}</span><span class="m">{{ date(m.posting_date) }}<template v-if="m.by"> · {{ m.by }}</template></span></span>
+            <span class="money strong" :class="m.amount >= 0 ? 'sc-ok' : 'sc-bad'">{{ m.amount >= 0 ? '+' : '−' }} {{ money(Math.abs(m.amount)) }}</span></div>
+        </section>
+        <section class="sm-card"><h2 class="row" style="justify-content:space-between">من عليه دين <span class="money sc-bad">{{ money(debt) }}</span></h2>
+          <div v-if="!s.data.debtors.length" class="m">لا أحد عليه دين.</div>
+          <button v-for="c in s.data.debtors" :key="c.customer" type="button" class="sm-mv sm-debtor" @click="pay(c)">
+            <Avatar :name="c.customer_name" :size="36"/>
+            <span><span class="strong">{{ c.customer_name }}</span><span class="m" :class="{'sc-bad': c.late}">{{ c.late ? 'متأخر ' + c.late + ' يومًا' : 'لم يحن موعده' }}</span></span>
+            <span class="money strong sc-bad">{{ money(c.amount) }}</span></button>
+          <span class="m" style="padding-top:12px">اضغط على الاسم لتسجيل دفعة.</span>
+        </section>
+      </div>
+    </template>
+  </div>`,
+};
+
 // ------------------------------------------------------------------ team (/atelier/team)
 const TeamPage = {
   components: { Icon },
@@ -2353,21 +2689,19 @@ const ExpenseSheet = {
 
 // ------------------------------------------------------------------ shell
 const NAV = [
-  { key: "home", path: "/", icon: "grid", label: "nav_workspace", match: ["home"] },
-  { key: "orders", path: "/orders", icon: "orders", label: "nav_orders", match: ["order", "order-new", "orders"] },
+  { key: "orders", path: "/", icon: "orders", label: "nav_orders", match: ["home", "order", "order-new", "orders"] },
   { key: "customers", path: "/customers", icon: "users", label: "nav_customers", match: ["customer", "customers"] },
-  { key: "money", path: "/money", icon: "wallet", label: "nav_finance", match: ["money"], need: "finance" },
-  { key: "stock", path: "/stock", icon: "box", label: "nav_stock", match: ["stock"] },
+  { key: "money", path: "/money", icon: "wallet", label: "nav_money_simple", match: ["money"], need: "finance" },
 ];
 const SECTION_NAV = [
   { key: "machines", path: "/machines", icon: "gear", label: "nav_machines", match: ["machines"] },
   { key: "prices", path: "/prices", icon: "tag", label: "nav_prices", match: ["prices"], need: "prices" },
   { key: "reports", path: "/reports", icon: "chart", label: "nav_reports", match: ["reports"], need: "finance" },
-  { key: "team", path: "/team", icon: "users", label: "nav_team", match: ["team"] },
+  { key: "team", path: "/team", icon: "users", label: "nav_team", match: ["team"], need: "prices" },
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide, Board, SimpleCustomers, SimpleMoney },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -2401,7 +2735,7 @@ const App = {
       <button type="button" class="ws-org"><Icon name="printer" :size="18"/><span class="lbl">{{ state.boot.company_label }}</span><Icon name="down" :size="16"/></button>
       <a v-for="n in NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+(n.path==='/'?'':n.path)" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span><span v-if="n.key==='orders' && state.openOrders" class="nav-n">{{ state.openOrders }}</span></a>
-      <div class="group">{{ t('nav_group_admin') }}</div>
+      <div v-if="state.boot.can.prices" class="group">{{ t('nav_group_admin') }}</div>
       <a v-for="n in SECTION_NAV.filter(n => n.key !== 'machines' && (!n.need || state.boot.can[n.need]))" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
@@ -2421,13 +2755,11 @@ const App = {
         <button type="button" class="btn ghost icon-btn desktop-only" :aria-label="t('notifications')"><Icon name="bell" :size="20"/></button>
       </header>
       <main id="main" tabindex="-1" style="outline:none">
-        <Home v-if="route.name==='home'" :key="state.path"/>
-        <OrdersPage v-else-if="route.name==='orders'"/>
-        <OrderNew v-else-if="route.name==='order-new'" :key="state.path + state.query"/>
+        <Board v-if="['home', 'orders', 'order-new'].includes(route.name)" :key="route.name === 'order-new' ? state.path : 'board'" :start-new="route.name === 'order-new'"/>
         <OrderView v-else-if="route.name==='order'" :id="route.id" :key="route.id"/>
         <CustomerView v-else-if="route.name==='customer'" :id="route.id" :key="route.id + ':' + state.rev"/>
-        <CustomerList v-else-if="route.name==='customers'"/>
-        <MoneyPage v-else-if="route.name==='money'"/>
+        <SimpleCustomers v-else-if="route.name==='customers'" :key="state.path + state.query"/>
+        <SimpleMoney v-else-if="route.name==='money'"/>
         <StockPage v-else-if="route.name==='stock'"/>
         <MachinesPage v-else-if="route.name==='machines'"/>
         <ReportsPage v-else-if="route.name==='reports'"/>
@@ -2439,11 +2771,10 @@ const App = {
     </div>
 
     <nav class="bottom-nav" :aria-label="t('app_name')">
-      <a href="/atelier" :class="{active: route.name==='home'}" @click.prevent="go('/')"><Icon name="home"/>{{ t('nav_home') }}</a>
-      <a href="/atelier/orders" :class="{active: ['orders','order'].includes(route.name)}" @click.prevent="go('/orders')"><Icon name="orders"/>{{ t('nav_orders') }}</a>
+      <a href="/atelier" :class="{active: ['home','orders','order'].includes(route.name)}" @click.prevent="go('/')"><Icon name="orders"/>{{ t('nav_orders') }}</a>
       <a class="fab" href="/atelier/orders/new" @click.prevent="go('/orders/new')"><span class="fab-circle"><Icon name="plus" :size="22"/></span><span class="lbl">{{ t('new_order') }}</span></a>
       <a href="/atelier/customers" :class="{active: ['customer','customers'].includes(route.name)}" @click.prevent="go('/customers')"><Icon name="users"/>{{ t('nav_customers') }}</a>
-      <a href="/atelier/more" :class="{active: ['more','money','stock','machines','reports','prices'].includes(route.name)}" @click.prevent="go('/more')"><Icon name="more"/>{{ t('nav_more') }}</a>
+      <a v-if="state.boot.can.finance" href="/atelier/money" :class="{active: route.name==='money'}" @click.prevent="go('/money')"><Icon name="wallet"/>{{ t('nav_money_simple') }}</a>
     </nav>
 
     <PaymentSheet v-if="state.sheet && state.sheet.type==='payment'" :opts="state.sheet"/>

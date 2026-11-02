@@ -157,7 +157,7 @@ export default {
   rel_subcontract_hint: "مطبعة أو وكالة أو مصمم يطلب العمل لصالح زبونه. يمكن ربطه لاحقًا بقائمة أسعار المناولة.",
   cs_full_name: "الاسم الكامل", cs_contact_person: "الشخص المسؤول", cs_contact_person_ph: "الاسم الذي نتواصل معه",
   c_type_company_short: "مؤسسة",
-  nav_team: "الفريق", nav_prices: "الخدمات والأسعار", pr_sub: "سعر للأفراد وسعر للمؤسسات لكل خدمة", pr_service: "الخدمة",
+  nav_team: "الفريق", nav_money_simple: "المال", nav_prices: "الخدمات والأسعار", pr_sub: "سعر للأفراد وسعر للمؤسسات لكل خدمة", pr_service: "الخدمة",
   pr_individual_prices: "أسعار الأفراد", pr_company_prices: "أسعار المؤسسات",
   pr_f_no_company: "ينقصه سعر المؤسسات", pr_f_no_individual: "ينقصه سعر الأفراد",
   pr_explain: "كل طلب يأخذ أسعار نوع عميله تلقائيًا. خدمة بلا سعر لهذا النوع تبقى «بانتظار التسعير». اترك الخانة فارغة لإزالة السعر.",
