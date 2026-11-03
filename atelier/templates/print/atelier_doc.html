@@ -4,7 +4,7 @@
 {%- set priced = dt in ("Quotation", "Sales Order", "Sales Invoice") -%}
 <link href="{{ c.font_url }}" rel="stylesheet">
 <style>
-  .atl { direction: rtl; font-family: "IBM Plex Sans Arabic", "Noto Sans Arabic", "DejaVu Sans", sans-serif; font-size: 12px; color: #17202A; line-height: 1.6; }
+  .atl { direction: rtl; font-family: "Cairo", "Noto Sans Arabic", "DejaVu Sans", sans-serif; font-size: 12px; color: #17202A; line-height: 1.6; }
   .atl table { width: 100%; border-collapse: collapse; }
   .atl .num { direction: ltr; unicode-bidi: embed; display: inline-block; }
   .atl .head td { vertical-align: top; }
@@ -29,7 +29,8 @@
       <div class="brand">{{ c.company.name }}</div>
       {%- if c.company.address %}<div class="muted">{{ c.company.address }}</div>{% endif %}
       <div class="muted">{% if c.company.phone %}الهاتف: <span class="num">{{ c.company.phone }}</span>{% endif %}{% if c.company.email %} · <span class="num">{{ c.company.email }}</span>{% endif %}</div>
-      <div class="muted"><span class="num">NIF: {{ c.company.tax_id or "—" }} · RC: — · NIS: — · AI: —</span></div>
+      {%- if c.company.name_fr %}<div class="muted"><span class="num">{{ c.company.name_fr }}</span></div>{% endif %}
+      <div class="muted"><span class="num">RC: {{ c.company.rc or "—" }} · NIF: {{ c.company.tax_id or "—" }} · NIS: {{ c.company.nis or "—" }} · AI: {{ c.company.ai or "—" }}</span></div>
     </td>
     <td>
       <div class="title">{{ c.title }}</div>
@@ -96,4 +97,5 @@
     <table class="sign" style="margin-top:24px"><tr>
       <td>{{ "توقيع المستلم" if dt == "Delivery Note" else "توقيع العميل" }}</td><td>الختم والتوقيع</td></tr></table>
   {%- endif %}
+  {%- if c.footer or c.company.rib %}<div class="muted" style="margin-top:14px;border-top:1px solid #D9DDE2;padding-top:6px;text-align:center">{{ c.footer or "" }}{% if c.company.rib %} · <span class="num">RIB: {{ c.company.rib }}</span>{% endif %}</div>{% endif %}
 </div>

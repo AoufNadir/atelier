@@ -134,7 +134,7 @@ const route = computed(() => {
   if ((m = p.match(/^\/orders\/(.+)$/))) return { name: "order", id: decodeURIComponent(m[1]) };
   if (p === "/customers") return { name: "customers" };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
-  if (["/money", "/stock", "/machines", "/reports", "/more", "/prices", "/team", "/board-settings", "/ds"].includes(p)) return { name: p.slice(1) };
+  if (["/money", "/stock", "/machines", "/reports", "/more", "/prices", "/team", "/board-settings", "/settings", "/ds"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
@@ -2987,7 +2987,7 @@ const CustomerSheet2 = {
   setup(props) {
     const editing = !!props.opts.name;
     const f = reactive({ name: props.opts.name || null, customer_name: "", customer_type: "Individual", mobile_no: "", email_id: "", address: "", city: "",
-      nif: "", rc: "", nis: "", ai: "", contacts: [], credit_limit: "", tags: [], note: "" });
+      nif: "", rc: "", nis: "", ai: "", contacts: [], credit_limit: "", tags: [], note: "", tva_exempt: 0 });
     const tags = ref([]), ready = ref(!editing), saving = ref(false), error = ref(null), attempted = ref(false);
     onMounted(async () => {
       try {
@@ -2995,7 +2995,7 @@ const CustomerSheet2 = {
           const d = await call("customer2", { name: f.name });
           Object.assign(f, { customer_name: d.customer_name, customer_type: d.customer_type, mobile_no: d.mobile_no || "", email_id: d.email_id || "",
             address: d.address || "", city: d.city || "", nif: d.legal.nif || "", rc: d.legal.rc || "", nis: d.legal.nis || "", ai: d.legal.ai || "",
-            contacts: d.contacts.map((c) => ({ ...c })), credit_limit: d.credit_limit || "", tags: [...d.tags], note: d.note || "" });
+            contacts: d.contacts.map((c) => ({ ...c })), credit_limit: d.credit_limit || "", tags: [...d.tags], note: d.note || "", tva_exempt: d.tva_exempt || 0 });
           tags.value = d.customer_tags;
         } else tags.value = (await call("customers2")).customer_tags;
       } catch (e) { error.value = e.message; }
@@ -3056,6 +3056,7 @@ const CustomerSheet2 = {
             <div class="cs2-f grow2"><span class="m">التصنيف</span><div class="bd-chips">
               <button v-for="tg in tags" :key="tg.id" type="button" class="tl tl-btn" :class="{off: !f.tags.includes(tg.id)}" :style="labelStyle(tg)" :aria-pressed="f.tags.includes(tg.id)" @click="toggleTag(tg.id)">{{ f.tags.includes(tg.id) ? '✓ ' : '' }}{{ tg.name }}</button></div></div></div>
           <label class="cs2-f"><span class="m">📌 ملاحظة ثابتة (تظهر في كل بطاقة جديدة له)</span><textarea class="input" v-model="f.note" rows="2"></textarea></label>
+          <label class="bs-deliver"><input type="checkbox" :checked="!!f.tva_exempt" @change="f.tva_exempt = $event.target.checked ? 1 : 0">معفى من TVA</label>
         </section>
         <div v-if="error" class="alert error" role="alert">{{ error }}</div>
         <button type="submit" class="btn primary bd-save" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ العميل' }}</button>
@@ -3283,6 +3284,163 @@ const BoardSettings = {
       <div v-if="err" class="alert error" role="alert" style="margin-top:12px">{{ err }}</div>
       <div class="row" style="justify-content:flex-end;margin-top:16px"><button type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
     </template>
+  </div>`,
+};
+
+// ------------------------------------------------------------------ settings (/atelier/settings), manager only
+const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "الوثائق والضريبة"], ["team", "👥", "الفريق والحسابات"], ["board", "▦", "تخصيص اللوحة"],
+  ["prices", "🏷", "الخدمات والأسعار"], ["funds", "💳", "الدفع والصناديق"], ["alerts", "🔔", "التنبيهات"], ["backup", "💾", "النسخ الاحتياطي"]];
+
+const SettingsPage = {
+  components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage },
+  setup() {
+    const { s, load } = useLoad(() => call("settings"));
+    onMounted(load);
+    const tab = ref(state.query.get("tab") || "profile");
+    const p = reactive({}), docs = reactive({}), alerts = reactive({});
+    watch(() => s.data, (v) => { if (v) { Object.assign(p, v.profile); Object.assign(docs, v.docs); Object.assign(alerts, v.alerts); } });
+    const busy = ref(null), err = ref(null);
+    const run = async (key, fn, msg) => { busy.value = key; err.value = null; try { const r = await fn(); if (msg) toast(msg); return r; } catch (e) { err.value = e.message; } finally { busy.value = null; } };
+    const saveProfile = () => run("profile", async () => { Object.assign(p, await call("save_profile", { profile: JSON.stringify(p) }, true)); state.boot.company_label = p.name_ar || state.boot.company_label; }, "حُفظت بيانات المطبعة");
+    const logoInput = ref(null);
+    const onLogo = (e) => run("logo", async () => {
+      const f = e.target.files?.[0]; if (!f) return;
+      const fd = new FormData(); fd.append("file", f, f.name); fd.append("is_private", "0"); fd.append("doctype", "Company"); fd.append("docname", state.boot.company);
+      const res = await fetch("/api/method/upload_file", { method: "POST", body: fd, credentials: "same-origin", headers: { "X-Frappe-CSRF-Token": window.csrf_token } });
+      if (!res.ok) throw new Error(serverMessage(await res.json().catch(() => ({}))));
+      p.logo = (await res.json()).message.file_url; e.target.value = "";
+    }, "رُفع الشعار — اضغط «حفظ»");
+    const saveDocs = () => run("docs", async () => Object.assign(docs, await call("save_doc_settings", { docs: JSON.stringify(docs) }, true)), "حُفظت إعدادات الوثائق");
+    const saveAlerts = () => run("alerts", async () => Object.assign(alerts, await call("save_alerts", { alerts: JSON.stringify(alerts) }, true)), "حُفظت التنبيهات");
+    // accounts
+    const nu = reactive({ email: "", full_name: "", role: "staff" }), link = ref(null);
+    const saveUser = (u) => run("user", async () => {
+      const r = await call("save_user", u ? { email: u.name, full_name: u.full_name, role: u.role, enabled: u.enabled } : { ...nu }, true);
+      if (!u) { link.value = { email: nu.email, url: r.link }; nu.email = ""; nu.full_name = ""; }
+      await load();
+    }, u ? "حُفظ الحساب" : "أُنشئ الحساب");
+    const resetLink = (u) => run("link", async () => { link.value = { email: u.name, url: await call("reset_link", { email: u.name }, true) }; });
+    const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast("نُسخ الرابط"); } catch { /* user can select it */ } };
+    // funds
+    const renameFund = (f) => run("fund", () => call("rename_fund", { account: f.name, label: f.account_name }, true), "حُفظ الاسم");
+    const setMode = (m) => run("mode", () => call("set_mode_account", { mode: m.value, account: m.account }, true), "حُفظ");
+    const backup = () => run("backup", async () => { s.data.backups = await call("backup_now", {}, true); }, "أُنشئت نسخة احتياطية");
+    const size = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.round(b / 1024) + " KB");
+    const sample = computed(() => { const net = 18000, tax = docs.tva ? net * (+docs.tva_rate || 0) / 100 : 0; return { net, tax, total: net + tax }; });
+    return { s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
+      renameFund, setMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
+  },
+  template: `
+  <div class="page tb st">
+    <div class="tb-head"><h1>الإعدادات</h1><span class="sm3-only">للمدير فقط</span></div>
+    <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
+    <div v-else-if="s.error" class="alert error" style="margin:0 20px">{{ s.error }}</div>
+    <div v-else class="st-body">
+      <nav class="st-nav" aria-label="أقسام الإعدادات">
+        <button v-for="x in SETTINGS_TABS" :key="x[0]" type="button" :aria-current="tab === x[0] ? 'page' : null" @click="tab = x[0]"><span aria-hidden="true">{{ x[1] }}</span>{{ x[2] }}</button>
+      </nav>
+      <div class="st-main">
+        <div v-if="err" class="alert error" role="alert">{{ err }}</div>
+
+        <template v-if="tab === 'profile'">
+          <section class="cs2-sec"><b>الشعار والاسم</b>
+            <div class="st-logo-row">
+              <button type="button" class="st-logo" aria-label="تغيير الشعار" @click="logoInput.click()"><img v-if="p.logo" :src="p.logo" alt="الشعار"><span v-else>⬆ الشعار</span></button>
+              <input ref="logoInput" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" class="sr-only" @change="onLogo">
+              <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+                <div class="cs2-row"><label class="cs2-f grow2"><span class="m">اسم المطبعة</span><input class="input" v-model="p.name_ar"></label><label class="cs2-f grow2"><span class="m">الاسم بالفرنسية</span><input class="input" v-model="p.name_fr" dir="ltr"></label></div>
+                <span class="m">PNG أو SVG بخلفية شفافة · يظهر على كل البونات والفواتير وكشوف الحساب</span></div></div></section>
+          <section class="cs2-sec"><b>العنوان والاتصال</b>
+            <div class="cs2-row"><label class="cs2-f grow2"><span class="m">العنوان</span><input class="input" v-model="p.address"></label><label class="cs2-f"><span class="m">المدينة</span><input class="input" v-model="p.city"></label></div>
+            <div class="cs2-row"><label class="cs2-f"><span class="m">الهاتف</span><input class="input" v-model="p.phone" dir="ltr" inputmode="tel"></label><label class="cs2-f"><span class="m">هاتف ثانٍ</span><input class="input" v-model="p.phone2" dir="ltr" inputmode="tel"></label>
+              <label class="cs2-f"><span class="m">البريد</span><input class="input" v-model="p.email" dir="ltr" type="email"></label></div></section>
+          <section class="cs2-sec"><b>البيانات القانونية <span class="m" style="display:inline;font-weight:400">· تُطبع في رأس كل بون وفاتورة</span></b>
+            <div class="cs2-row"><label class="cs2-f"><span class="m">السجل التجاري RC</span><input class="input" v-model="p.rc" dir="ltr"></label><label class="cs2-f"><span class="m">الرقم الجبائي NIF</span><input class="input" v-model="p.nif" dir="ltr"></label></div>
+            <div class="cs2-row"><label class="cs2-f"><span class="m">NIS</span><input class="input" v-model="p.nis" dir="ltr"></label><label class="cs2-f"><span class="m">المادة AI</span><input class="input" v-model="p.ai" dir="ltr"></label>
+              <label class="cs2-f grow2"><span class="m">رقم الحساب البنكي RIB</span><input class="input" v-model="p.rib" dir="ltr"></label></div></section>
+          <div class="row" style="justify-content:flex-end"><button type="button" class="btn primary st-save" :disabled="busy === 'profile'" @click="saveProfile">{{ busy === 'profile' ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
+        </template>
+
+        <template v-else-if="tab === 'docs'">
+          <section class="cs2-sec"><b>الضريبة على القيمة المضافة TVA</b>
+            <label class="st-tog"><input type="checkbox" :checked="!!docs.tva" @change="docs.tva = $event.target.checked ? 1 : 0"><span><b>تطبيق TVA على الطلبات والفواتير الجديدة</b><span class="m">الطلبات السابقة لا تتغير. يمكن إعفاء عميل معيّن من نافذة تعديله.</span></span></label>
+            <label v-if="docs.tva" class="cs2-f" style="max-width:200px"><span class="m">النسبة</span><div class="unit-wrap"><input class="input num" v-model="docs.tva_rate" inputmode="decimal"><span class="u">%</span></div></label></section>
+          <section class="cs2-sec"><b>أسفل الوثائق والدفع</b>
+            <label class="cs2-f"><span class="m">نص يُطبع أسفل كل وثيقة</span><input class="input" v-model="docs.footer"></label>
+            <label class="cs2-f" style="max-width:260px"><span class="m">مهلة الدفع بعد الفاتورة</span><div class="unit-wrap"><input class="input num" v-model="docs.payment_days" inputmode="numeric"><span class="u">يوم</span></div></label>
+            <span class="m">الطابع الجبائي على الدفع نقدًا غير مفعّل بعد في هذه النسخة.</span></section>
+          <div class="row" style="justify-content:flex-end"><button type="button" class="btn primary st-save" :disabled="busy === 'docs'" @click="saveDocs">{{ busy === 'docs' ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
+        </template>
+
+        <template v-else-if="tab === 'team'">
+          <section class="cs2-sec"><b>حسابات الدخول</b>
+            <span class="m">لكل موظف حساب ببريده. «موظف» يعمل على الطلبات والعملاء، و«مدير» يرى المال والإعدادات.</span>
+            <div v-for="u in s.data.users" :key="u.name" class="bs-row">
+              <Avatar :name="u.full_name" :size="32"/><span style="flex:1;min-width:0"><b>{{ u.full_name }}</b><span class="m" dir="ltr">{{ u.name }}</span>
+                <span class="m">{{ u.member ? 'في الفريق باسم «' + u.member + '»' : 'غير مربوط باسم في الفريق' }}<template v-if="u.last_login"> · آخر دخول {{ ago(u.last_login) }}</template></span></span>
+              <select class="input" style="width:auto" v-model="u.role" :aria-label="'صلاحية ' + u.full_name"><option value="staff">موظف</option><option value="manager">مدير</option></select>
+              <label class="bs-deliver"><input type="checkbox" :checked="!!u.enabled" @change="u.enabled = $event.target.checked ? 1 : 0">مفعّل</label>
+              <button type="button" class="btn sm" :disabled="!!busy" @click="saveUser(u)">حفظ</button>
+              <button type="button" class="btn ghost sm" :disabled="!!busy" @click="resetLink(u)">رابط كلمة السر</button></div>
+            <div v-if="!s.data.users.length" class="m">لا حسابات بعد.</div>
+            <form class="cs2-row st-new-user" @submit.prevent="saveUser()"><label class="cs2-f"><span class="m">الاسم</span><input class="input" v-model="nu.full_name"></label>
+              <label class="cs2-f grow2"><span class="m">البريد</span><input class="input" v-model="nu.email" type="email" dir="ltr"></label>
+              <label class="cs2-f" style="min-width:110px;flex:0"><span class="m">الصلاحية</span><select class="input" v-model="nu.role"><option value="staff">موظف</option><option value="manager">مدير</option></select></label>
+              <button type="submit" class="btn primary" style="align-self:flex-end" :disabled="!nu.email || !!busy">+ إنشاء حساب</button></form>
+            <div v-if="link" class="sc2-alert off"><b>رابط اختيار كلمة السر لـ {{ link.email }}</b><br>أرسله له ليختار كلمة سره بنفسه:
+              <div class="row" style="gap:6px;margin-top:6px"><input class="input" :value="link.url" readonly dir="ltr" aria-label="الرابط" @focus="$event.target.select()"><button type="button" class="btn sm" @click="copy(link.url)">نسخ</button></div></div>
+          </section>
+          <section class="cs2-sec"><b>أسماء الفريق</b><span class="m">اربط كل اسم ببريد حسابه ليعمل «مهامي» والتنبيهات.</span><TeamPage embedded/></section>
+        </template>
+
+        <section v-else-if="tab === 'board'" class="cs2-sec st-embed"><BoardSettings/></section>
+        <section v-else-if="tab === 'prices'" class="cs2-sec st-embed"><PricesPage/></section>
+
+        <template v-else-if="tab === 'funds'">
+          <section class="cs2-sec"><b>الصناديق</b><span class="m">الأسماء التي تظهر في صفحة المال.</span>
+            <div v-for="f in s.data.funds" :key="f.name" class="bs-row"><span class="sm3-sup" aria-hidden="true">{{ f.account_type === 'Bank' ? '🏦' : '💵' }}</span>
+              <input class="input" v-model="f.account_name" :aria-label="'اسم ' + f.name"><span class="m">{{ f.account_type === 'Bank' ? 'بنك' : 'نقد' }}</span>
+              <button type="button" class="btn sm" :disabled="!!busy" @click="renameFund(f)">حفظ</button></div></section>
+          <section class="cs2-sec"><b>طرق الدفع</b><span class="m">إلى أي صندوق يدخل المال حسب طريقة الدفع.</span>
+            <div v-for="m in s.data.modes" :key="m.value" class="bs-row"><b style="min-width:110px">{{ m.label }}</b>
+              <select class="input" v-model="m.account" :aria-label="'صندوق ' + m.label"><option v-for="f in s.data.all_funds" :key="f.name" :value="f.name">{{ f.account_name }}</option></select>
+              <button type="button" class="btn sm" :disabled="!!busy" @click="setMode(m)">حفظ</button></div></section>
+        </template>
+
+        <template v-else-if="tab === 'alerts'">
+          <section class="cs2-sec"><b>التنبيهات داخل التطبيق</b>
+            <label class="st-tog"><input type="checkbox" :checked="!!alerts.assign" @change="alerts.assign = $event.target.checked ? 1 : 0"><span><b>عند إسناد بطاقة لشخص</b><span class="m">يصله تنبيه في الجرس 🔔</span></span></label>
+            <label class="st-tog"><input type="checkbox" :checked="!!alerts.mention" @change="alerts.mention = $event.target.checked ? 1 : 0"><span><b>عند ذكر شخص بـ «@» في تعليق</b><span class="m">مثل «@سمير راجع الألوان»</span></span></label>
+            <label class="st-tog"><input type="checkbox" :checked="!!alerts.due" @change="alerts.due = $event.target.checked ? 1 : 0"><span><b>المواعيد القريبة والمتأخرة</b><span class="m">بطاقات الشخص المستحقة اليوم أو غدًا أو المتأخرة</span></span></label></section>
+          <div class="row" style="justify-content:flex-end"><button type="button" class="btn primary st-save" :disabled="busy === 'alerts'" @click="saveAlerts">حفظ</button></div>
+        </template>
+
+        <template v-else-if="tab === 'backup'">
+          <section class="cs2-sec"><b>النسخ الاحتياطي</b>
+            <span class="m">نسخة كاملة من البيانات والملفات. احفظ نسخة خارج الجهاز (قرص خارجي أو سحابة) من حين لآخر.</span>
+            <button type="button" class="btn primary" style="align-self:flex-start" :disabled="busy === 'backup'" @click="backup">{{ busy === 'backup' ? 'جارٍ إنشاء النسخة… قد يستغرق دقيقة' : '💾 نسخة الآن' }}</button>
+            <div v-for="b in s.data.backups" :key="b.file" class="bs-row"><span style="flex:1;min-width:0" class="ellipsis" dir="ltr">{{ b.file }}</span><span class="m">{{ size(b.size) }}</span><a class="btn sm" :href="b.url">تحميل</a></div>
+            <div v-if="!s.data.backups.length" class="m">لا نسخ بعد.</div></section>
+        </template>
+      </div>
+
+      <aside v-if="tab === 'profile' || tab === 'docs'" class="st-preview" aria-label="معاينة الفاتورة">
+        <span class="st-preview-t">معاينة الفاتورة مباشرة</span>
+        <div class="st-paper">
+          <div class="st-ph"><div><b class="st-pn">{{ p.name_ar || 'اسم المطبعة' }}</b><span v-if="p.address || p.city">{{ [p.address, p.city].filter(Boolean).join('، ') }}</span>
+              <span v-if="p.phone" dir="ltr">{{ p.phone }}<template v-if="p.phone2"> · {{ p.phone2 }}</template></span>
+              <span dir="ltr" class="st-legal">{{ [p.rc && 'RC ' + p.rc, p.nif && 'NIF ' + p.nif, p.nis && 'NIS ' + p.nis, p.ai && 'AI ' + p.ai].filter(Boolean).join(' · ') || 'RC · NIF · NIS · AI' }}</span></div>
+            <img v-if="p.logo" :src="p.logo" alt="" class="st-plogo"></div>
+          <div class="row" style="justify-content:space-between"><b>فاتورة</b><span dir="ltr" class="m">ACC-SINV-2026-00007</span></div>
+          <div class="st-pbox"><b>مخبزة السعادة</b><span dir="ltr" class="m">RC 19/00-1234567 B 22 · NIF 001919012345678</span></div>
+          <div class="st-plines"><div class="bd-line"><span>لافتة 3×1 م</span><b>6,000.00</b></div><div class="bd-line"><span>أكياس 2000</span><b>12,000.00</b></div></div>
+          <div class="bd-line"><span>{{ docs.tva ? 'المجموع خارج الرسم' : 'المجموع' }}</span><b>{{ fig(sample.net) }}</b></div>
+          <div v-if="docs.tva" class="bd-line"><span>TVA {{ docs.tva_rate }}%</span><b>{{ fig(sample.tax) }}</b></div>
+          <div class="st-ptotal"><b>المجموع</b><b>{{ fig(sample.total) }} دج</b></div>
+          <span class="st-pfoot">{{ docs.footer }}<template v-if="p.rib"> · RIB {{ p.rib }}</template></span>
+        </div>
+      </aside>
+    </div>
   </div>`,
 };
 
@@ -3532,7 +3690,7 @@ const SECTION_NAV = [
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2 },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -3548,7 +3706,7 @@ const App = {
     });
     const isActive = (n) => n.match.includes(route.value.name);
     const titles = { ds: "ds_title", "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
-      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings" };
+      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings", settings: "nav_settings" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
     const initials = (n) => String(n || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join(" ");
     return { state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials };
@@ -3570,7 +3728,7 @@ const App = {
       <a v-for="n in SECTION_NAV.filter(n => n.key !== 'machines' && (!n.need || state.boot.can[n.need]))" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
-      <a class="nav" :class="{active: route.name==='ds'}" href="/atelier/ds" @click.prevent="go('/ds')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
+      <a v-if="state.boot.can.prices" class="nav" :class="{active: route.name==='settings'}" href="/atelier/settings" @click.prevent="go('/settings')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
       <div class="who-row"><span class="who-av">{{ initials(state.boot.full_name) }}</span><span class="who-txt"><span class="who-name">{{ state.boot.full_name }}</span><span class="who-role">{{ t('role_manager') }}</span></span></div>
     </nav>
 
@@ -3598,6 +3756,7 @@ const App = {
         <PricesPage v-else-if="route.name==='prices'"/>
         <TeamPage v-else-if="route.name==='team'"/>
         <BoardSettings v-else-if="route.name==='board-settings'"/>
+        <SettingsPage v-else-if="route.name==='settings'" :key="state.query.get('tab') || ''"/>
         <StyleGuide v-else-if="route.name==='ds'"/>
       </main>
     </div>

@@ -490,7 +490,7 @@ def add_comment(name, text):
 	so.add_comment("Comment", frappe.utils.escape_html(text)[:4000])
 	for m in production._team():
 		if "@" + m["name"] in text:
-			notify(m["name"], name, _("{0} ذكرك: «{1}»").format(frappe.utils.get_fullname(frappe.session.user), text[:80]))
+			notify(m["name"], name, _("{0} ذكرك: «{1}»").format(frappe.utils.get_fullname(frappe.session.user), text[:80]), "mention")
 	return card(name)
 
 
@@ -645,7 +645,9 @@ def _member_of(user):
 	return next((m["name"] for m in production._team() if m.get("user") == user), None)
 
 
-def notify(member, name, text):
+def notify(member, name, text, kind="assign"):
+	if not alert_settings().get(kind, 1):
+		return
 	user = _user_of(member)
 	if not user or user == frappe.session.user:
 		return
@@ -661,7 +663,7 @@ def notifications():
 		l.by = frappe.utils.get_fullname(l.from_user)
 	due = []
 	me = _member_of(frappe.session.user) or frappe.utils.get_fullname(frappe.session.user)
-	for c in board2()["cards"]:
+	for c in (board2()["cards"] if alert_settings().get("due", 1) else []):
 		if me in c["members"] and c["due"] and flt(c["per_delivered"]) < 100:
 			days = (frappe.utils.getdate(c["due"]) - frappe.utils.getdate(nowdate())).days
 			if days <= 1:
@@ -988,6 +990,7 @@ def save_customer2(data):
 		"atelier_tags": json.dumps([t for t in d.get("tags") or [] if t in ids]),
 		"atelier_contacts": json.dumps(people, ensure_ascii=False),
 		"atelier_note": (d.get("note") or "").strip()[:1000] or None,
+		"atelier_tva_exempt": cint(d.get("tva_exempt")),
 	})
 	return name
 
@@ -1047,10 +1050,219 @@ def customer_extras(name):
 		join `tabSales Order Item` soi on soi.parent=so.name where so.customer=%s and so.docstatus<2 group by what order by n desc limit 5""", name, as_dict=True)
 	return {"legal": {"nif": c.get("tax_id"), "rc": c.get("atelier_rc"), "nis": c.get("atelier_nis"), "ai": c.get("atelier_ai")},
 		"credit_limit": flt(c.get("atelier_credit_limit")), "tags": _jl(c.get("atelier_tags")), "contacts": _jl(c.get("atelier_contacts")),
-		"disabled": cint(c.get("disabled")), "log": log, "months": months, "top": top, "customer_tags": customer_tags()}
+		"disabled": cint(c.get("disabled")), "tva_exempt": cint(frappe.db.get_value("Customer", name, "atelier_tva_exempt")), "log": log, "months": months, "top": top, "customer_tags": customer_tags()}
 
 
 def demo_customers_2():
 	frappe.set_user("Administrator")
 	customer_fields_2()
+	frappe.db.commit()
+
+
+# ---------------------------------------------------------------- settings: workshop profile, documents and TVA, accounts, funds, alerts, backups
+PROFILE_KEYS = ["name_ar", "name_fr", "address", "city", "phone", "phone2", "email", "rc", "nif", "nis", "ai", "rib", "logo"]
+DOC_DEFAULTS = {"tva": 0, "tva_rate": 19, "footer": "شكرًا لثقتكم", "payment_days": 0}
+ALERT_DEFAULTS = {"assign": 1, "mention": 1, "due": 1}
+TVA_TEMPLATE = "TVA (atelier)"
+
+
+def _manager_only():
+	if not _is_manager():
+		frappe.throw(_("الإعدادات للمدير فقط"), frappe.PermissionError)
+
+
+def _json_default(key, fallback):
+	try:
+		v = json.loads(frappe.db.get_default(key) or "null")
+	except ValueError:
+		v = None
+	return {**fallback, **(v or {})}
+
+
+def workshop_profile():
+	company = frappe.get_cached_doc("Company", api._company())
+	base = {"name_ar": company.company_name.replace("Atelier Démo تجريبي", "مطبعة الرؤية"), "phone": company.phone_no, "email": company.email, "nif": company.tax_id, "logo": company.company_logo}
+	return {k: v for k, v in _json_default("atelier_profile", {k: base.get(k) or "" for k in PROFILE_KEYS}).items() if k in PROFILE_KEYS}
+
+
+def doc_settings():
+	return _json_default("atelier_docs", DOC_DEFAULTS)
+
+
+def alert_settings():
+	return _json_default("atelier_alerts", ALERT_DEFAULTS)
+
+
+@frappe.whitelist()
+def settings():
+	_manager_only()
+	company = api._company()
+	from atelier.production import _team
+	users = frappe.get_all("User", filters={"user_type": "System User", "name": ["not in", ["Administrator", "Guest"]]},
+		fields=["name", "full_name", "enabled", "last_login"], order_by="full_name asc")
+	for u in users:
+		roles = set(frappe.get_roles(u.name))
+		u.role = "manager" if "Accounts Manager" in roles else "staff"
+		u.member = next((m["name"] for m in _team() if m.get("user") == u.name), None)
+	accs = frappe.get_all("Account", filters={"company": company, "account_type": ["in", ["Cash", "Bank"]], "is_group": 0, "disabled": 0},
+		fields=["name", "account_name", "account_type"])
+	used = {r[0] for r in frappe.db.sql("select distinct account from `tabGL Entry` where is_cancelled=0")}
+	defaults = set(frappe.get_cached_value("Company", company, ["default_cash_account", "default_bank_account"]) or [])
+	modes = []
+	for v, label in api.MODES:
+		if frappe.db.exists("Mode of Payment", v):
+			modes.append({"value": v, "label": label, "account": frappe.db.get_value("Mode of Payment Account", {"parent": v, "company": company}, "default_account")})
+	return {
+		"profile": workshop_profile(), "docs": doc_settings(), "alerts": alert_settings(),
+		"users": users, "funds": [a for a in accs if a.name in used or a.name in defaults], "all_funds": accs, "modes": modes,
+		"backups": _backups(),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_profile(profile):
+	_manager_only()
+	p = frappe.parse_json(profile) or {}
+	clean = {k: (str(p.get(k) or "").strip())[:300] for k in PROFILE_KEYS}
+	frappe.db.set_default("atelier_profile", json.dumps(clean, ensure_ascii=False))
+	company = api._company()
+	frappe.db.set_value("Company", company, {"phone_no": clean["phone"] or None, "email": clean["email"] or None, "tax_id": clean["nif"] or None,
+		"company_logo": clean["logo"] or None})
+	return workshop_profile()
+
+
+def _tva_template(rate):
+	company = api._company()
+	name = frappe.db.get_value("Sales Taxes and Charges Template", {"title": TVA_TEMPLATE, "company": company})
+	account = frappe.db.get_value("Account", {"company": company, "account_number": "4457", "is_group": 0}) or \
+		frappe.db.get_value("Account", {"company": company, "account_type": "Tax", "is_group": 0, "root_type": "Liability"})
+	if not account:
+		frappe.throw(_("لا يوجد حساب ضريبة TVA في دليل الحسابات"))
+	doc = frappe.get_doc("Sales Taxes and Charges Template", name) if name else frappe.new_doc("Sales Taxes and Charges Template")
+	doc.title, doc.company = TVA_TEMPLATE, company
+	doc.taxes = []
+	doc.append("taxes", {"charge_type": "On Net Total", "account_head": account, "description": f"TVA {flt(rate):g}%", "rate": flt(rate)})
+	doc.save(ignore_permissions=True)
+	return doc.name
+
+
+@frappe.whitelist(methods=["POST"])
+def save_doc_settings(docs):
+	_manager_only()
+	d = frappe.parse_json(docs) or {}
+	clean = {"tva": cint(d.get("tva")), "tva_rate": min(100, max(0, flt(d.get("tva_rate") or 19))), "footer": str(d.get("footer") or "")[:300],
+		"payment_days": max(0, cint(d.get("payment_days")))}
+	if clean["tva"]:
+		clean["tva_template"] = _tva_template(clean["tva_rate"])
+	frappe.db.set_default("atelier_docs", json.dumps(clean, ensure_ascii=False))
+	return clean
+
+
+def apply_tva(so):
+	"""New order: add the TVA template when TVA is on and the customer is not exempt."""
+	d = doc_settings()
+	if not d.get("tva") or not d.get("tva_template"):
+		return
+	if cint(frappe.db.get_value("Customer", so.customer, "atelier_tva_exempt")):
+		return
+	so.taxes_and_charges = d["tva_template"]
+	so.set("taxes", [])
+	from erpnext.controllers.accounts_controller import get_taxes_and_charges
+	for t in get_taxes_and_charges("Sales Taxes and Charges Template", d["tva_template"]) or []:
+		so.append("taxes", t)
+
+
+STAFF_ROLES = ["Sales User", "Projects User", "Stock User", "Purchase User"]
+MANAGER_ROLES = STAFF_ROLES + ["Sales Manager", "Accounts User", "Accounts Manager", "Item Manager", "Purchase Manager", "Projects Manager"]
+
+
+@frappe.whitelist(methods=["POST"])
+def save_user(email, full_name, role="staff", enabled=1):
+	"""Create or update a login for a team member. No password is set here: a reset link is returned for the person to choose one."""
+	_manager_only()
+	email = (email or "").strip().lower()
+	if not frappe.utils.validate_email_address(email):
+		frappe.throw(_("البريد غير صالح"))
+	new = not frappe.db.exists("User", email)
+	user = frappe.new_doc("User") if new else frappe.get_doc("User", email)
+	if new:
+		user.email = email
+		user.send_welcome_email = 0
+		user.user_type = "System User"
+	parts = (full_name or email).strip().split(" ", 1)
+	user.first_name, user.last_name = parts[0], (parts[1] if len(parts) > 1 else None)
+	user.enabled = cint(enabled)
+	user.language = "ar"
+	want = MANAGER_ROLES if role == "manager" else STAFF_ROLES
+	user.set("roles", [r for r in user.roles if r.role not in MANAGER_ROLES])
+	for r in want:
+		user.append("roles", {"role": r})
+	user.save(ignore_permissions=True)
+	link = user.reset_password(send_email=False) if new else None
+	return {"name": user.name, "link": link}
+
+
+@frappe.whitelist(methods=["POST"])
+def reset_link(email):
+	_manager_only()
+	return frappe.get_doc("User", email).reset_password(send_email=False)
+
+
+@frappe.whitelist(methods=["POST"])
+def rename_fund(account, label):
+	_manager_only()
+	if frappe.db.get_value("Account", account, "account_type") not in ("Cash", "Bank"):
+		frappe.throw(_("حساب غير صالح"))
+	label = (label or "").strip()[:80]
+	if not label:
+		frappe.throw(_("اكتب اسمًا"))
+	frappe.db.set_value("Account", account, "account_name", label)
+	return label
+
+
+@frappe.whitelist(methods=["POST"])
+def set_mode_account(mode, account):
+	"""Which fund a payment method lands in (cash → the cash box, transfer → the bank…)."""
+	_manager_only()
+	company = api._company()
+	mop = frappe.get_doc("Mode of Payment", mode)
+	row = next((r for r in mop.accounts if r.company == company), None)
+	if row:
+		row.default_account = account
+	else:
+		mop.append("accounts", {"company": company, "default_account": account})
+	mop.save(ignore_permissions=True)
+	return account
+
+
+@frappe.whitelist(methods=["POST"])
+def save_alerts(alerts):
+	_manager_only()
+	a = frappe.parse_json(alerts) or {}
+	clean = {k: cint(a.get(k)) for k in ALERT_DEFAULTS}
+	frappe.db.set_default("atelier_alerts", json.dumps(clean))
+	return clean
+
+
+def _backups():
+	import os
+	path = frappe.get_site_path("private", "backups")
+	if not os.path.isdir(path):
+		return []
+	files = sorted((f for f in os.listdir(path) if f.endswith((".sql.gz", ".tar"))), reverse=True)[:12]
+	return [{"file": f, "size": os.path.getsize(os.path.join(path, f)), "url": "/backups/" + f} for f in files]
+
+
+@frappe.whitelist(methods=["POST"])
+def backup_now():
+	_manager_only()
+	from frappe.utils.backups import new_backup
+	new_backup(ignore_files=False, force=True)
+	return _backups()
+
+
+def demo_settings():
+	frappe.set_user("Administrator")
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+	create_custom_fields({"Customer": [{"fieldname": "atelier_tva_exempt", "label": "معفى من TVA", "fieldtype": "Check", "insert_after": "atelier_ai", "module": "Atelier"}]})
 	frappe.db.commit()

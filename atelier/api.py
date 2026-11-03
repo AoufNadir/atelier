@@ -609,6 +609,8 @@ def create_order(data):
 			for i in items
 		],
 	})
+	from atelier import simple
+	simple.apply_tva(so)
 	so.insert()
 	if not data.get("no_steps"):
 		production.create_default_steps(so)
@@ -1113,6 +1115,7 @@ def statement_pdf(name, from_date=None, to_date=None):
 
 # Simple workshop endpoints (board, quick order, money) — imported last: simple.py builds on this module.
 from atelier.simple import money3, pay_supplier, transfer_funds  # noqa: E402, F401
+from atelier.simple import backup_now, rename_fund, reset_link, save_alerts, save_doc_settings, save_profile, save_user, set_mode_account, settings  # noqa: E402, F401
 from atelier.simple import add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
 from atelier.simple import customer2, customers2, reorder_card, set_customer_extra  # noqa: E402, F401
 from atelier.simple import archive_card, archive_paid, archived_cards, checklist_templates, copy_card, delete_checklist_template, mark_read, notifications, reorder, save_checklist_template  # noqa: E402, F401
