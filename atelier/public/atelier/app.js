@@ -55,7 +55,7 @@ async function call(method, args = {}, post = false) {
   try { res = await fetch(url, init); } catch { throw { message: t("error_net"), net: true }; }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 || (res.status === 403 && data.exc_type === "SessionExpired")) {
-    location.href = `/login?redirect-to=${encodeURIComponent(location.pathname)}`;
+    location.href = `/atelier-login?redirect-to=${encodeURIComponent(location.pathname)}`;
   }
   if (res.status === 403) throw { message: t("error_perm"), status: 403 };
   if (!res.ok) throw { message: serverMessage(data), errors: data.errors, status: res.status };
@@ -3839,7 +3839,11 @@ const App = {
       money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings", settings: "nav_settings" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
     const initials = (n) => String(n || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join(" ");
-    return { state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials };
+    const logout = async () => {
+      try { await fetch("/api/method/logout", { method: "POST", headers: { "X-Frappe-CSRF-Token": window.csrf_token } }); } catch { /* go to the sign-in page anyway */ }
+      location.href = "/atelier-login";
+    };
+    return { logout, state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials };
   },
   template: `
   <div v-if="bootErr" class="page"><div class="alert error" role="alert"><span style="flex:1">{{ bootErr }}</span><button class="btn sm" @click="loadBoot">{{ t('retry') }}</button></div></div>
@@ -3859,7 +3863,8 @@ const App = {
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
       <a v-if="state.boot.can.prices" class="nav" :class="{active: route.name==='settings'}" href="/atelier/settings" @click.prevent="go('/settings')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
-      <div class="who-row"><span class="who-av">{{ initials(state.boot.full_name) }}</span><span class="who-txt"><span class="who-name">{{ state.boot.full_name }}</span><span class="who-role">{{ t('role_manager') }}</span></span></div>
+      <div class="who-row"><span class="who-av">{{ initials(state.boot.full_name) }}</span><span class="who-txt"><span class="who-name">{{ state.boot.full_name }}</span><span class="who-role">{{ state.boot.can.prices ? t('role_manager') : 'موظف' }}</span></span>
+        <button type="button" class="who-out" aria-label="تسجيل الخروج" title="تسجيل الخروج" @click="logout"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></button></div>
     </nav>
 
     <div class="main">

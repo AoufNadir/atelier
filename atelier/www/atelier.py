@@ -7,7 +7,7 @@ no_cache = 1
 
 def get_context(context):
 	if frappe.session.user == "Guest":
-		frappe.local.flags.redirect_location = "/login?redirect-to=/atelier"
+		frappe.local.flags.redirect_location = "/atelier-login?redirect-to=" + frappe.utils.quote(frappe.request.path if frappe.request else "/atelier")
 		raise frappe.Redirect
 	context.csrf_token = frappe.sessions.get_csrf_token()
 	# Cache-busting: version = latest change of the app's own assets.

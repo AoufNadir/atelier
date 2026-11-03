@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2B1B4A">
+<title>تسجيل الدخول — نَسَق</title>
+<link rel="icon" href="/assets/atelier/atelier/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: Cairo, "Segoe UI", Tahoma, sans-serif; color: #1F2430; background: #fff; }
+  .lg { display: flex; min-height: 100%; }
+  .lg-form-side { width: 560px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 32px 24px; }
+  .lg-form { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 18px; }
+  .lg-form h1 { margin: 0; font-size: 26px; font-weight: 700; }
+  .lg-sub { color: #667085; margin-top: 4px; font-size: 14px; }
+  .lg-field { display: flex; flex-direction: column; gap: 6px; }
+  .lg-field > span, .lg-row > span { font-size: 13px; color: #667085; }
+  .lg-row { display: flex; justify-content: space-between; align-items: center; }
+  .lg-input { display: flex; align-items: center; height: 44px; border: 1px solid #E4E7EC; border-radius: 8px; padding: 0 14px; background: #fff; }
+  .lg-input:focus-within { border-color: #4B32C3; box-shadow: 0 0 0 3px rgba(75,50,195,.12); }
+  .lg-input input { all: unset; flex: 1; min-width: 0; font-size: 15px; direction: ltr; text-align: right; }
+  .lg-link { all: unset; cursor: pointer; color: #4B32C3; font-size: 13px; font-weight: 500; }
+  .lg-link:focus-visible, .lg-btn:focus-visible { outline: 2px solid #4B32C3; outline-offset: 2px; border-radius: 4px; }
+  .lg-btn { height: 46px; border: 0; border-radius: 8px; background: #4B32C3; color: #fff; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; }
+  .lg-btn:disabled { opacity: .6; cursor: default; }
+  .lg-msg { padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.7; }
+  .lg-msg.err { background: #FEF3F2; color: #B42318; } .lg-msg.ok { background: #ECFDF3; color: #067647; }
+  .lg-foot { font-size: 12px; color: #667085; text-align: center; margin-top: 8px; }
+  .lg-brand { flex: 1; background: #2B1B4A; color: #fff; display: flex; flex-direction: column; justify-content: space-between; padding: 56px 64px; }
+  .lg-logo { display: flex; align-items: center; gap: 14px; }
+  .lg-logo b { display: block; font-size: 40px; line-height: 1.1; } .lg-logo span { color: #B9AEDB; }
+  .lg-tag { max-width: 440px; } .lg-tag b { display: block; font-size: 30px; line-height: 1.5; } .lg-tag p { color: #D6CEEB; line-height: 1.9; margin: 12px 0 0; }
+  .lg-where { color: #8F84B5; font-size: 13px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 900px) {
+    .lg { flex-direction: column-reverse; } .lg-form-side { width: auto; flex: 1; align-items: flex-start; padding-top: 28px; }
+    .lg-brand { flex: 0; padding: 24px; gap: 0; } .lg-tag, .lg-where { display: none; } .lg-logo b { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+<main class="lg">
+  <section class="lg-form-side">
+    <form id="login" class="lg-form" novalidate>
+      <div><h1>تسجيل الدخول</h1><div class="lg-sub">أدخل بريدك وكلمة السر للمتابعة.</div></div>
+      <label class="lg-field"><span>البريد الإلكتروني</span><span class="lg-input"><input id="usr" type="email" autocomplete="username" required autofocus></span></label>
+      <div class="lg-field"><div class="lg-row"><label for="pwd" style="font-size:13px;color:#667085">كلمة السر</label><button type="button" class="lg-link" id="forgot">نسيت كلمة السر؟</button></div>
+        <span class="lg-input"><input id="pwd" type="password" autocomplete="current-password" required><button type="button" class="lg-link" id="show" aria-controls="pwd">إظهار</button></span></div>
+      <div id="msg" class="lg-msg err" role="alert" hidden></div>
+      <button id="go" type="submit" class="lg-btn">دخول</button>
+      <div class="lg-foot">ليس لديك حساب؟ اطلبه من مدير المطبعة.</div>
+    </form>
+  </section>
+  <aside class="lg-brand">
+    <div class="lg-logo">
+      <svg width="64" height="64" viewBox="0 0 44 44" aria-hidden="true"><rect x="8" y="6" width="28" height="9" rx="1" fill="#D4F06A"/><rect x="8" y="6" width="9" height="32" rx="1" fill="#9B87F5"/><rect x="17" y="20" width="16" height="7" rx="1" fill="#D4F06A"/><rect x="24" y="30" width="12" height="8" rx="1" fill="#9B87F5"/></svg>
+      <div><b>نَسَق</b><span>مساحة عمل المطبعة</span></div>
+    </div>
+    <div class="lg-tag"><b>الطلبات والعملاء والمال، في مكان واحد.</b><p>تابع كل طلب من الاستلام إلى التحصيل، مع فريقك، من الحاسوب أو الهاتف.</p></div>
+    <div class="lg-where">{{ workshop }}</div>
+  </aside>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const next = new URLSearchParams(location.search).get("redirect-to") || "/atelier";
+  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/atelier";
+  const say = (text, ok) => { const m = $("msg"); m.textContent = text; m.className = "lg-msg " + (ok ? "ok" : "err"); m.hidden = !text; };
+  $("show").addEventListener("click", () => { const p = $("pwd"); const hide = p.type === "text"; p.type = hide ? "password" : "text"; $("show").textContent = hide ? "إظهار" : "إخفاء"; });
+  $("login").addEventListener("submit", async (e) => {
+    e.preventDefault(); say("");
+    const usr = $("usr").value.trim(), pwd = $("pwd").value;
+    if (!usr || !pwd) { say("اكتب البريد وكلمة السر."); return; }
+    $("go").disabled = true; $("go").textContent = "جارٍ الدخول…";
+    try {
+      const r = await fetch("/api/method/login", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ usr, pwd }) });
+      if (r.ok) { location.href = safeNext; return; }
+      say(r.status === 429 ? "محاولات كثيرة. انتظر قليلًا ثم أعد المحاولة." : "البريد أو كلمة السر غير صحيحة.");
+    } catch { say("تعذّر الاتصال بالخادم. تحقق من الشبكة."); }
+    $("go").disabled = false; $("go").textContent = "دخول";
+  });
+  $("forgot").addEventListener("click", async () => {
+    const usr = $("usr").value.trim();
+    if (!usr) { say("اكتب بريدك أولًا، ثم اضغط «نسيت كلمة السر؟»."); $("usr").focus(); return; }
+    try {
+      const body = new URLSearchParams({ cmd: "frappe.core.doctype.user.user.reset_password", user: usr });
+      await fetch("/", { method: "POST", body });
+      say("إن كان البريد مسجّلًا، تصله رسالة لاختيار كلمة سر جديدة. إن لم تصل، اطلب الرابط من مدير المطبعة.", true);
+    } catch { say("تعذّر الاتصال بالخادم."); }
+  });
+})();
+</script>
+</body>
+</html>

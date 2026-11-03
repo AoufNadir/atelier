@@ -1523,3 +1523,6 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .bd-panel .bd-person { border-radius: 6px; } .bd-panel .bd-person[aria-pressed="true"] { border: 1px solid #4B32C3; background: #F4F2FD; }
 .bd-panel .qtag { border-radius: 6px; }
 .bd-panel .bd-save { border-radius: 8px; min-height: 46px; font-size: 15px; }
+
+.who-out { all: unset; cursor: pointer; margin-inline-start: auto; width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: #B9AEDB; }
+.who-out:hover { background: rgba(255,255,255,.08); color: #fff; } .who-out:focus-visible { outline: 2px solid #D4F06A; }
