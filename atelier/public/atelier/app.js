@@ -3113,90 +3113,94 @@ const SimpleMoney = {
       catch (e) { toast(e.message, "error"); } finally { paying.value = null; }
     };
     const supplierMode = ref("Cash");
-    return { s, load, d, offset, month, pct, kind, q, moves, maxWeek, maxCat, catTotal, owed, owe, CAT_COLORS, fund, pay, remind, tr, trBusy, openTransfer, doTransfer,
+    const prevName = computed(() => (d.value ? new Intl.DateTimeFormat("ar", { month: "long" }).format(new Date(parseDate(d.value.month).getFullYear(), parseDate(d.value.month).getMonth() - 1, 1)) : ""));
+    const change = (now, prev) => { const p = pct(now, prev); return p === null ? `لا أرقام لشهر ${prevName.value}` : p === 0 ? `مثل ${prevName.value}` : `${p > 0 ? "أكثر" : "أقل"} بـ ${Math.abs(p)}% من ${prevName.value}`; };
+    return { change, s, load, d, offset, month, pct, kind, q, moves, maxWeek, maxCat, catTotal, owed, owe, CAT_COLORS, fund, pay, remind, tr, trBusy, openTransfer, doTransfer,
       paying, paySupplier, supplierMode, waLink, money, fig, date, dueWord, daysFromToday, state, go, t };
   },
   template: `
-  <div class="page tb sm3">
-    <div class="tb-head">
-      <h1>المال</h1><span class="sm3-only">للمدير فقط</span>
-      <div class="tb-views" role="group" aria-label="الشهر"><button type="button" aria-label="الشهر السابق" @click="offset++">‹</button><button type="button" aria-pressed="true" @click="offset = 0">{{ month }}</button><button type="button" aria-label="الشهر التالي" :disabled="offset === 0" @click="offset > 0 && offset--">›</button></div>
-      <span class="spacer"></span>
-      <button v-if="state.boot.can.payment" type="button" class="btn sm3-in" @click="pay()">+ دخل</button>
-      <button v-if="state.boot.can.expense" type="button" class="btn sm3-out" @click="state.sheet = {type: 'expense'}">− مصروف</button>
-      <div class="tb-bell-host"><button v-if="d && d.funds.length > 1" type="button" class="bd-chip" @click.stop="tr ? (tr = null) : openTransfer()">⇄ تحويل بين الصناديق</button>
-        <form v-if="tr" class="tm-pop sm3-tr" @click.stop @submit.prevent="doTransfer"><b>تحويل بين الصناديق</b>
-          <label class="m">من<select class="input" v-model="tr.from"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }} ({{ fig(f.balance) }})</option></select></label>
-          <label class="m">إلى<select class="input" v-model="tr.to"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }}</option></select></label>
-          <label class="m">المبلغ<div class="unit-wrap"><input class="input num" inputmode="decimal" v-model="tr.amount" placeholder="0"><span class="u">دج</span></div></label>
-          <input class="input" v-model="tr.note" placeholder="ملاحظة (اختياري)" aria-label="ملاحظة">
-          <div class="row" style="gap:6px"><button type="submit" class="btn primary sm" :disabled="trBusy || !(+tr.amount > 0) || tr.from === tr.to">تحويل</button><button type="button" class="btn ghost sm" @click="tr = null">إلغاء</button></div></form></div>
+  <div class="cl mn">
+    <div class="cl-main">
+      <header class="cl-head">
+        <div class="cl-head-row">
+          <h1>المال</h1><span class="cl-count">للمدير فقط</span><span class="spacer"></span>
+          <div class="mn-month" role="group" aria-label="الشهر">
+            <button type="button" aria-label="الشهر السابق" @click="offset++"><Icon name="back" :size="16"/></button>
+            <button type="button" class="mn-month-l" :aria-pressed="offset === 0" @click="offset = 0">{{ month }}</button>
+            <button type="button" aria-label="الشهر التالي" :disabled="offset === 0" @click="offset > 0 && offset--"><Icon name="chev" :size="16"/></button></div>
+          <div v-if="d && d.funds.length > 1" class="cl-pop-host"><button type="button" class="cl-btn" :aria-expanded="!!tr" @click.stop="tr ? (tr = null) : openTransfer()"><Icon name="sort" :size="16"/>تحويل</button>
+            <form v-if="tr" class="cl-pop cl-filters" @click.stop @submit.prevent="doTransfer">
+              <b>تحويل بين الصناديق</b>
+              <label class="cl-fgroup"><span>من</span><select class="input" v-model="tr.from"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }} — {{ fig(f.balance) }}</option></select></label>
+              <label class="cl-fgroup"><span>إلى</span><select class="input" v-model="tr.to"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }}</option></select></label>
+              <label class="cl-fgroup"><span>المبلغ</span><div class="unit-wrap"><input class="input num" inputmode="decimal" v-model="tr.amount" placeholder="0"><span class="u">دج</span></div></label>
+              <label class="cl-fgroup"><span>ملاحظة</span><input class="input" v-model="tr.note" placeholder="اختياري"></label>
+              <div class="cl-pop-foot"><button type="button" class="cl-link" @click="tr = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="trBusy || !(+tr.amount > 0) || tr.from === tr.to">تحويل</button></div></form></div>
+          <button v-if="state.boot.can.expense" type="button" class="cl-btn" @click="state.sheet = {type: 'expense'}"><Icon name="out" :size="16"/>مصروف</button>
+          <button v-if="state.boot.can.payment" type="button" class="cl-btn primary" @click="pay()"><Icon name="in" :size="16"/>تسجيل دخل</button>
+        </div>
+      </header>
+      <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
+      <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
+      <template v-else-if="d">
+        <div class="cl-stats mn-stats">
+          <div><span>في الصندوق الآن</span><b class="money">{{ money(d.cash_balance) }}</b><small>نقدًا {{ fig(fund('Cash')) }} · البنك {{ fig(fund('Bank')) }}</small></div>
+          <div><span>دخل {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money ok">{{ money(d.income) }}</b><small>{{ change(d.income, d.prev_income) }}</small></div>
+          <div><span>مصاريف {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money bad">{{ money(d.expenses) }}</b><small>{{ change(d.expenses, d.prev_expenses) }}</small></div>
+          <div><span>الربح</span><b class="money" :class="{bad: d.profit < 0}">{{ money(d.profit) }}</b><small>الدخل ناقص المصاريف</small></div>
+        </div>
+        <div class="mn-grid">
+          <div class="mn-col">
+            <section class="mn-card"><div class="mn-card-h"><b>الدخل والمصاريف</b>
+                <span class="mn-legend"><span><i class="in"></i>دخل</span><span><i class="out"></i>مصاريف</span><span>آخر 8 أسابيع</span></span></div>
+              <div class="mn-chart" role="img" aria-label="الدخل والمصاريف لآخر 8 أسابيع">
+                <div v-for="w in d.weeks" :key="w.from" class="mn-wk" :title="date(w.from) + ' — ' + date(w.to) + ': دخل ' + fig(w.in) + ' · مصاريف ' + fig(w.out)">
+                  <div class="mn-bars"><span class="in" :style="{height: (w.in / maxWeek * 100) + '%'}"></span><span class="out" :style="{height: (w.out / maxWeek * 100) + '%'}"></span></div>
+                  <small>{{ date(w.to) }}</small></div></div></section>
+            <section class="mn-card"><div class="mn-card-h"><b>الحركات</b>
+                <span class="row" style="gap:8px;flex-wrap:wrap"><span class="cl-seg"><button v-for="k in [['all','الكل'],['in','دخل'],['out','مصاريف']]" :key="k[0]" type="button" :aria-pressed="kind === k[0]" @click="kind = k[0]">{{ k[1] }}</button></span>
+                  <label class="cl-search mn-search"><Icon name="search" :size="14"/><span class="sr-only">بحث في الحركات</span><input type="search" v-model="q" placeholder="بحث"></label></span></div>
+              <table class="cl-table mn-table">
+                <thead><tr><th>التاريخ</th><th>البيان</th><th class="desktop-only">النوع</th><th class="n">المبلغ</th></tr></thead>
+                <tbody>
+                  <tr v-if="!moves.length"><td colspan="4" class="cl-empty">لا حركات.</td></tr>
+                  <tr v-for="m in moves" :key="m.voucher_no" style="cursor:default">
+                    <td class="muted">{{ date(m.posting_date) }}</td>
+                    <td style="white-space:normal"><span class="cl-name">{{ m.title }}<Icon v-if="m.files" name="file" :size="13" class="mn-clip"/></span>
+                      <span class="muted" style="display:block">{{ [m.fund, m.by].filter(Boolean).join(' · ') }}<template v-if="m.order"> · <a :href="'/atelier/?card=' + m.order" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">{{ m.order_title || m.order }}</a></template></span></td>
+                    <td class="desktop-only muted">{{ m.category }}</td>
+                    <td class="n"><span class="cl-bal" :class="m.amount >= 0 ? 'ok' : 'bad'">{{ m.amount >= 0 ? '+' : '−' }} {{ fig(Math.abs(m.amount)) }}</span></td></tr>
+                </tbody></table></section>
+          </div>
+          <div class="mn-col">
+            <section class="mn-card"><div class="mn-card-h"><b>لنا عند العملاء</b><b class="bad">{{ money(owed) }}</b></div>
+              <div v-if="!d.debtors.length" class="mn-empty">لا أحد عليه دين.</div>
+              <div v-for="c in d.debtors" :key="c.customer" class="mn-line">
+                <button type="button" class="mn-who" @click="pay(c)"><span class="cl-name">{{ c.customer_name }}</span><span class="muted" :class="{bad: c.late}">{{ c.late ? 'متأخر ' + c.late + ' يومًا' : 'لم يحن موعده' }}</span></button>
+                <b class="bad">{{ fig(c.amount) }}</b>
+                <button v-if="waLink(c.mobile_no)" type="button" class="cl-btn icon sm" :aria-label="'تذكير ' + c.customer_name + ' بواتساب'" @click="remind(c)"><Icon name="msg" :size="14"/></button></div>
+              <div class="mn-foot muted">اضغط على الاسم لتسجيل دفعة.</div></section>
+            <section class="mn-card"><div class="mn-card-h"><b>علينا للموردين</b><b class="warn">{{ money(owe) }}</b></div>
+              <div v-if="!d.payables.length" class="mn-empty">لا ديون للموردين.</div>
+              <div v-for="p in d.payables" :key="p.name" class="mn-line">
+                <div class="mn-who" style="cursor:default"><span class="cl-name">{{ p.supplier_name }}</span>
+                  <span class="muted" style="white-space:normal">{{ p.what }}<template v-if="p.due_date"> · <span :class="{bad: daysFromToday(p.due_date) < 0}">{{ daysFromToday(p.due_date) < 0 ? 'متأخر ' + -daysFromToday(p.due_date) + ' يومًا' : 'يستحق ' + dueWord(p.due_date) }}</span></template></span></div>
+                <b>{{ fig(p.amount) }}</b>
+                <button v-if="state.boot.can.payment" type="button" class="cl-btn sm" :disabled="paying === p.name" @click="paySupplier(p, supplierMode)">{{ paying === p.name ? '…' : 'دفعت' }}</button></div>
+              <label v-if="d.payables.length && d.modes.length > 1" class="mn-foot row" style="gap:8px"><span class="muted">طريقة الدفع للمورد</span>
+                <select class="input" style="width:auto;min-height:32px" v-model="supplierMode"><option v-for="m in d.modes" :key="m.value" :value="m.value">{{ m.label }}</option></select></label></section>
+            <section class="mn-card"><div class="mn-card-h"><b>أين يذهب المال</b><span class="muted">{{ month }}</span></div>
+              <div v-if="!d.categories.length" class="mn-empty">لا مصاريف مسجّلة هذا الشهر.</div>
+              <div v-for="c in d.categories" :key="c.name" class="mn-cat">
+                <div class="row" style="justify-content:space-between;gap:8px"><span class="ellipsis">{{ c.name }}</span><span><b>{{ fig(c.amount) }}</b> <span class="muted">{{ Math.round(c.amount / catTotal * 100) }}%</span></span></div>
+                <div class="mn-catbar"><span :style="{width: (c.amount / maxCat * 100) + '%'}"></span></div></div>
+              <div class="mn-foot muted">كل المصاريف المسجّلة، ومنها فواتير الموردين غير المدفوعة بعد.</div></section>
+          </div>
+        </div>
+      </template>
     </div>
-    <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
-    <div v-else-if="s.error" class="alert error" style="margin:0 20px">{{ s.error }}</div>
-    <template v-else-if="d">
-      <div class="sm3-kpis">
-        <div class="sm3-kpi"><span>في الصندوق الآن</span><b class="money">{{ money(d.cash_balance) }}</b><span class="m">نقدًا {{ fig(fund('Cash')) }} · البنك {{ fig(fund('Bank')) }}</span></div>
-        <div class="sm3-kpi in"><span>دخل {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money">+ {{ fig(d.income) }}</b>
-          <span class="m"><template v-if="pct(d.income, d.prev_income) !== null">{{ pct(d.income, d.prev_income) >= 0 ? '▲' : '▼' }} {{ Math.abs(pct(d.income, d.prev_income)) }}% عن الشهر السابق · </template>من {{ d.payers }} عملاء</span></div>
-        <div class="sm3-kpi out"><span>مصاريف {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money">− {{ fig(d.expenses) }}</b>
-          <span class="m"><template v-if="pct(d.expenses, d.prev_expenses) !== null">{{ pct(d.expenses, d.prev_expenses) >= 0 ? '▲' : '▼' }} {{ Math.abs(pct(d.expenses, d.prev_expenses)) }}% عن الشهر السابق</template><template v-else>ورق، حبر، كراء…</template></span></div>
-        <div class="sm3-kpi profit"><span>الربح</span><b class="money">{{ money(d.profit) }}</b><span class="m">الدخل − المصاريف</span></div>
-      </div>
-      <div class="sm3-grid">
-        <div class="sm3-col">
-          <section class="sm3-card"><div class="sm3-h"><b>الدخل والمصاريف</b><span class="sm3-legend"><span><i class="in"></i> دخل</span><span><i class="out"></i> مصاريف</span><span class="m">آخر 8 أسابيع</span></span></div>
-            <div class="sm3-chart" role="img" :aria-label="'الدخل والمصاريف لآخر 8 أسابيع'">
-              <div v-for="w in d.weeks" :key="w.from" class="sm3-wk" :title="date(w.from) + ' — ' + date(w.to) + ': دخل ' + fig(w.in) + ' · مصاريف ' + fig(w.out)">
-                <div class="sm3-bars"><span class="in" :style="{height: (w.in / maxWeek * 100) + '%'}"></span><span class="out" :style="{height: (w.out / maxWeek * 100) + '%'}"></span></div>
-                <span class="m">{{ date(w.to) }}</span></div></div></section>
-          <section class="sm3-card"><div class="sm3-h"><b>الحركات</b>
-              <span class="row" style="gap:6px;flex-wrap:wrap"><button v-for="k in [['all','الكل'],['in','دخل'],['out','مصاريف']]" :key="k[0]" type="button" class="sm3-pill" :aria-pressed="kind === k[0]" @click="kind = k[0]">{{ k[1] }}</button>
-                <input type="search" class="input sm3-search" v-model="q" placeholder="🔍 بحث…" aria-label="بحث في الحركات"></span></div>
-            <div v-if="!moves.length" class="m">لا حركات.</div>
-            <div v-for="m in moves" :key="m.voucher_no" class="sm3-mv">
-              <span class="sm-ic" :class="m.amount >= 0 ? 'in' : 'out'">{{ m.amount >= 0 ? '+' : '−' }}</span>
-              <span style="flex:1;min-width:0"><span class="strong ellipsis" style="display:block">{{ m.title }}</span>
-                <span class="m">{{ date(m.posting_date) }}<template v-if="m.fund"> · {{ m.fund }}</template><template v-if="m.by"> · {{ m.by }}</template><template v-if="m.files"> · 📎 وصل</template>
-                  <template v-if="m.order"> · <a :href="'/atelier/?card=' + m.order" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">«{{ m.order_title || m.order }}»</a></template></span></span>
-              <span class="tl sm3-cat">{{ m.category }}</span>
-              <b class="money sm3-amt" :class="m.amount >= 0 ? 'sc-ok' : 'sc-bad'">{{ m.amount >= 0 ? '+' : '−' }} {{ fig(Math.abs(m.amount)) }}</b>
-            </div>
-          </section>
-        </div>
-        <div class="sm3-col">
-          <section class="sm3-card"><div class="sm3-h"><b>لنا عند العملاء</b><b class="sc-bad money">{{ money(owed) }}</b></div>
-            <div v-if="!d.debtors.length" class="m">لا أحد عليه دين.</div>
-            <div v-for="c in d.debtors" :key="c.customer" class="sm3-mv">
-              <Avatar :name="c.customer_name" :size="34"/>
-              <button type="button" class="sm3-link" @click="pay(c)"><span class="strong ellipsis" style="display:block">{{ c.customer_name }}</span><span class="m" :class="{'sc-bad': c.late}">{{ c.late ? 'متأخر ' + c.late + ' يومًا' : 'لم يحن موعده' }}</span></button>
-              <b class="sc-bad">{{ fig(c.amount) }}</b>
-              <button v-if="waLink(c.mobile_no)" type="button" class="sm3-wa" :aria-label="'تذكير ' + c.customer_name + ' بواتساب'" @click="remind(c)">💬</button>
-            </div>
-            <span class="m">اضغط على الاسم لتسجيل دفعة.</span></section>
-          <section class="sm3-card"><div class="sm3-h"><b>علينا للموردين</b><b class="bd-warn money">{{ money(owe) }}</b></div>
-            <div v-if="!d.payables.length" class="m">لا ديون للموردين.</div>
-            <div v-for="p in d.payables" :key="p.name" class="sm3-mv">
-              <span class="sm3-sup" aria-hidden="true">🏭</span>
-              <span style="flex:1;min-width:0"><span class="strong ellipsis" style="display:block">{{ p.supplier_name }}</span>
-                <span class="m" style="display:block;overflow-wrap:anywhere">{{ p.what }}<template v-if="p.due_date"> · <span :class="{'sc-bad': daysFromToday(p.due_date) < 0}">يستحق {{ dueWord(p.due_date) }}</span></template></span></span>
-              <b>{{ fig(p.amount) }}</b>
-              <button v-if="state.boot.can.payment" type="button" class="btn sm" :disabled="paying === p.name" @click="paySupplier(p, supplierMode)">{{ paying === p.name ? '…' : 'دفعت' }}</button>
-            </div>
-            <label v-if="d.payables.length && d.modes.length > 1" class="m row" style="gap:6px">طريقة الدفع للمورد<select class="input" style="width:auto;min-height:32px" v-model="supplierMode"><option v-for="m in d.modes" :key="m.value" :value="m.value">{{ m.label }}</option></select></label>
-          </section>
-          <section class="sm3-card"><div class="sm3-h"><b>أين يذهب المال</b><span class="m">{{ month }}</span></div>
-            <div v-if="!d.categories.length" class="m">لا مصاريف هذا الشهر.</div>
-            <div v-for="(c, i) in d.categories" :key="c.name" class="sm3-cat-row">
-              <div class="row" style="justify-content:space-between"><span>{{ c.name }}</span><b>{{ fig(c.amount) }} <span class="m" style="display:inline">· {{ Math.round(c.amount / catTotal * 100) }}%</span></b></div>
-              <div class="sm3-catbar"><span :style="{width: (c.amount / maxCat * 100) + '%', background: CAT_COLORS[i % CAT_COLORS.length]}"></span></div></div>
-          </section>
-        </div>
-      </div>
-    </template>
   </div>`,
 };
-
 // ------------------------------------------------------------------ team (/atelier/team)
 const TeamPage = {
   props: ["embedded"], components: { Icon },
@@ -3758,7 +3762,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': ['customers', 'settings'].includes(route.name)}">
+      <header class="topbar" :class="{'own-header': ['customers', 'settings', 'money'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
