@@ -3303,11 +3303,11 @@ const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "
   ["prices", "🏷", "الخدمات والأسعار"], ["funds", "💳", "الدفع والصناديق"], ["alerts", "🔔", "التنبيهات"], ["backup", "💾", "النسخ الاحتياطي"]];
 
 const SettingsPage = {
-  components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage },
-  setup() {
+  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage },
+  setup(props) {
     const { s, load } = useLoad(() => call("settings"));
     onMounted(load);
-    const tab = ref(state.query.get("tab") || "profile");
+    const tab = ref(props.start || state.query.get("tab") || "profile");
     const p = reactive({}), docs = reactive({}), alerts = reactive({});
     watch(() => s.data, (v) => { if (v) { Object.assign(p, v.profile); Object.assign(docs, v.docs); Object.assign(alerts, v.alerts); } });
     const busy = ref(null), err = ref(null);
@@ -3747,8 +3747,8 @@ const App = {
       <button type="button" class="ws-org"><Icon name="printer" :size="18"/><span class="lbl">{{ state.boot.company_label }}</span><Icon name="down" :size="16"/></button>
       <a v-for="n in NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+(n.path==='/'?'':n.path)" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span><span v-if="n.key==='orders' && state.openOrders" class="nav-n">{{ state.openOrders }}</span></a>
-      <div v-if="state.boot.can.prices" class="group">{{ t('nav_group_admin') }}</div>
-      <a v-for="n in SECTION_NAV.filter(n => n.key !== 'machines' && (!n.need || state.boot.can[n.need]))" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
+      <div v-if="state.boot.can.finance" class="group">{{ t('nav_group_admin') }}</div>
+      <a v-for="n in SECTION_NAV.filter(n => !['machines', 'prices', 'team'].includes(n.key) && (!n.need || state.boot.can[n.need]))" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
       <a v-if="state.boot.can.prices" class="nav" :class="{active: route.name==='settings'}" href="/atelier/settings" @click.prevent="go('/settings')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
@@ -3776,8 +3776,8 @@ const App = {
         <MachinesPage v-else-if="route.name==='machines'"/>
         <ReportsPage v-else-if="route.name==='reports'"/>
         <MorePage v-else-if="route.name==='more'"/>
-        <PricesPage v-else-if="route.name==='prices'"/>
-        <TeamPage v-else-if="route.name==='team'"/>
+        <SettingsPage v-else-if="route.name==='prices'" key="prices" start="prices"/>
+        <SettingsPage v-else-if="route.name==='team'" key="team" start="team"/>
         <BoardSettings v-else-if="route.name==='board-settings'"/>
         <SettingsPage v-else-if="route.name==='settings'" :key="state.query.get('tab') || ''"/>
         <StyleGuide v-else-if="route.name==='ds'"/>
