@@ -3477,6 +3477,101 @@ const SettingsPage = {
   </div>`,
 };
 
+// ------------------------------------------------------------------ reports, classic
+const ReportsPage2 = {
+  components: { Icon },
+  setup() {
+    const period = ref("month"), from = ref(""), to = ref(""), custom = ref(false);
+    const { s, load } = useLoad(() => call("reports2", period.value === "custom" ? { period: "custom", start: from.value, end: to.value } : { period: period.value }));
+    onMounted(load);
+    const setPeriod = (p) => { if (p === "custom") { custom.value = true; return; } custom.value = false; period.value = p; load(); };
+    const applyCustom = () => { if (!from.value || !to.value) return; period.value = "custom"; custom.value = false; load(); };
+    const d = computed(() => s.data);
+    const PERIODS = [["month", "الشهر"], ["quarter", "الربع"], ["year", "السنة"], ["custom", "فترة…"]];
+    const pname = (iso, kind) => { const x = parseDate(iso);
+      if (kind === "year") return "سنة " + x.getFullYear();
+      if (kind === "quarter") return `الربع ${["الأول", "الثاني", "الثالث", "الرابع"][Math.floor(x.getMonth() / 3)]} ${x.getFullYear()}`;
+      if (kind === "month") return new Intl.DateTimeFormat("ar", { month: "long", year: "numeric" }).format(x);
+      return date(iso); };
+    const title = computed(() => { const p = d.value?.period; if (!p) return "";
+      return p.kind === "custom" ? `${date(p.from)} — ${date(p.to)}` : `${pname(p.from, p.kind)} · مقارنة بـ ${pname(p.prev_from, p.kind)}`; });
+    const cmp = (now, prev) => { if (!(prev > 0.005)) return "لا أرقام للفترة السابقة"; const p = Math.round(((now - prev) / prev) * 100);
+      return p === 0 ? "مثل الفترة السابقة" : `${p > 0 ? "أكثر" : "أقل"} بـ ${Math.abs(p)}% من الفترة السابقة`; };
+    const pct = (a, b) => (b > 0.005 ? Math.round((a / b) * 100) : 0);
+    const maxM = computed(() => Math.max(1, ...(d.value?.months || []).flatMap((m) => [m.sales, m.expenses])));
+    const mlabel = (iso) => new Intl.DateTimeFormat("ar", { month: "short" }).format(parseDate(iso));
+    const ageTotal = computed(() => Object.values(d.value?.ageing || {}).reduce((x, y) => x + y, 0));
+    const AGES = [["current", "لم يحن موعدها", "#667085"], ["d30", "1–30 يومًا", "#B54708"], ["d60", "31–60 يومًا", "#B42318"], ["older", "أكثر من 60 يومًا", "#7A271A"]];
+    const maxTop = (l) => Math.max(1, ...(l || []).map((x) => x.total));
+    const exportCsv = () => {
+      const n = d.value.now, rows = [["البند", "القيمة"], ["الفترة", title.value], ["المبيعات المفوترة", n.invoiced], ["المحصّل", n.collected], ["المصاريف", n.expenses], ["الربح", n.profit],
+        ["عدد الطلبات", n.orders], [], ["الطلب", "العميل", "المبيعات", "التكلفة", "الربح", "الهامش %"], ...d.value.profit.map((r) => [r.title, r.customer, r.revenue, r.cost, r.result, r.margin])];
+      const text = "﻿" + rows.map((r) => r.map((v) => '"' + String(v ?? "").replace(/"/g, '""') + '"').join(",")).join("\n");
+      const el = document.createElement("a"); el.href = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" })); el.download = `تقرير ${title.value}.csv`; el.click();
+    };
+    const printIt = () => window.print();
+    const marginTone = (m) => (m === null ? "" : m < 15 ? "bad" : m < 35 ? "warn" : "ok");
+    return { s, load, d, period, from, to, custom, setPeriod, applyCustom, PERIODS, title, cmp, pct, maxM, mlabel, ageTotal, AGES, maxTop, exportCsv, printIt, marginTone, money, fig, date, go };
+  },
+  template: `
+  <div class="cl rp">
+    <div class="cl-main">
+      <header class="cl-head"><div class="cl-head-row">
+        <div style="min-width:0"><h1>التقارير</h1><div class="muted">{{ title }}</div></div><span class="spacer"></span>
+        <div class="mn-month cb-views" role="group" aria-label="الفترة">
+          <button v-for="p in PERIODS" :key="p[0]" type="button" :aria-pressed="(p[0] === 'custom' ? custom || period === 'custom' : !custom && period === p[0])" @click="setPeriod(p[0])">{{ p[1] }}</button></div>
+        <button type="button" class="cl-btn" :disabled="!d" @click="exportCsv"><Icon name="file" :size="16"/>تصدير Excel</button>
+        <button type="button" class="cl-btn" :disabled="!d" @click="printIt"><Icon name="printer" :size="16"/>طباعة</button></div>
+        <form v-if="custom" class="cl-head-row rp-custom" @submit.prevent="applyCustom"><label class="cl-fgroup"><span>من</span><input type="date" class="input" v-model="from"></label>
+          <label class="cl-fgroup"><span>إلى</span><input type="date" class="input" v-model="to"></label><button type="submit" class="cl-btn primary" style="align-self:flex-end" :disabled="!from || !to">عرض</button></form>
+      </header>
+      <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
+      <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
+      <template v-else-if="d">
+        <div class="cl-stats mn-stats rp-stats">
+          <div><span>المبيعات المفوترة</span><b class="money">{{ money(d.now.invoiced) }}</b><small>{{ cmp(d.now.invoiced, d.prev.invoiced) }}</small></div>
+          <div><span>المحصّل</span><b class="money ok">{{ money(d.now.collected) }}</b><small>{{ d.now.invoiced ? pct(d.now.collected, d.now.invoiced) + '% من المفوتر' : '—' }}</small></div>
+          <div><span>المصاريف</span><b class="money bad">{{ money(d.now.expenses) }}</b><small>{{ cmp(d.now.expenses, d.prev.expenses) }}</small></div>
+          <div><span>الربح</span><b class="money" :class="{bad: d.now.profit < 0}">{{ money(d.now.profit) }}</b><small>{{ d.now.income ? 'هامش ' + pct(d.now.profit, d.now.income) + '%' : '—' }}</small></div>
+          <div><span>عدد الطلبات</span><b>{{ d.now.orders }}</b><small>{{ d.now.orders ? 'متوسط الطلب ' + fig(d.now.orders_total / d.now.orders) + ' دج' : '—' }}</small></div>
+          <div><span>في الوقت</span><b>{{ d.now.delivered ? pct(d.now.delivered - d.now.late, d.now.delivered) + '%' : '—' }}</b><small>{{ d.now.delivered ? d.now.late + ' من ' + d.now.delivered + ' سُلّمت متأخرة' : 'لا تسليمات في الفترة' }}</small></div>
+        </div>
+        <div class="mn-grid">
+          <div class="mn-col">
+            <section class="mn-card"><div class="mn-card-h"><b>المبيعات والمصاريف</b><span class="mn-legend"><span><i class="rp-s"></i>المبيعات</span><span><i class="rp-e"></i>المصاريف</span><span>آخر 12 شهرًا</span></span></div>
+              <div class="mn-chart rp-chart" role="img" aria-label="المبيعات والمصاريف لآخر 12 شهرًا">
+                <div v-for="m in d.months" :key="m.month" class="mn-wk" :title="mlabel(m.month) + ': مبيعات ' + fig(m.sales) + ' · مصاريف ' + fig(m.expenses)">
+                  <div class="mn-bars"><span class="rp-s" :style="{height: (m.sales / maxM * 100) + '%'}"></span><span class="rp-e" :style="{height: (m.expenses / maxM * 100) + '%'}"></span></div><small>{{ mlabel(m.month) }}</small></div></div></section>
+            <section class="mn-card"><div class="mn-card-h"><b>ربحية الطلبات</b><span class="muted">الأقل ربحًا أولًا</span></div>
+              <table class="cl-table mn-table"><thead><tr><th>الطلب</th><th class="n">المبيعات</th><th class="n desktop-only">التكلفة</th><th class="n">الربح</th><th class="n">الهامش</th></tr></thead><tbody>
+                <tr v-if="!d.profit.length"><td colspan="5" class="cl-empty">لا طلبات مفوترة في هذه الفترة.</td></tr>
+                <tr v-for="r in d.profit" :key="r.name" @click="go('/?card=' + encodeURIComponent(r.name))"><td style="white-space:normal"><span class="cl-name">{{ r.title }}</span><span class="muted" style="display:block">{{ r.customer }}</span></td>
+                  <td class="n">{{ fig(r.revenue) }}</td><td class="n desktop-only muted">{{ fig(r.cost) }}</td><td class="n"><span class="cl-bal" :class="r.result < 0 ? 'bad' : ''">{{ fig(r.result) }}</span></td>
+                  <td class="n"><span class="rp-m" :class="marginTone(r.margin)">{{ r.margin === null ? '—' : r.margin + '%' }}</span></td></tr></tbody></table></section>
+            <section class="mn-card"><div class="mn-card-h"><b>أعمار الديون</b><b class="bad">{{ money(ageTotal) }}</b></div>
+              <div class="rp-ages"><div v-for="x in AGES" :key="x[0]"><span class="muted">{{ x[1] }}</span><b :style="{color: x[2]}">{{ fig(d.ageing[x[0]]) }}</b><i :style="{background: x[2], width: Math.max(2, pct(d.ageing[x[0]], ageTotal)) + '%'}"></i></div></div></section>
+          </div>
+          <div class="mn-col">
+            <section class="mn-card"><div class="mn-card-h"><b>أفضل العملاء</b><span class="muted">بالمبيعات</span></div>
+              <div v-if="!d.top_customers.length" class="mn-empty">لا مبيعات في هذه الفترة.</div>
+              <div v-for="(c, i) in d.top_customers" :key="c.name" class="rp-rank"><span class="muted">{{ i + 1 }}</span><div style="flex:1;min-width:0"><span class="cl-name ellipsis" style="display:block">{{ c.name }}</span><div class="mn-catbar"><span :style="{width: (c.total / maxTop(d.top_customers) * 100) + '%'}"></span></div></div>
+                <div class="rp-val"><b>{{ fig(c.total) }}</b><span class="muted">{{ c.n }} {{ c.n === 1 ? 'فاتورة' : 'فواتير' }}</span></div></div></section>
+            <section class="mn-card"><div class="mn-card-h"><b>أكثر الخدمات طلبًا</b></div>
+              <div v-if="!d.top_services.length" class="mn-empty">لا طلبات في هذه الفترة.</div>
+              <div v-for="(c, i) in d.top_services" :key="c.name" class="rp-rank"><span class="muted">{{ i + 1 }}</span><div style="flex:1;min-width:0"><span class="cl-name ellipsis" style="display:block">{{ c.name }}</span><div class="mn-catbar"><span :style="{width: (c.total / maxTop(d.top_services) * 100) + '%'}"></span></div></div>
+                <div class="rp-val"><b>{{ fig(c.total) }}</b><span class="muted">{{ c.n }} {{ c.n === 1 ? 'طلب' : 'طلبات' }}</span></div></div></section>
+            <section class="mn-card"><div class="mn-card-h"><b>عمل الفريق</b><span class="muted">أُنجز في الفترة · جارٍ الآن</span></div>
+              <table class="cl-table mn-table"><thead><tr><th>الشخص</th><th class="n">أنجز</th><th class="n">جارية</th><th class="n">متأخرة</th></tr></thead><tbody>
+                <tr v-if="!d.team.length"><td colspan="4" class="cl-empty">لا بطاقات مسندة بعد.</td></tr>
+                <tr v-for="t in d.team" :key="t.name" style="cursor:default"><td><span class="cl-name">{{ t.name }}</span><span v-if="t.role" class="muted"> · {{ t.role }}</span></td>
+                  <td class="n">{{ t.done }}</td><td class="n">{{ t.open }}</td><td class="n"><span :class="{'rp-late': t.late}">{{ t.late }}</span></td></tr></tbody></table></section>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>`,
+};
+
 // ------------------------------------------------------------------ design system reference (/atelier/ds)
 const DS_COLORS = [
   ["--primary", "الرئيسي"], ["--primary-weak", "الرئيسي الفاتح"], ["--accent", "علامة (ليموني)"], ["--nav-bg", "القائمة"],
@@ -3723,7 +3818,7 @@ const SECTION_NAV = [
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2 },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -3768,7 +3863,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': ['customers', 'settings', 'money', 'home', 'orders', 'order-new'].includes(route.name)}">
+      <header class="topbar" :class="{'own-header': ['customers', 'settings', 'money', 'home', 'orders', 'order-new', 'reports'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
@@ -3784,7 +3879,7 @@ const App = {
         <SimpleMoney v-else-if="route.name==='money'"/>
         <StockPage v-else-if="route.name==='stock'"/>
         <MachinesPage v-else-if="route.name==='machines'"/>
-        <ReportsPage v-else-if="route.name==='reports'"/>
+        <ReportsPage2 v-else-if="route.name==='reports'"/>
         <MorePage v-else-if="route.name==='more'"/>
         <SettingsPage v-else-if="route.name==='prices'" key="prices" start="prices"/>
         <SettingsPage v-else-if="route.name==='team'" key="team" start="team"/>

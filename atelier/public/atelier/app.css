@@ -1475,3 +1475,24 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 
 /* classic colour tokens for every page that uses the classic controls (board, card window, quick order, sheets) */
 .cb, .tm-overlay, .bd-panel, .overlay { --c-ink: #1F2430; --c-ink2: #667085; --c-ink3: #98A2B3; --c-line: #E4E7EC; --c-line2: #F0F1F4; --c-bg: #F6F7F9; --c-bad: #B42318; --c-ok: #067647; --c-warn: #B54708; }
+
+/* reports, classic */
+.rp-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.rp-custom { padding-top: 4px; } .rp-custom .cl-fgroup { width: 180px; }
+.mn-legend i.rp-s, .mn-bars .rp-s { background: #4B32C3; } .mn-legend i.rp-e, .mn-bars .rp-e { background: #B4A6EF; }
+.rp-chart { height: 210px; }
+.rp-m { font-weight: 600; } .rp-m.bad { color: var(--c-bad); } .rp-m.warn { color: var(--c-warn); } .rp-m.ok { color: var(--c-ok); }
+.rp-ages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.rp-ages > div { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; border-inline-start: 1px solid var(--c-line2); min-width: 0; }
+.rp-ages > div:first-child { border-inline-start: 0; } .rp-ages b { font-size: 18px; } .rp-ages i { display: block; height: 5px; border-radius: 3px; margin-top: 6px; }
+.rp-rank { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--c-line2); }
+.rp-rank > .muted:first-child { width: 16px; } .rp-rank .mn-catbar { margin-top: 6px; height: 5px; }
+.rp-val { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
+.rp-late { color: var(--c-bad); font-weight: 600; }
+@media (min-width: 1024px) { .topbar.own-header ~ main .rp { min-height: 100vh; } }
+@media (max-width: 1279px) { .rp-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } .rp-stats > div:nth-child(4) { border-inline-start: 0; } .rp-stats > div:nth-child(n+4) { border-top: 1px solid var(--c-line); } }
+@media (max-width: 1023px) { .rp-stats { grid-template-columns: 1fr 1fr; } .rp-stats > div:nth-child(odd) { border-inline-start: 0; } .rp-stats > div:nth-child(n+3) { border-top: 1px solid var(--c-line); } .rp-ages { grid-template-columns: 1fr 1fr; } }
+@media print {
+  .sidebar, .bottom-nav, .topbar, .demo-banner, .rp .cl-head .cl-btn, .rp .cb-views { display: none !important; }
+  .rp, .rp .cl-main { background: #fff; min-height: 0; } .rp .mn-grid { grid-template-columns: 1fr 1fr; } .mn-card, .cl-stats { break-inside: avoid; }
+}

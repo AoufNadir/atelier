@@ -1266,3 +1266,109 @@ def demo_settings():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 	create_custom_fields({"Customer": [{"fieldname": "atelier_tva_exempt", "label": "معفى من TVA", "fieldtype": "Check", "insert_after": "atelier_ai", "module": "Atelier"}]})
 	frappe.db.commit()
+
+
+# ---------------------------------------------------------------- reports: one period against the previous one
+def _period(kind, start=None, end=None):
+	from frappe.utils import add_months, getdate
+	today = getdate(nowdate())
+	if kind == "custom" and start and end:
+		a, b = getdate(start), getdate(end)
+		n = (b - a).days + 1
+		return a, b, add_days(a, -n), add_days(a, -1)
+	if kind == "year":
+		a = today.replace(month=1, day=1)
+		return a, a.replace(month=12, day=31), a.replace(year=a.year - 1), a.replace(year=a.year - 1, month=12, day=31)
+	if kind == "quarter":
+		q = (today.month - 1) // 3
+		a = today.replace(month=q * 3 + 1, day=1)
+		b = get_last_day(add_months(a, 2))
+		pa = add_months(a, -3)
+		return a, b, pa, get_last_day(add_months(pa, 2))
+	a = get_first_day(today)
+	pa = add_months(a, -1)
+	return a, get_last_day(a), pa, get_last_day(pa)
+
+
+@frappe.whitelist()
+def reports2(period="month", start=None, end=None):
+	api._require("GL Entry")
+	company = api._company()
+	a, b, pa, pb = _period(period, start, end)
+
+	def one(sql, *args):
+		return flt(frappe.db.sql(sql, args)[0][0])
+
+	def figures(x, y):
+		inv = one("select sum(base_net_total) from `tabSales Invoice` where docstatus=1 and company=%s and posting_date between %s and %s", company, x, y)
+		got = one("""select sum(base_received_amount) from `tabPayment Entry` where docstatus=1 and company=%s and payment_type='Receive'
+			and party_type='Customer' and posting_date between %s and %s""", company, x, y)
+		pl = dict(frappe.db.sql("""select acc.root_type, sum(gle.credit - gle.debit) from `tabGL Entry` gle join `tabAccount` acc on acc.name=gle.account
+			where gle.company=%s and gle.is_cancelled=0 and gle.posting_date between %s and %s and acc.root_type in ('Income','Expense') group by acc.root_type""", (company, x, y)))
+		orders = frappe.db.sql("""select count(*), coalesce(sum(grand_total), 0) from `tabSales Order` where docstatus<2 and company=%s
+			and ifnull(atelier_archived, 0) in (0, 1) and transaction_date between %s and %s""", (company, x, y))[0]
+		return {"invoiced": inv, "collected": got, "income": flt(pl.get("Income")), "expenses": -flt(pl.get("Expense")),
+			"profit": flt(pl.get("Income")) + flt(pl.get("Expense")), "orders": cint(orders[0]), "orders_total": flt(orders[1])}
+
+	now, prev = figures(a, b), figures(pa, pb)
+	# delivered on time: first delivery note of each order delivered in the period, against its due date
+	late = frappe.db.sql("""select so.name, so.delivery_date, min(dn.posting_date) delivered from `tabSales Order` so
+		join `tabDelivery Note Item` dni on dni.against_sales_order=so.name join `tabDelivery Note` dn on dn.name=dni.parent and dn.docstatus=1
+		where so.company=%s group by so.name having delivered between %s and %s""", (company, a, b), as_dict=True)
+	now["delivered"] = len(late)
+	now["late"] = sum(1 for r in late if r.delivery_date and r.delivered > r.delivery_date)
+	# 12 months of sales and expenses
+	from frappe.utils import add_months
+	months = []
+	for i in range(11, -1, -1):
+		m0 = get_first_day(add_months(b, -i))
+		m1 = get_last_day(m0)
+		months.append({"month": str(m0),
+			"sales": one("select sum(base_net_total) from `tabSales Invoice` where docstatus=1 and company=%s and posting_date between %s and %s", company, m0, m1),
+			"expenses": one("""select sum(gle.debit - gle.credit) from `tabGL Entry` gle join `tabAccount` acc on acc.name=gle.account
+				where gle.company=%s and gle.is_cancelled=0 and acc.root_type='Expense' and gle.posting_date between %s and %s""", company, m0, m1)})
+	# profitability of the period's orders (ledger result, as on the old reports page)
+	from atelier.atelier.report.rentabilite_commande import rentabilite_commande as rc
+	profit = []
+	for so in frappe.get_list("Sales Order", filters={"docstatus": ["<", 2], "project": ["is", "set"], "transaction_date": ["between", [a, b]]},
+			fields=["name", "project", "customer_name", "atelier_subject", "grand_total"], order_by="creation desc", limit=200):
+		gl = rc.gl_totals(so.project)
+		revenue, cost = sum(gl["Income"].values()), sum(gl["Expense"].values()) + rc.internal_cost(so.project)
+		if revenue:
+			profit.append({"name": so.name, "title": so.atelier_subject or so.name, "customer": so.customer_name, "revenue": revenue, "cost": cost,
+				"result": revenue - cost, "margin": round((revenue - cost) / revenue * 100) if revenue else None})
+	profit.sort(key=lambda r: r["margin"] if r["margin"] is not None else 999)
+	# ageing of what customers owe
+	ageing = {"current": 0, "d30": 0, "d60": 0, "older": 0}
+	for r in frappe.db.sql("""select outstanding_amount, datediff(curdate(), due_date) late from `tabSales Invoice`
+			where docstatus=1 and company=%s and outstanding_amount > 0.005""", company, as_dict=True):
+		k = "current" if r.late <= 0 else "d30" if r.late <= 30 else "d60" if r.late <= 60 else "older"
+		ageing[k] += flt(r.outstanding_amount)
+	top_customers = frappe.db.sql("""select customer_name name, count(*) n, sum(base_net_total) total from `tabSales Invoice`
+		where docstatus=1 and company=%s and posting_date between %s and %s group by customer order by total desc limit 6""", (company, a, b), as_dict=True)
+	top_services = frappe.db.sql("""select soi.item_name name, count(distinct so.name) n, sum(soi.base_net_amount) total from `tabSales Order Item` soi
+		join `tabSales Order` so on so.name=soi.parent where so.docstatus<2 and so.company=%s and so.transaction_date between %s and %s
+		group by soi.item_name order by total desc limit 6""", (company, a, b), as_dict=True)
+	# team: cards each member is on, done in the period, still open, late
+	cfg = get_config()
+	deliver = _deliver_col(cfg)
+	team = {}
+	today = frappe.utils.getdate(nowdate())
+	for so in frappe.get_all("Sales Order", filters={"docstatus": ["<", 2], "atelier_members": ["is", "set"]},
+			fields=["name", "atelier_members", "atelier_column", "per_delivered", "delivery_date", "transaction_date", "modified", "atelier_archived"], limit=2000):
+		done = flt(so.per_delivered) >= 100 or so.atelier_column == deliver
+		for m in _jl(so.atelier_members):
+			t = team.setdefault(m, {"name": m, "done": 0, "open": 0, "late": 0})
+			if done:
+				if a <= frappe.utils.getdate(so.modified) <= b:
+					t["done"] += 1
+			elif not cint(so.atelier_archived):
+				t["open"] += 1
+				if so.delivery_date and frappe.utils.getdate(so.delivery_date) < today:
+					t["late"] += 1
+	roles = {m["name"]: m.get("role") for m in production._team()}
+	for t in team.values():
+		t["role"] = roles.get(t["name"])
+	return {"period": {"kind": period, "from": str(a), "to": str(b), "prev_from": str(pa), "prev_to": str(pb)},
+		"now": now, "prev": prev, "months": months, "profit": profit, "ageing": ageing,
+		"top_customers": top_customers, "top_services": top_services, "team": sorted(team.values(), key=lambda t: -t["done"])}
