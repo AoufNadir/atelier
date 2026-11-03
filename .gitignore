@@ -1,0 +1,35 @@
+# Python and local development dependencies
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+node_modules/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Site configuration, credentials and database exports never belong to an app.
+.env
+.env.*
+site_config.json
+common_site_config.json
+sites/
+*.sql
+*.sql.gz
+*.sql.bz2
+*.sql.xz
+*.dump
+backups/
+private/
+**/public/files/
+*.pem
+*.key
+
+# Local logs and editor files; atelier/public contains versioned application assets.
+*.log
+.DS_Store
+.idea/
+.vscode/
