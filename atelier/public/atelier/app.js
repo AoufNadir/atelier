@@ -3232,7 +3232,7 @@ const TeamPage = {
 };
 
 const BoardSettings = {
-  components: { Icon, TeamPage },
+  props: ["embedded"], components: { Icon, TeamPage },
   setup() {
     const { s, load } = useLoad(() => call("board2"));
     onMounted(load);
@@ -3254,7 +3254,7 @@ const BoardSettings = {
   },
   template: `
   <div class="page">
-    <div class="bd-head"><div><h1>تخصيص اللوحة</h1><div class="sub">للمدير فقط. التغييرات تظهر للفريق مباشرة.</div></div>
+    <div v-if="!embedded" class="bd-head"><div><h1>تخصيص اللوحة</h1><div class="sub">للمدير فقط. التغييرات تظهر للفريق مباشرة.</div></div>
       <button type="button" class="btn" @click="go('/')">← العودة إلى الطلبات</button></div>
     <div class="cv-tabs" role="tablist" style="margin:12px 0 18px">
       <button v-for="tb in [['columns','الأعمدة'],['labels','الحالات'],['team','الفريق']]" :key="tb[0]" type="button" role="tab" class="bs-tab" :aria-selected="tab===tb[0]" @click="tab=tb[0]">{{ tb[1] }}</button></div>
@@ -3264,7 +3264,7 @@ const BoardSettings = {
         <span class="bs-move"><button type="button" class="btn ghost icon-btn sm" :aria-label="'تقديم ' + c.name" @click="up(cols, i, -1)"><Icon name="up" :size="16"/></button><button type="button" class="btn ghost icon-btn sm" :aria-label="'تأخير ' + c.name" @click="up(cols, i, 1)"><Icon name="down" :size="16"/></button></span>
         <input class="input" v-model="c.name" :aria-label="'اسم العمود ' + (i + 1)" placeholder="اسم العمود">
         <span class="bs-colors" role="group" :aria-label="'لون ' + c.name"><button v-for="col in BOARD_COLORS" :key="col" type="button" class="bs-sw" :style="{background: col}" :aria-pressed="c.color === col" :aria-label="col" @click="c.color = col"></button></span>
-        <label class="bs-deliver"><input type="checkbox" :checked="!!c.deliver" @change="setDeliver(c)">🚚 عمود التسليم</label>
+        <label class="bs-deliver"><input type="checkbox" :checked="!!c.deliver" @change="setDeliver(c)">عمود التسليم</label>
         <label class="bs-limit">حدّ <input type="number" min="0" class="input" v-model.number="c.limit" :aria-label="'أقصى عدد بطاقات في ' + c.name" placeholder="∞"></label>
         <span class="m">{{ c.id ? count(c.id) + ' بطاقة' : 'جديد' }}</span>
         <button type="button" class="btn ghost icon-btn sm danger" :aria-label="'حذف ' + c.name" @click="delCol(i)"><Icon name="trash" :size="16"/></button>
@@ -3293,6 +3293,11 @@ const BoardSettings = {
 };
 
 // ------------------------------------------------------------------ settings (/atelier/settings), manager only
+const SETTINGS_GROUPS = [
+  ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"]]],
+  ["العمل", [["team", "users", "الفريق والحسابات"], ["board", "grid", "لوحة الطلبات"], ["prices", "tag", "الخدمات والأسعار"]]],
+  ["المال والنظام", [["funds", "wallet", "الدفع والصناديق"], ["alerts", "bell", "التنبيهات"], ["backup", "box", "النسخ الاحتياطي"]]],
+];
 const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "الوثائق والضريبة"], ["team", "👥", "الفريق والحسابات"], ["board", "▦", "تخصيص اللوحة"],
   ["prices", "🏷", "الخدمات والأسعار"], ["funds", "💳", "الدفع والصناديق"], ["alerts", "🔔", "التنبيهات"], ["backup", "💾", "النسخ الاحتياطي"]];
 
@@ -3332,119 +3337,130 @@ const SettingsPage = {
     const backup = () => run("backup", async () => { s.data.backups = await call("backup_now", {}, true); }, "أُنشئت نسخة احتياطية");
     const size = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.round(b / 1024) + " KB");
     const sample = computed(() => { const net = 18000, tax = docs.tva ? net * (+docs.tva_rate || 0) / 100 : 0; return { net, tax, total: net + tax }; });
-    return { s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
+    const preview = ref(false);
+    const META = { profile: ["بيانات المطبعة", "تظهر في رأس كل بون وفاتورة وكشف حساب", saveProfile], docs: ["الوثائق والضريبة", "الضريبة ونص أسفل الوثائق ومهلة الدفع", saveDocs],
+      team: ["الفريق والحسابات", "من يدخل إلى البرنامج وبأي صلاحية"], board: ["لوحة الطلبات", "الأعمدة والحالات التي يراها الفريق"], prices: ["الخدمات والأسعار", "سعر الأفراد وسعر المؤسسات لكل خدمة"],
+      funds: ["الدفع والصناديق", "أسماء الصناديق وطرق الدفع"], alerts: ["التنبيهات", "ما يصل إلى جرس كل عضو", saveAlerts], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"] };
+    const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
+    return { preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
       renameFund, setMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
   },
   template: `
-  <div class="page tb st">
-    <div class="tb-head"><h1>الإعدادات</h1><span class="sm3-only">للمدير فقط</span></div>
-    <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
-    <div v-else-if="s.error" class="alert error" style="margin:0 20px">{{ s.error }}</div>
-    <div v-else class="st-body">
-      <nav class="st-nav" aria-label="أقسام الإعدادات">
-        <button v-for="x in SETTINGS_TABS" :key="x[0]" type="button" :aria-current="tab === x[0] ? 'page' : null" @click="tab = x[0]"><span aria-hidden="true">{{ x[1] }}</span>{{ x[2] }}</button>
-      </nav>
-      <div class="st-main">
+  <div class="cl st2">
+    <nav class="st2-nav" aria-label="أقسام الإعدادات">
+      <template v-for="g in SETTINGS_GROUPS" :key="g[0]">
+        <span class="st2-group">{{ g[0] }}</span>
+        <button v-for="x in g[1]" :key="x[0]" type="button" :aria-current="tab === x[0] ? 'page' : null" @click="tab = x[0]"><Icon :name="x[1]" :size="17"/>{{ x[2] }}</button>
+      </template>
+    </nav>
+    <div class="cl-main">
+      <header class="cl-head st2-head">
+        <div class="cl-head-row"><div style="min-width:0"><h1>{{ meta.title }}</h1><div class="muted">{{ meta.desc }}</div></div><span class="spacer"></span>
+          <button v-if="tab === 'profile' || tab === 'docs'" type="button" class="cl-btn" @click="preview = true"><Icon name="file" :size="16"/>معاينة الفاتورة</button>
+          <button v-if="meta.save" type="button" class="cl-btn primary" :disabled="!!busy" @click="meta.save()">{{ busy ? 'جارٍ الحفظ…' : 'حفظ التغييرات' }}</button></div>
+      </header>
+      <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
+      <div v-else-if="s.error" class="alert error" style="margin:20px 32px">{{ s.error }}</div>
+      <div v-else class="st2-body">
         <div v-if="err" class="alert error" role="alert">{{ err }}</div>
 
-        <template v-if="tab === 'profile'">
-          <section class="cs2-sec"><b>الشعار والاسم</b>
-            <div class="st-logo-row">
-              <button type="button" class="st-logo" aria-label="تغيير الشعار" @click="logoInput.click()"><img v-if="p.logo" :src="p.logo" alt="الشعار"><span v-else>⬆ الشعار</span></button>
-              <input ref="logoInput" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" class="sr-only" @change="onLogo">
-              <div style="flex:1;display:flex;flex-direction:column;gap:10px">
-                <div class="cs2-row"><label class="cs2-f grow2"><span class="m">اسم المطبعة</span><input class="input" v-model="p.name_ar"></label><label class="cs2-f grow2"><span class="m">الاسم بالفرنسية</span><input class="input" v-model="p.name_fr" dir="ltr"></label></div>
-                <span class="m">PNG أو SVG بخلفية شفافة · يظهر على كل البونات والفواتير وكشوف الحساب</span></div></div></section>
-          <section class="cs2-sec"><b>العنوان والاتصال</b>
-            <div class="cs2-row"><label class="cs2-f grow2"><span class="m">العنوان</span><input class="input" v-model="p.address"></label><label class="cs2-f"><span class="m">المدينة</span><input class="input" v-model="p.city"></label></div>
-            <div class="cs2-row"><label class="cs2-f"><span class="m">الهاتف</span><input class="input" v-model="p.phone" dir="ltr" inputmode="tel"></label><label class="cs2-f"><span class="m">هاتف ثانٍ</span><input class="input" v-model="p.phone2" dir="ltr" inputmode="tel"></label>
-              <label class="cs2-f"><span class="m">البريد</span><input class="input" v-model="p.email" dir="ltr" type="email"></label></div></section>
-          <section class="cs2-sec"><b>البيانات القانونية <span class="m" style="display:inline;font-weight:400">· تُطبع في رأس كل بون وفاتورة</span></b>
-            <div class="cs2-row"><label class="cs2-f"><span class="m">السجل التجاري RC</span><input class="input" v-model="p.rc" dir="ltr"></label><label class="cs2-f"><span class="m">الرقم الجبائي NIF</span><input class="input" v-model="p.nif" dir="ltr"></label></div>
-            <div class="cs2-row"><label class="cs2-f"><span class="m">NIS</span><input class="input" v-model="p.nis" dir="ltr"></label><label class="cs2-f"><span class="m">المادة AI</span><input class="input" v-model="p.ai" dir="ltr"></label>
-              <label class="cs2-f grow2"><span class="m">رقم الحساب البنكي RIB</span><input class="input" v-model="p.rib" dir="ltr"></label></div></section>
-          <div class="row" style="justify-content:flex-end"><button type="button" class="btn primary st-save" :disabled="busy === 'profile'" @click="saveProfile">{{ busy === 'profile' ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
-        </template>
+        <div v-if="tab === 'profile'" class="st2-card">
+          <div class="st2-grp"><div class="st2-lbl"><b>الشعار والاسم</b><span>PNG أو SVG بخلفية شفافة. الاسم بالفرنسية اختياري ويظهر تحت الاسم العربي.</span></div>
+            <div class="st2-fields">
+              <div class="st2-logo-row"><div class="st2-logo"><img v-if="p.logo" :src="p.logo" alt="الشعار"><Icon v-else name="image" :size="26"/></div>
+                <div class="st2-col"><button type="button" class="cl-btn" :disabled="busy === 'logo'" @click="logoInput.click()"><Icon name="in" :size="15"/>{{ p.logo ? 'تغيير الشعار' : 'رفع الشعار' }}</button><span class="muted">الحجم المقترح 400×400</span></div>
+                <input ref="logoInput" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" class="sr-only" @change="onLogo"></div>
+              <div class="st2-row"><label class="cl-fgroup"><span>اسم المطبعة</span><input class="input" v-model="p.name_ar"></label><label class="cl-fgroup"><span>الاسم بالفرنسية</span><input class="input" v-model="p.name_fr" dir="ltr"></label></div></div></div>
+          <div class="st2-grp"><div class="st2-lbl"><b>العنوان والاتصال</b><span>يُطبع في رأس الوثائق ويظهر في رسائل التذكير.</span></div>
+            <div class="st2-fields"><div class="st2-row"><label class="cl-fgroup grow2"><span>العنوان</span><input class="input" v-model="p.address"></label><label class="cl-fgroup"><span>المدينة</span><input class="input" v-model="p.city"></label></div>
+              <div class="st2-row"><label class="cl-fgroup"><span>الهاتف</span><input class="input" v-model="p.phone" dir="ltr" inputmode="tel"></label><label class="cl-fgroup"><span>هاتف ثانٍ</span><input class="input" v-model="p.phone2" dir="ltr" inputmode="tel"></label>
+                <label class="cl-fgroup"><span>البريد</span><input class="input" v-model="p.email" dir="ltr" type="email"></label></div></div></div>
+          <div class="st2-grp"><div class="st2-lbl"><b>البيانات القانونية</b><span>مطلوبة على الفواتير وفق التشريع الجزائري.</span></div>
+            <div class="st2-fields"><div class="st2-row"><label class="cl-fgroup"><span>السجل التجاري RC</span><input class="input" v-model="p.rc" dir="ltr"></label><label class="cl-fgroup"><span>الرقم الجبائي NIF</span><input class="input" v-model="p.nif" dir="ltr"></label></div>
+              <div class="st2-row"><label class="cl-fgroup"><span>NIS</span><input class="input" v-model="p.nis" dir="ltr"></label><label class="cl-fgroup"><span>المادة AI</span><input class="input" v-model="p.ai" dir="ltr"></label></div>
+              <div class="st2-row"><label class="cl-fgroup"><span>رقم الحساب البنكي RIB</span><input class="input" v-model="p.rib" dir="ltr"></label></div></div></div>
+        </div>
 
-        <template v-else-if="tab === 'docs'">
-          <section class="cs2-sec"><b>الضريبة على القيمة المضافة TVA</b>
-            <label class="st-tog"><input type="checkbox" :checked="!!docs.tva" @change="docs.tva = $event.target.checked ? 1 : 0"><span><b>تطبيق TVA على الطلبات والفواتير الجديدة</b><span class="m">الطلبات السابقة لا تتغير. يمكن إعفاء عميل معيّن من نافذة تعديله.</span></span></label>
-            <label v-if="docs.tva" class="cs2-f" style="max-width:200px"><span class="m">النسبة</span><div class="unit-wrap"><input class="input num" v-model="docs.tva_rate" inputmode="decimal"><span class="u">%</span></div></label></section>
-          <section class="cs2-sec"><b>أسفل الوثائق والدفع</b>
-            <label class="cs2-f"><span class="m">نص يُطبع أسفل كل وثيقة</span><input class="input" v-model="docs.footer"></label>
-            <label class="cs2-f" style="max-width:260px"><span class="m">مهلة الدفع بعد الفاتورة</span><div class="unit-wrap"><input class="input num" v-model="docs.payment_days" inputmode="numeric"><span class="u">يوم</span></div></label>
-            <span class="m">الطابع الجبائي على الدفع نقدًا غير مفعّل بعد في هذه النسخة.</span></section>
-          <div class="row" style="justify-content:flex-end"><button type="button" class="btn primary st-save" :disabled="busy === 'docs'" @click="saveDocs">{{ busy === 'docs' ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
-        </template>
+        <div v-else-if="tab === 'docs'" class="st2-card">
+          <div class="st2-grp"><div class="st2-lbl"><b>الضريبة على القيمة المضافة</b><span>تُضاف على الطلبات والفواتير الجديدة فقط. يمكن إعفاء عميل من نافذة تعديله.</span></div>
+            <div class="st2-fields"><label class="st2-check"><input type="checkbox" :checked="!!docs.tva" @change="docs.tva = $event.target.checked ? 1 : 0"><span>تطبيق TVA</span></label>
+              <label v-if="docs.tva" class="cl-fgroup" style="max-width:180px"><span>النسبة</span><div class="unit-wrap"><input class="input num" v-model="docs.tva_rate" inputmode="decimal"><span class="u">%</span></div></label></div></div>
+          <div class="st2-grp"><div class="st2-lbl"><b>أسفل الوثائق والدفع</b><span>النص يُطبع أسفل كل بون وفاتورة. المهلة تحدّد تاريخ استحقاق الفاتورة.</span></div>
+            <div class="st2-fields"><label class="cl-fgroup"><span>نص أسفل الوثائق</span><input class="input" v-model="docs.footer"></label>
+              <label class="cl-fgroup" style="max-width:220px"><span>مهلة الدفع</span><div class="unit-wrap"><input class="input num" v-model="docs.payment_days" inputmode="numeric"><span class="u">يوم</span></div></label>
+              <span class="muted">الطابع الجبائي على الدفع نقدًا غير مفعّل بعد في هذه النسخة.</span></div></div>
+        </div>
 
         <template v-else-if="tab === 'team'">
-          <section class="cs2-sec"><b>حسابات الدخول</b>
-            <span class="m">لكل موظف حساب ببريده. «موظف» يعمل على الطلبات والعملاء، و«مدير» يرى المال والإعدادات.</span>
-            <div v-for="u in s.data.users" :key="u.name" class="bs-row">
-              <Avatar :name="u.full_name" :size="32"/><span style="flex:1;min-width:0"><b>{{ u.full_name }}</b><span class="m" dir="ltr">{{ u.name }}</span>
-                <span class="m">{{ u.member ? 'في الفريق باسم «' + u.member + '»' : 'غير مربوط باسم في الفريق' }}<template v-if="u.last_login"> · آخر دخول {{ ago(u.last_login) }}</template></span></span>
-              <select class="input" style="width:auto" v-model="u.role" :aria-label="'صلاحية ' + u.full_name"><option value="staff">موظف</option><option value="manager">مدير</option></select>
-              <label class="bs-deliver"><input type="checkbox" :checked="!!u.enabled" @change="u.enabled = $event.target.checked ? 1 : 0">مفعّل</label>
-              <button type="button" class="btn sm" :disabled="!!busy" @click="saveUser(u)">حفظ</button>
-              <button type="button" class="btn ghost sm" :disabled="!!busy" @click="resetLink(u)">رابط كلمة السر</button></div>
-            <div v-if="!s.data.users.length" class="m">لا حسابات بعد.</div>
-            <form class="cs2-row st-new-user" @submit.prevent="saveUser()"><label class="cs2-f"><span class="m">الاسم</span><input class="input" v-model="nu.full_name"></label>
-              <label class="cs2-f grow2"><span class="m">البريد</span><input class="input" v-model="nu.email" type="email" dir="ltr"></label>
-              <label class="cs2-f" style="min-width:110px;flex:0"><span class="m">الصلاحية</span><select class="input" v-model="nu.role"><option value="staff">موظف</option><option value="manager">مدير</option></select></label>
-              <button type="submit" class="btn primary" style="align-self:flex-end" :disabled="!nu.email || !!busy">+ إنشاء حساب</button></form>
-            <div v-if="link" class="sc2-alert off"><b>رابط اختيار كلمة السر لـ {{ link.email }}</b><br>أرسله له ليختار كلمة سره بنفسه:
-              <div class="row" style="gap:6px;margin-top:6px"><input class="input" :value="link.url" readonly dir="ltr" aria-label="الرابط" @focus="$event.target.select()"><button type="button" class="btn sm" @click="copy(link.url)">نسخ</button></div></div>
-          </section>
-          <section class="cs2-sec"><b>أسماء الفريق</b><span class="m">اربط كل اسم ببريد حسابه ليعمل «مهامي» والتنبيهات.</span><TeamPage embedded/></section>
+          <div class="st2-card">
+            <div class="st2-grp"><div class="st2-lbl"><b>حسابات الدخول</b><span>«موظف» يعمل على الطلبات والعملاء. «مدير» يرى المال والإعدادات. لا تُكتب كلمة السر هنا: يُعطى الموظف رابطًا ليختارها.</span></div>
+              <div class="st2-fields">
+                <table class="cl-table st2-table"><thead><tr><th>الاسم</th><th>الصلاحية</th><th>الحالة</th><th></th></tr></thead><tbody>
+                  <tr v-for="u in s.data.users" :key="u.name" style="cursor:default"><td><span class="cl-name">{{ u.full_name }}</span><span class="muted" style="display:block" dir="ltr">{{ u.name }}</span>
+                      <span class="muted" style="display:block">{{ u.member ? 'في الفريق باسم «' + u.member + '»' : 'غير مربوط باسم في الفريق' }}<template v-if="u.last_login"> · آخر دخول {{ ago(u.last_login) }}</template></span></td>
+                    <td><select class="input" style="width:auto;min-height:34px" v-model="u.role" :aria-label="'صلاحية ' + u.full_name"><option value="staff">موظف</option><option value="manager">مدير</option></select></td>
+                    <td><label class="st2-check"><input type="checkbox" :checked="!!u.enabled" @change="u.enabled = $event.target.checked ? 1 : 0"><span>مفعّل</span></label></td>
+                    <td class="n"><button type="button" class="cl-btn sm" :disabled="!!busy" @click="saveUser(u)">حفظ</button> <button type="button" class="cl-btn sm ghost" :disabled="!!busy" @click="resetLink(u)">رابط كلمة السر</button></td></tr>
+                  <tr v-if="!s.data.users.length"><td colspan="4" class="cl-empty">لا حسابات بعد.</td></tr></tbody></table>
+                <form class="st2-row st2-newu" @submit.prevent="saveUser()"><label class="cl-fgroup"><span>الاسم</span><input class="input" v-model="nu.full_name"></label>
+                  <label class="cl-fgroup grow2"><span>البريد</span><input class="input" v-model="nu.email" type="email" dir="ltr"></label>
+                  <label class="cl-fgroup" style="flex:0 0 130px"><span>الصلاحية</span><select class="input" v-model="nu.role"><option value="staff">موظف</option><option value="manager">مدير</option></select></label>
+                  <button type="submit" class="cl-btn primary" style="align-self:flex-end" :disabled="!nu.email || !!busy"><Icon name="plus" :size="15"/>إنشاء حساب</button></form>
+                <div v-if="link" class="st2-link"><b>رابط اختيار كلمة السر لـ {{ link.email }}</b><span class="muted">أرسله للموظف ليختار كلمة سره بنفسه.</span>
+                  <div class="row" style="gap:6px"><input class="input" :value="link.url" readonly dir="ltr" aria-label="الرابط" @focus="$event.target.select()"><button type="button" class="cl-btn" @click="copy(link.url)">نسخ</button></div></div>
+              </div></div>
+            <div class="st2-grp"><div class="st2-lbl"><b>أسماء الفريق</b><span>الأسماء التي تُسند إليها البطاقات. اربط كل اسم ببريد حسابه ليعمل «مهامي» والتنبيهات.</span></div>
+              <div class="st2-fields"><TeamPage embedded/></div></div>
+          </div>
         </template>
 
-        <section v-else-if="tab === 'board'" class="cs2-sec st-embed"><BoardSettings/></section>
-        <section v-else-if="tab === 'prices'" class="cs2-sec st-embed"><PricesPage/></section>
+        <div v-else-if="tab === 'board'" class="st2-card st2-embed"><BoardSettings embedded/></div>
+        <div v-else-if="tab === 'prices'" class="st2-card st2-embed"><PricesPage/></div>
 
-        <template v-else-if="tab === 'funds'">
-          <section class="cs2-sec"><b>الصناديق</b><span class="m">الأسماء التي تظهر في صفحة المال.</span>
-            <div v-for="f in s.data.funds" :key="f.name" class="bs-row"><span class="sm3-sup" aria-hidden="true">{{ f.account_type === 'Bank' ? '🏦' : '💵' }}</span>
-              <input class="input" v-model="f.account_name" :aria-label="'اسم ' + f.name"><span class="m">{{ f.account_type === 'Bank' ? 'بنك' : 'نقد' }}</span>
-              <button type="button" class="btn sm" :disabled="!!busy" @click="renameFund(f)">حفظ</button></div></section>
-          <section class="cs2-sec"><b>طرق الدفع</b><span class="m">إلى أي صندوق يدخل المال حسب طريقة الدفع.</span>
-            <div v-for="m in s.data.modes" :key="m.value" class="bs-row"><b style="min-width:110px">{{ m.label }}</b>
-              <select class="input" v-model="m.account" :aria-label="'صندوق ' + m.label"><option v-for="f in s.data.all_funds" :key="f.name" :value="f.name">{{ f.account_name }}</option></select>
-              <button type="button" class="btn sm" :disabled="!!busy" @click="setMode(m)">حفظ</button></div></section>
-        </template>
+        <div v-else-if="tab === 'funds'" class="st2-card">
+          <div class="st2-grp"><div class="st2-lbl"><b>الصناديق</b><span>الأسماء التي تظهر في صفحة المال وفي تسجيل الدفعات.</span></div>
+            <div class="st2-fields"><div v-for="x in s.data.funds" :key="x.name" class="st2-line"><span class="muted" style="min-width:44px">{{ x.account_type === 'Bank' ? 'بنك' : 'نقد' }}</span>
+              <input class="input" v-model="x.account_name" :aria-label="'اسم ' + x.name"><button type="button" class="cl-btn sm" :disabled="!!busy" @click="renameFund(x)">حفظ</button></div></div></div>
+          <div class="st2-grp"><div class="st2-lbl"><b>طرق الدفع</b><span>إلى أي صندوق يدخل المال حسب طريقة الدفع.</span></div>
+            <div class="st2-fields"><div v-for="m in s.data.modes" :key="m.value" class="st2-line"><span style="min-width:110px">{{ m.label }}</span>
+              <select class="input" v-model="m.account" :aria-label="'صندوق ' + m.label"><option :value="null" disabled>غير محدد</option><option v-for="x in s.data.all_funds" :key="x.name" :value="x.name">{{ x.account_name }}</option></select>
+              <button type="button" class="cl-btn sm" :disabled="!!busy || !m.account" @click="setMode(m)">حفظ</button></div></div></div>
+        </div>
 
-        <template v-else-if="tab === 'alerts'">
-          <section class="cs2-sec"><b>التنبيهات داخل التطبيق</b>
-            <label class="st-tog"><input type="checkbox" :checked="!!alerts.assign" @change="alerts.assign = $event.target.checked ? 1 : 0"><span><b>عند إسناد بطاقة لشخص</b><span class="m">يصله تنبيه في الجرس 🔔</span></span></label>
-            <label class="st-tog"><input type="checkbox" :checked="!!alerts.mention" @change="alerts.mention = $event.target.checked ? 1 : 0"><span><b>عند ذكر شخص بـ «@» في تعليق</b><span class="m">مثل «@سمير راجع الألوان»</span></span></label>
-            <label class="st-tog"><input type="checkbox" :checked="!!alerts.due" @change="alerts.due = $event.target.checked ? 1 : 0"><span><b>المواعيد القريبة والمتأخرة</b><span class="m">بطاقات الشخص المستحقة اليوم أو غدًا أو المتأخرة</span></span></label></section>
-          <div class="row" style="justify-content:flex-end"><button type="button" class="btn primary st-save" :disabled="busy === 'alerts'" @click="saveAlerts">حفظ</button></div>
-        </template>
+        <div v-else-if="tab === 'alerts'" class="st2-card">
+          <div class="st2-grp"><div class="st2-lbl"><b>التنبيهات داخل التطبيق</b><span>تظهر في الجرس لكل عضو مربوط بحساب. لا يُرسل بريد.</span></div>
+            <div class="st2-fields">
+              <label class="st2-check"><input type="checkbox" :checked="!!alerts.assign" @change="alerts.assign = $event.target.checked ? 1 : 0"><span>عند إسناد بطاقة لشخص</span></label>
+              <label class="st2-check"><input type="checkbox" :checked="!!alerts.mention" @change="alerts.mention = $event.target.checked ? 1 : 0"><span>عند ذكر شخص بـ «@» في تعليق</span></label>
+              <label class="st2-check"><input type="checkbox" :checked="!!alerts.due" @change="alerts.due = $event.target.checked ? 1 : 0"><span>المواعيد القريبة والمتأخرة</span></label></div></div>
+        </div>
 
-        <template v-else-if="tab === 'backup'">
-          <section class="cs2-sec"><b>النسخ الاحتياطي</b>
-            <span class="m">نسخة كاملة من البيانات والملفات. احفظ نسخة خارج الجهاز (قرص خارجي أو سحابة) من حين لآخر.</span>
-            <button type="button" class="btn primary" style="align-self:flex-start" :disabled="busy === 'backup'" @click="backup">{{ busy === 'backup' ? 'جارٍ إنشاء النسخة… قد يستغرق دقيقة' : '💾 نسخة الآن' }}</button>
-            <div v-for="b in s.data.backups" :key="b.file" class="bs-row"><span style="flex:1;min-width:0" class="ellipsis" dir="ltr">{{ b.file }}</span><span class="m">{{ size(b.size) }}</span><a class="btn sm" :href="b.url">تحميل</a></div>
-            <div v-if="!s.data.backups.length" class="m">لا نسخ بعد.</div></section>
-        </template>
+        <div v-else-if="tab === 'backup'" class="st2-card">
+          <div class="st2-grp"><div class="st2-lbl"><b>النسخ الاحتياطي</b><span>نسخة كاملة من البيانات والملفات. احفظ نسخة خارج الجهاز من حين لآخر.</span></div>
+            <div class="st2-fields"><button type="button" class="cl-btn primary" style="align-self:flex-start" :disabled="busy === 'backup'" @click="backup">{{ busy === 'backup' ? 'جارٍ إنشاء النسخة…' : 'إنشاء نسخة الآن' }}</button>
+              <div v-for="b in s.data.backups" :key="b.file" class="st2-line"><span class="ellipsis" style="flex:1" dir="ltr">{{ b.file }}</span><span class="muted">{{ size(b.size) }}</span><a class="cl-btn sm" :href="b.url">تحميل</a></div>
+              <span v-if="!s.data.backups.length" class="muted">لا نسخ بعد.</span></div></div>
+        </div>
       </div>
+    </div>
 
-      <aside v-if="tab === 'profile' || tab === 'docs'" class="st-preview" aria-label="معاينة الفاتورة">
-        <span class="st-preview-t">معاينة الفاتورة مباشرة</span>
-        <div class="st-paper">
-          <div class="st-ph"><div><b class="st-pn">{{ p.name_ar || 'اسم المطبعة' }}</b><span v-if="p.address || p.city">{{ [p.address, p.city].filter(Boolean).join('، ') }}</span>
+    <div v-if="preview" class="overlay tm-overlay" @click.self="preview = false">
+      <div class="st2-preview" role="dialog" aria-modal="true" aria-label="معاينة الفاتورة">
+        <div class="cl-head-row" style="padding:14px 18px;border-bottom:1px solid #E4E7EC"><b>معاينة الفاتورة</b><span class="spacer"></span><button type="button" class="cl-btn icon ghost" aria-label="إغلاق" @click="preview = false"><Icon name="x" :size="18"/></button></div>
+        <div class="st-paper" style="box-shadow:none;margin:18px">
+          <div class="st-ph"><div><b class="st-pn">{{ p.name_ar || 'اسم المطبعة' }}</b><span v-if="p.name_fr" dir="ltr">{{ p.name_fr }}</span><span v-if="p.address || p.city">{{ [p.address, p.city].filter(Boolean).join('، ') }}</span>
               <span v-if="p.phone" dir="ltr">{{ p.phone }}<template v-if="p.phone2"> · {{ p.phone2 }}</template></span>
               <span dir="ltr" class="st-legal">{{ [p.rc && 'RC ' + p.rc, p.nif && 'NIF ' + p.nif, p.nis && 'NIS ' + p.nis, p.ai && 'AI ' + p.ai].filter(Boolean).join(' · ') || 'RC · NIF · NIS · AI' }}</span></div>
             <img v-if="p.logo" :src="p.logo" alt="" class="st-plogo"></div>
-          <div class="row" style="justify-content:space-between"><b>فاتورة</b><span dir="ltr" class="m">ACC-SINV-2026-00007</span></div>
-          <div class="st-pbox"><b>مخبزة السعادة</b><span dir="ltr" class="m">RC 19/00-1234567 B 22 · NIF 001919012345678</span></div>
+          <div class="row" style="justify-content:space-between"><b>فاتورة</b><span dir="ltr" class="muted">ACC-SINV-2026-00007</span></div>
+          <div class="st-pbox"><b>مخبزة السعادة</b><span dir="ltr" class="muted">RC 19/00-1234567 B 22 · NIF 001919012345678</span></div>
           <div class="st-plines"><div class="bd-line"><span>لافتة 3×1 م</span><b>6,000.00</b></div><div class="bd-line"><span>أكياس 2000</span><b>12,000.00</b></div></div>
           <div class="bd-line"><span>{{ docs.tva ? 'المجموع خارج الرسم' : 'المجموع' }}</span><b>{{ fig(sample.net) }}</b></div>
           <div v-if="docs.tva" class="bd-line"><span>TVA {{ docs.tva_rate }}%</span><b>{{ fig(sample.tax) }}</b></div>
           <div class="st-ptotal"><b>المجموع</b><b>{{ fig(sample.total) }} دج</b></div>
           <span class="st-pfoot">{{ docs.footer }}<template v-if="p.rib"> · RIB {{ p.rib }}</template></span>
         </div>
-      </aside>
+      </div>
     </div>
   </div>`,
 };
@@ -3740,7 +3756,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': route.name === 'customers'}">
+      <header class="topbar" :class="{'own-header': ['customers', 'settings'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
