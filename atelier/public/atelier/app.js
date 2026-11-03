@@ -1980,7 +1980,7 @@ const ReportsPage = {
 
 // ------------------------------------------------------------------ services & prices
 const PricesPage = {
-  components: { Icon, LoadState, DataTable },
+  props: ["embedded"], components: { Icon, LoadState, DataTable },
   setup() {
     const { s, load } = useLoad(() => call("prices"));
     onMounted(load);
@@ -2013,10 +2013,11 @@ const PricesPage = {
   },
   template: `
   <div class="page">
-    <div class="page-head"><div><h1>{{ t('nav_prices') }}</h1><div class="sub">{{ t('pr_sub') }}</div></div>
+    <div v-if="!embedded" class="page-head"><div><h1>{{ t('nav_prices') }}</h1><div class="sub">{{ t('pr_sub') }}</div></div>
       <button v-if="s.data && s.data.can_edit" type="button" class="btn primary" @click="state.sheet={type:'item'}"><Icon name="plus" :size="18"/>{{ t('pr_new_service') }}</button></div>
     <LoadState :s="s" :rows="4" @retry="load">
-      <div class="alert info" style="margin-bottom:var(--s4)"><Icon name="tag" :size="16"/><span>{{ t('pr_explain') }}</span></div>
+      <p v-if="embedded" class="muted" style="margin:0 0 14px">{{ t('pr_explain') }}</p>
+      <div v-else class="alert info" style="margin-bottom:var(--s4)"><Icon name="tag" :size="16"/><span>{{ t('pr_explain') }}</span></div>
       <DataTable :rows="s.data.items" :cols="cols" row-key="item_code" :search-keys="['item_name','item_code','item_group']" :filters="filters" initial-sort="item_name" :empty="t('pr_none')">
         <template #cell="{row, col}">
           <span v-if="col.k==='item_name'" class="title-cell"><span class="medium clamp2">{{ row.item_name }}</span><span class="cap">{{ t('pr_per', uom(row.stock_uom)) }}</span></span>
@@ -3357,6 +3358,7 @@ const SettingsPage = {
       <header class="cl-head st2-head">
         <div class="cl-head-row"><div style="min-width:0"><h1>{{ meta.title }}</h1><div class="muted">{{ meta.desc }}</div></div><span class="spacer"></span>
           <button v-if="tab === 'profile' || tab === 'docs'" type="button" class="cl-btn" @click="preview = true"><Icon name="file" :size="16"/>معاينة الفاتورة</button>
+          <button v-if="tab === 'prices' && state.boot.can.prices" type="button" class="cl-btn primary" @click="state.sheet = {type: 'item'}"><Icon name="plus" :size="16"/>خدمة جديدة</button>
           <button v-if="meta.save" type="button" class="cl-btn primary" :disabled="!!busy" @click="meta.save()">{{ busy ? 'جارٍ الحفظ…' : 'حفظ التغييرات' }}</button></div>
       </header>
       <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
@@ -3410,12 +3412,12 @@ const SettingsPage = {
                   <div class="row" style="gap:6px"><input class="input" :value="link.url" readonly dir="ltr" aria-label="الرابط" @focus="$event.target.select()"><button type="button" class="cl-btn" @click="copy(link.url)">نسخ</button></div></div>
               </div></div>
             <div class="st2-grp"><div class="st2-lbl"><b>أسماء الفريق</b><span>الأسماء التي تُسند إليها البطاقات. اربط كل اسم ببريد حسابه ليعمل «مهامي» والتنبيهات.</span></div>
-              <div class="st2-fields"><TeamPage embedded/></div></div>
+              <div class="st2-fields"><TeamPage :embedded="true"/></div></div>
           </div>
         </template>
 
-        <div v-else-if="tab === 'board'" class="st2-card st2-embed"><BoardSettings embedded/></div>
-        <div v-else-if="tab === 'prices'" class="st2-card st2-embed"><PricesPage/></div>
+        <div v-else-if="tab === 'board'" class="st2-card st2-embed"><BoardSettings :embedded="true"/></div>
+        <div v-else-if="tab === 'prices'" class="st2-card st2-embed"><PricesPage :embedded="true"/></div>
 
         <div v-else-if="tab === 'funds'" class="st2-card">
           <div class="st2-grp"><div class="st2-lbl"><b>الصناديق</b><span>الأسماء التي تظهر في صفحة المال وفي تسجيل الدفعات.</span></div>
