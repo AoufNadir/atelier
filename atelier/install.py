@@ -57,7 +57,8 @@ def setup_company():
 		return
 	from atelier import accounts_ar
 
-	if accounts_ar.matches_chart(company) and not frappe.db.get_default("atelier_accounts_ar_initialized"):
-		accounts_ar.run(company=company.name, commit=False)
+	if accounts_ar.matches_chart(company):
+		if not frappe.db.get_default("atelier_accounts_ar_initialized"):
+			accounts_ar.run(company=company.name, commit=False)
+			frappe.db.set_default("atelier_accounts_ar_initialized", company.name)
 		accounts_ar.default_bank(company=company.name, commit=False, only_if_missing=True)
-		frappe.db.set_default("atelier_accounts_ar_initialized", company.name)

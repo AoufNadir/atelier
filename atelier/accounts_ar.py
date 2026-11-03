@@ -48,8 +48,12 @@ def default_bank(company=None, commit=True, only_if_missing=False):
 	company = company or api._company()
 	if not company or not matches_chart(frappe.get_doc("Company", company)):
 		return
-	if only_if_missing and frappe.db.get_value("Company", company, "default_bank_account"):
-		return
+	current = frappe.db.get_value("Company", company, "default_bank_account")
+	if only_if_missing and current:
+		# This chart's first Bank-typed leaf can be a brokerage account. Repair
+		# that template default, but retain a workshop's deliberate bank choice.
+		if frappe.db.get_value("Account", current, "account_name") != "Société de bourse":
+			return
 	bank = frappe.db.get_value("Account", {"company": company, "account_name": "البنك", "is_group": 0})
 	if bank:
 		frappe.db.set_value("Company", company, "default_bank_account", bank)
