@@ -1400,3 +1400,78 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .mn-catbar { height: 6px; border-radius: 3px; background: var(--c-line2); overflow: hidden; } .mn-catbar span { display: block; height: 100%; background: #9B8AE6; border-radius: 3px; }
 @media (min-width: 1024px) { .topbar.own-header ~ main .mn { min-height: 100vh; } }
 @media (max-width: 1023px) { .mn-grid { grid-template-columns: 1fr; padding: 12px 16px 16px; } .mn-stats { grid-template-columns: 1fr 1fr; } .mn-search { width: 100%; } }
+
+/* ---------------- orders board and card window, classic */
+.tb.cb { background: #F6F7F9; min-height: 100vh; }
+.cb .tb-head { background: #fff; color: #1F2430; border-bottom: 1px solid #E4E7EC; padding: 14px 24px; gap: 10px; }
+.cb .tb-head h1 { color: #1F2430; font-size: 22px; }
+.cb .cl-count { color: #667085; font-size: 14px; }
+.cb-views button { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; color: #1F2430; font-size: 14px; }
+.cb-views button + button { border-inline-start: 1px solid #E4E7EC; }
+.cb-views button[aria-pressed="true"] { background: #F2F4F7; font-weight: 600; }
+.cb-bell { position: relative; } .cb-dot { position: absolute; top: 7px; inset-inline-end: 8px; width: 8px; height: 8px; border-radius: 50%; background: #D92D20; border: 2px solid #fff; }
+.cb .tb-bell-pop { color: #1F2430; }
+.cb .tb-cols { padding: 18px 24px; gap: 12px; }
+.cb .tb-col { background: #F2F4F7; border-radius: 10px; padding: 10px; }
+.cb .tb-col.deliver { background: #EEF6F1; }
+.cb .tb-col.over { outline: 2px dashed #4B32C3; outline-offset: -2px; }
+.cb .tb-col.full { background: #FEF3F2; outline: 1px solid #FECDCA; }
+.cb .tb-ch { font-size: 14px; font-weight: 600; padding: 4px 4px 8px; }
+.cb .tb-ch i { display: none; }
+.cb .tb-ch .bd-n { background: transparent; color: #667085; font-weight: 400; padding: 0; }
+.cb .tb-ch .bd-n.over { color: #B42318; font-weight: 600; }
+.cb-truck { color: #667085; display: inline-flex; }
+.cb .tb-addbtn { color: #667085; font-size: 13px; }
+.cb .tb-addbtn:hover { background: #E4E7EC; color: #1F2430; }
+.cb .tb-newcol, .cb .tb-newcol:has(.tb-newcol-btn) { background: transparent; border: 1px dashed #D0D5DD; width: 240px; }
+.cb .tb-newcol:has(.tb-newcol-btn) .tb-newcol-btn { color: #667085; font-weight: 400; }
+.cb .tc { border: 1px solid #E4E7EC; border-radius: 8px; box-shadow: none; }
+.cb .tc:hover { box-shadow: 0 2px 8px rgba(16,24,40,.08); border-color: #D0D5DD; }
+.cb .tc.drop-before { box-shadow: 0 -3px 0 0 #4B32C3; }
+.cb .tc-cover { height: 84px; border-bottom: 1px solid #E4E7EC; }
+.cb .tc-body { padding: 10px 12px; gap: 6px; }
+.cb .tc-labels { gap: 10px; }
+.cb .tc-labels .tl { background: transparent !important; color: #667085 !important; padding: 0; font-weight: 500; line-height: 18px; position: relative; padding-inline-start: 13px; }
+.cb .tc-labels .tl::before { content: ""; position: absolute; inset-inline-start: 0; top: 5px; width: 8px; height: 8px; border-radius: 2px; background: var(--lb, #98A2B3); }
+.cb .tc-title { font-weight: 600; }
+.cb .tc-cust { color: #667085; }
+.cb .tc-foot { border-top: 1px solid #F2F4F7; padding-top: 6px; gap: 10px; }
+.cb .tc-due { display: inline-flex; align-items: center; gap: 4px; padding: 0; background: none !important; }
+.cb .tc-due.soon { color: #B54708; } .cb .tc-due.late { color: #B42318; font-weight: 600; }
+.cb .tc-m, .cb .tc-check { display: inline-flex; align-items: center; gap: 4px; }
+.cb .tc-check.full { background: none; color: #067647; padding: 0; }
+.cb .tc-menu-btn { background: #fff; border: 1px solid #E4E7EC; }
+.cb .tb-cal { padding: 18px 24px; } .cb .tb-cal-head { color: #1F2430; }
+.cb .tb-day { border: 1px solid #E4E7EC; } .cb .tb-day.today { background: #F4F2FD; }
+.cb .tb-cal > .m { color: #667085 !important; }
+/* card window */
+.tm-overlay { background: rgba(16,24,40,.45); }
+.tm { border-radius: 12px; box-shadow: 0 24px 60px rgba(16,24,40,.3); }
+.tm-cover { height: auto; min-height: 58px; background-color: #fff; background-size: cover; border-bottom: 1px solid #E4E7EC; display: flex; align-items: center; gap: 10px; padding: 12px 20px; }
+.tm-cover[style*="url"] { min-height: 120px; align-items: flex-start; }
+.tm-col { position: static; } .tm-close { position: static; border-radius: 8px; border: 1px solid #E4E7EC; margin-inline-start: auto; order: 3; }
+.tm-actions { position: static; order: 2; margin-inline-start: auto; } .tm-actions + .tm-close { margin-inline-start: 0; }
+.tm-actions .btn { background: #fff; border: 1px solid #E4E7EC; }
+.tm-title { font-size: 22px; }
+.tm-client { background: #fff; border-color: #E4E7EC; border-radius: 8px; }
+.tm-type { background: transparent; color: #667085; padding: 0; }
+.tm-plus { border: 1px dashed #D0D5DD; color: #667085; width: 28px; height: 28px; font-size: 16px; } .tm-plus.sq { border-radius: 6px; }
+.tm-lb { background: transparent !important; color: #1F2430 !important; border: 1px solid #E4E7EC; border-radius: 6px; }
+.tm-sec h3 svg { color: #667085; }
+.tm-desc-v { background: #FAFBFC; border: 1px solid #E4E7EC; }
+.tm-bar span { background: #4B32C3; }
+.tm-side { background: #FAFBFC; border-inline-start-color: #E4E7EC; }
+.tm-money { border-color: #E4E7EC; border-radius: 8px; }
+.tm-due.soon { background: #FFFAEB; } .tm-due.late { background: #FEF3F2; }
+.tm-paybar span { background: #12B76A; }
+.cb .sc2-alert, .bd-panel .sc2-alert { font-weight: 500; }
+/* quick order panel */
+.bd-panel { box-shadow: none; border-inline-start: 1px solid #E4E7EC; }
+.bd-panel .bd-ph h2 { font-size: 20px; }
+@media (max-width: 1023px) { .cb .tb-head { padding: 12px 16px; } .cb .cl-search { width: 100%; order: 10; } .cb .tb-cols { padding: 12px 16px; } }
+
+.tm-lb { position: relative; padding-inline-start: 22px !important; }
+.tm-lb::before { content: ""; position: absolute; inset-inline-start: 9px; top: 50%; margin-top: -4px; width: 8px; height: 8px; border-radius: 2px; background: var(--lb, #98A2B3); }
+
+/* classic colour tokens for every page that uses the classic controls (board, card window, quick order, sheets) */
+.cb, .tm-overlay, .bd-panel, .overlay { --c-ink: #1F2430; --c-ink2: #667085; --c-ink3: #98A2B3; --c-line: #E4E7EC; --c-line2: #F0F1F4; --c-bg: #F6F7F9; --c-bad: #B42318; --c-ok: #067647; --c-warn: #B54708; }

@@ -2186,7 +2186,7 @@ const BoardPanel = {
         <div v-if="!f.customer && newName" class="bd-newc"><span class="m">عميل جديد</span>
           <input class="input" v-model="f.phone" inputmode="tel" dir="ltr" placeholder="الهاتف (اختياري)" aria-label="هاتف العميل الجديد">
           <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div>
-      <div v-if="credit && credit.over" class="sc2-alert" role="alert">⚠ هذا العميل تجاوز سقف الدين: عليه {{ fig(credit.owes) }} من {{ fig(credit.limit) }} دج</div>
+      <div v-if="credit && credit.over" class="sc2-alert" role="alert">هذا العميل تجاوز سقف الدين: عليه {{ fig(credit.owes) }} من {{ fig(credit.limit) }} دج</div>
       <div class="f"><label for="qo-what">ماذا يريد؟</label><input id="qo-what" class="input" v-model="f.what" placeholder="مثلًا: بطاقات زيارة 500"></div>
       <div class="bd-two"><div class="f"><label for="qo-price">السعر</label><div class="unit-wrap"><input id="qo-price" class="input num" inputmode="decimal" v-model="f.price" placeholder="لاحقًا"><span class="u">دج</span></div></div>
         <div class="f"><label for="qo-adv">تسبيق</label><div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0"><span class="u">دج</span></div></div></div>
@@ -2237,7 +2237,7 @@ const ago = (iso) => { const m = Math.round((Date.now() - new Date(String(iso).r
   return m < 1 ? "الآن" : m < 60 ? `منذ ${m} دقيقة` : m < 1440 ? `منذ ${Math.round(m / 60)} ساعة` : `منذ ${Math.round(m / 1440)} يوم`; };
 
 const BoardCard = {
-  props: ["c", "labels", "busy", "dropBefore", "columns"], emits: ["open", "drag", "dropon", "menu"], components: { Avatar },
+  props: ["c", "labels", "busy", "dropBefore", "columns"], emits: ["open", "drag", "dropon", "menu"], components: { Avatar, Icon },
   setup() { return { labelStyle, dueWord, daysFromToday, money }; },
   template: `
   <article class="tc" :class="{busy, 'drop-before': dropBefore}" draggable="true" tabindex="0" @dragstart="$emit('drag', c)" @click="$emit('open', c)" @keydown.enter="$emit('open', c)"
@@ -2245,15 +2245,15 @@ const BoardCard = {
     <button type="button" class="tc-menu-btn" aria-label="خيارات البطاقة" @click.stop="$emit('menu', c, $event)">···</button>
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
     <div class="tc-body">
-      <div v-if="c.labels.length" class="tc-labels"><span v-for="id in c.labels.filter(id => labels[id])" :key="id" class="tl" :style="labelStyle(labels[id])">{{ labels[id].name }}</span></div>
+      <div v-if="c.labels.length" class="tc-labels"><span v-for="id in c.labels.filter(id => labels[id])" :key="id" class="tl" :style="{...labelStyle(labels[id]), '--lb': labels[id].color}">{{ labels[id].name }}</span></div>
       <div class="tc-title">{{ c.title }}</div>
       <div class="tc-cust">{{ c.customer_name }}<template v-if="c.price_pending"> · <span class="bd-warn">بلا سعر</span></template></div>
       <div class="tc-foot">
-        <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: daysFromToday(c.due) < 0, soon: daysFromToday(c.due) >= 0 && daysFromToday(c.due) <= 1}">⏰ {{ dueWord(c.due) }}<template v-if="c.due_time"> {{ c.due_time }}</template></span>
-        <span v-else-if="c.per_delivered >= 100" :class="c.grand_total - c.paid > 0.005 ? 'bd-late' : 'bd-ok'">{{ c.grand_total - c.paid > 0.005 ? 'باقي ' + money(c.grand_total - c.paid) : '✓ مدفوع' }}</span>
-        <span v-if="c.comments" title="تعليقات">💬 {{ c.comments }}</span>
-        <span v-if="c.files" title="مرفقات">📎 {{ c.files }}</span>
-        <span v-if="c.check[1]" class="tc-check" :class="{full: c.check[0] === c.check[1]}" title="قائمة المهام">☑ {{ c.check[0] }}/{{ c.check[1] }}</span>
+        <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: daysFromToday(c.due) < 0, soon: daysFromToday(c.due) >= 0 && daysFromToday(c.due) <= 1}"><Icon name="clock" :size="13"/>{{ dueWord(c.due) }}<template v-if="c.due_time"> {{ c.due_time }}</template></span>
+        <span v-else-if="c.per_delivered >= 100" :class="c.grand_total - c.paid > 0.005 ? 'bd-late' : 'bd-ok'">{{ c.grand_total - c.paid > 0.005 ? 'باقي ' + money(c.grand_total - c.paid) : 'مدفوع' }}</span>
+        <span v-if="c.comments" class="tc-m" title="تعليقات"><Icon name="msg" :size="13"/>{{ c.comments }}</span>
+        <span v-if="c.files" class="tc-m" title="مرفقات"><Icon name="file" :size="13"/>{{ c.files }}</span>
+        <span v-if="c.check[1]" class="tc-check" :class="{full: c.check[0] === c.check[1]}" title="قائمة المهام"><Icon name="check" :size="13"/>{{ c.check[0] }}/{{ c.check[1] }}</span>
         <span class="spacer"></span>
         <span class="tc-members"><Avatar v-for="m in c.members.slice(0, 3)" :key="m" :name="m"/></span>
       </div>
@@ -2387,9 +2387,9 @@ const CardModal = {
       <div class="tm-cover" :style="d.cover ? {backgroundImage: 'url(' + d.cover + ')'} : {}">
         <label class="tm-col"><span class="sr-only">العمود</span>
           <select class="input" :value="d.column" :disabled="busy || !d.can_edit" @change="moveTo($event.target.value)">
-            <option v-for="c in config.columns" :key="c.id" :value="c.id">{{ c.name }}{{ c.deliver ? ' 🚚' : '' }}</option></select></label>
+            <option v-for="c in config.columns" :key="c.id" :value="c.id">{{ c.name }}{{ c.deliver ? ' (تسليم)' : '' }}</option></select></label>
         <button type="button" class="btn icon-btn tm-close" aria-label="إغلاق" @click="$emit('close')"><Icon name="x"/></button>
-        <div v-if="d.can_edit" class="tm-actions"><button type="button" class="btn sm" @click="copyCard">📋 نسخ</button><button type="button" class="btn sm" @click="archiveCard">🗄 أرشفة</button></div>
+        <div v-if="d.can_edit" class="tm-actions"><button type="button" class="btn sm" @click="copyCard">نسخ</button><button type="button" class="btn sm" @click="archiveCard"><Icon name="box" :size="15"/>أرشفة</button></div>
       </div>
       <div class="tm-body">
         <div class="tm-main">
@@ -2406,7 +2406,7 @@ const CardModal = {
                 <span v-if="d.client.phone" dir="ltr">{{ d.client.phone }}</span><template v-if="d.client.phone"> · </template>{{ d.client.orders }} {{ d.client.orders === 1 ? 'طلب' : 'طلبات' }}
                 <template v-if="d.client.owes > 0.005"> · <span class="bd-late">عليه {{ money(d.client.owes) }}</span></template></template></div>
             </div>
-            <a v-if="d.client.phone" class="btn sm" :href="'tel:' + d.client.phone" aria-label="اتصال">📞</a>
+            <a v-if="d.client.phone" class="btn sm" :href="'tel:' + d.client.phone" aria-label="اتصال"><Icon name="phone" :size="15"/></a>
             <a v-if="waLink(d.client.phone)" class="btn sm" target="_blank" rel="noopener" :href="waLink(d.client.phone)">واتساب</a>
             <button v-if="d.docstatus === 0 && d.can_edit" type="button" class="btn sm" @click="pickClient = !pickClient">{{ d.client.cash ? 'اختيار العميل' : 'تغيير' }}</button>
           </div>
@@ -2425,7 +2425,7 @@ const CardModal = {
               </div>
             </div>
             <div class="tm-meta-b tm-pop-host"><span class="m">الحالات</span>
-              <div class="row" style="gap:4px;flex-wrap:wrap"><span v-for="id in d.labels.filter(id => labels[id])" :key="id" class="tl tm-lb" :style="labelStyle(labels[id])">{{ labels[id].name }}</span>
+              <div class="row" style="gap:4px;flex-wrap:wrap"><span v-for="id in d.labels.filter(id => labels[id])" :key="id" class="tl tm-lb" :style="{'--lb': labels[id].color}">{{ labels[id].name }}</span>
                 <button v-if="d.can_edit" type="button" class="tm-plus sq" aria-label="اختيار الحالات" :aria-expanded="pop === 'labels'" @click.stop="pop = pop === 'labels' ? null : 'labels'">+</button></div>
               <div v-if="pop === 'labels'" class="tm-pop" @click.stop>
                 <b>الحالات</b>
@@ -2453,17 +2453,17 @@ const CardModal = {
               <div class="tm-due" :class="dueTone">
                 <input type="date" class="input bd-date" :value="d.due" :disabled="busy || !d.can_edit" aria-label="تاريخ التسليم" @change="save({due: $event.target.value})">
                 <input type="time" class="input bd-date" :value="d.due_time || ''" :disabled="busy || !d.can_edit" aria-label="ساعة التسليم" @change="save({due_time: $event.target.value})">
-                <span class="tm-due-w">⏰ {{ dueWord(d.due) }}</span></div></div>
+                <span class="tm-due-w">{{ dueWord(d.due) }}</span></div></div>
           </div>
 
-          <section class="tm-sec"><h3>≡ الوصف <span class="spacer"></span><button v-if="d.can_edit && !editDesc" type="button" class="btn sm" @click="startDesc">تعديل</button></h3>
+          <section class="tm-sec"><h3><Icon name="file" :size="17"/>الوصف <span class="spacer"></span><button v-if="d.can_edit && !editDesc" type="button" class="btn sm" @click="startDesc">تعديل</button></h3>
             <template v-if="editDesc"><textarea class="input tm-desc" v-model="desc" rows="5" aria-label="الوصف"></textarea>
               <div class="row" style="gap:8px"><button type="button" class="btn primary sm" :disabled="busy" @click="saveDesc">حفظ</button><button type="button" class="btn ghost sm" @click="editDesc=false">إلغاء</button></div></template>
             <div v-else class="tm-desc-v" :class="{empty: !d.description}" @click="d.can_edit && startDesc()">{{ d.description || 'أضف وصفًا: المقاسات، الورق، رقم العميل…' }}</div>
           </section>
 
-          <section class="tm-sec"><h3>☑ قائمة المهام <span v-if="d.checklist.length" class="m" style="display:inline">{{ checkDone }}/{{ d.checklist.length }}</span><span class="spacer"></span>
-            <span v-if="d.can_edit" class="tm-pop-host"><button type="button" class="btn sm tm-tpl-btn" :aria-expanded="pop === 'tpl'" @click.stop="openTpl">📑 من قالب ▾</button>
+          <section class="tm-sec"><h3><Icon name="check" :size="17"/>قائمة المهام <span v-if="d.checklist.length" class="m" style="display:inline">{{ checkDone }}/{{ d.checklist.length }}</span><span class="spacer"></span>
+            <span v-if="d.can_edit" class="tm-pop-host"><button type="button" class="btn sm tm-tpl-btn" :aria-expanded="pop === 'tpl'" @click.stop="openTpl">من قالب</button>
               <div v-if="pop === 'tpl'" class="tm-pop" style="inset-inline-start:auto;inset-inline-end:0" @click.stop><b>القوالب</b>
                 <div v-for="tp in tpls" :key="tp.title" class="tm-lrow"><button type="button" class="tm-pop-row" style="flex:1" @click="applyTpl(tp)">{{ tp.title }} <span class="m" style="display:inline">({{ tp.items.length }})</span></button>
                   <button v-if="manager" type="button" class="btn ghost icon-btn sm" :aria-label="'حذف قالب ' + tp.title" @click="dropTpl(tp)"><Icon name="x" :size="14"/></button></div>
@@ -2476,8 +2476,8 @@ const CardModal = {
             <form v-if="d.can_edit" class="row" style="gap:8px" @submit.prevent="addItem"><input class="input" v-model="newItem" placeholder="+ أضف عنصرًا" aria-label="عنصر جديد"><button type="submit" class="btn sm">إضافة</button></form>
           </section>
 
-          <section class="tm-sec"><h3>📎 المرفقات <span class="spacer"></span>
-            <label v-if="d.can_edit" class="btn sm">📷 تصوير<input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFiles"></label>
+          <section class="tm-sec"><h3><Icon name="file" :size="17"/>المرفقات <span class="spacer"></span>
+            <label v-if="d.can_edit" class="btn sm"><Icon name="image" :size="15"/>تصوير<input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFiles"></label>
             <label v-if="d.can_edit" class="btn sm">{{ uploading ? 'جارٍ الرفع…' : '+ إضافة' }}<input ref="fileInput" type="file" multiple class="sr-only" @change="onFiles"></label></h3>
             <div v-if="!d.files.length" class="m">اسحب الملفات إلى هنا، أو اضغط «+ إضافة».</div>
             <div v-for="f in d.files" :key="f.name" class="tm-file">
@@ -2502,7 +2502,7 @@ const CardModal = {
             <div class="row" style="gap:8px"><button v-if="state.boot.can.payment && !d.price_pending && d.grand_total - d.paid > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
               <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, 'الورشة — عربي')">بون PDF</a></div>
           </div>
-          <h3>💬 التعليقات والنشاط</h3>
+          <h3>التعليقات والنشاط</h3>
           <form class="tm-comment" @submit.prevent="addComment"><textarea class="input" v-model="comment" rows="2" placeholder="اكتب تعليقًا…" aria-label="تعليق" @keydown.ctrl.enter="addComment"></textarea>
             <button v-if="comment.trim()" type="submit" class="btn primary sm">حفظ</button></form>
           <div v-for="a in d.activity" :key="a.name" class="tm-act" :class="{info: a.comment_type === 'Info'}">
@@ -2579,7 +2579,9 @@ const Board = {
     // card menu
     const menu = ref(null), photoInput = ref(null);
     const openMenu = (c, ev) => { const r = ev.currentTarget.getBoundingClientRect(); menu.value = { c, top: r.bottom + 4, left: Math.max(8, r.left - 180) }; };
-    const closeMenu = () => (menu.value = null);
+    const fopen = ref(false), more = ref(false);
+    const openCount = computed(() => (s.data?.cards || []).filter((c) => c.per_delivered < 100).length);
+    const closeMenu = () => { menu.value = null; fopen.value = false; more.value = false; };
     onMounted(() => window.addEventListener("click", closeMenu));
     onBeforeUnmount(() => window.removeEventListener("click", closeMenu));
     const act = async (kind, extra) => {
@@ -2619,32 +2621,36 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
+    return { fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
   },
   template: `
-  <div class="page tb">
+  <div class="page tb cb">
     <div class="tb-head">
       <h1>الطلبات</h1>
-      <div class="tb-views" role="group" aria-label="طريقة العرض"><button type="button" :aria-pressed="view === 'board'" @click="view = 'board'">▦ لوحة</button><button type="button" :aria-pressed="view === 'calendar'" @click="view = 'calendar'">📅 تقويم</button></div>
-      <input type="search" class="input tb-search" v-model="q" placeholder="🔍 ابحث: عميل، عنوان، رقم…" aria-label="بحث في البطاقات">
+      <span class="cl-count">{{ openCount }} {{ openCount === 1 ? 'طلب جارٍ' : 'طلبات جارية' }}</span>
+      <div class="mn-month cb-views" role="group" aria-label="طريقة العرض"><button type="button" :aria-pressed="view === 'board'" @click="view = 'board'"><Icon name="grid" :size="15"/>لوحة</button><button type="button" :aria-pressed="view === 'calendar'" @click="view = 'calendar'"><Icon name="calendar" :size="15"/>تقويم</button></div>
       <span class="spacer"></span>
-      <div class="tb-team" aria-label="الفريق"><Avatar v-for="p in state.boot.team" :key="p" :name="p"/></div>
-      <label class="tb-filter"><span class="sr-only">تصفية بالحالة</span><select class="input" v-model="label"><option value="">كل الحالات</option><option v-for="l in cfg.labels" :key="l.id" :value="l.id">{{ l.name }}</option></select></label>
-      <button type="button" class="bd-chip" :aria-pressed="mine" @click="mine = !mine">مهامي</button>
-      <button type="button" class="bd-chip" @click="showArchive">🗄 الأرشيف</button>
-      <div class="tb-bell-host"><button type="button" class="tb-bell" :aria-label="'التنبيهات' + (notes.unread ? ' — ' + notes.unread + ' جديدة' : '')" :aria-expanded="bell" @click.stop="toggleBell">🔔<span v-if="notes.unread" class="tb-bell-n">{{ notes.unread }}</span></button>
+      <label class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث في البطاقات</span><input type="search" v-model="q" placeholder="ابحث: عميل، عنوان، رقم"></label>
+      <div class="cl-pop-host"><button type="button" class="cl-btn" :aria-expanded="fopen" @click.stop="fopen = !fopen; more = false; bell = false"><Icon name="filter" :size="16"/>تصفية<template v-if="label || mine"> · {{ (label ? 1 : 0) + (mine ? 1 : 0) }}</template></button>
+        <div v-if="fopen" class="cl-pop cl-filters" @click.stop>
+          <label class="cl-fgroup"><span>الحالة</span><select class="input" v-model="label"><option value="">كل الحالات</option><option v-for="l in cfg.labels" :key="l.id" :value="l.id">{{ l.name }}</option></select></label>
+          <label class="st2-check"><input type="checkbox" v-model="mine"><span>بطاقاتي فقط (مهامي)</span></label>
+          <div class="cl-pop-foot"><button type="button" class="cl-link" @click="label = ''; mine = false">إعادة ضبط</button><button type="button" class="cl-btn primary" @click="fopen = false">تم</button></div></div></div>
+      <div class="tb-bell-host"><button type="button" class="cl-btn icon cb-bell" :aria-label="'التنبيهات' + (notes.unread ? ' — ' + notes.unread + ' جديدة' : '')" :aria-expanded="bell" @click.stop="fopen = false; more = false; toggleBell()"><Icon name="bell" :size="18"/><span v-if="notes.unread" class="cb-dot"></span></button>
         <div v-if="bell" class="tm-pop tb-bell-pop" @click.stop>
           <b>التنبيهات</b>
           <button v-for="d in notes.due" :key="'d' + d.name" type="button" class="tm-pop-row" @click="open = d.name; bell = false">
-            <span class="tb-due-ic" :class="{late: d.late}">⏰</span><span style="flex:1">«{{ d.title }}» <span :class="d.late ? 'bd-late' : 'bd-warn'">{{ dueWord(d.due) }}<template v-if="d.due_time"> {{ d.due_time }}</template></span></span></button>
+            <span class="tb-due-ic" :class="{late: d.late}"><Icon name="clock" :size="15"/></span><span style="flex:1">«{{ d.title }}» <span :class="d.late ? 'bd-late' : 'bd-warn'">{{ dueWord(d.due) }}<template v-if="d.due_time"> {{ d.due_time }}</template></span></span></button>
           <button v-for="l in notes.logs" :key="l.name" type="button" class="tm-pop-row" :class="{unread: !l.read}" @click="open = l.document_name; bell = false">
             <Avatar :name="l.by" :size="28"/><span style="flex:1;min-width:0"><span>{{ l.subject }}</span><span class="m">{{ ago(l.creation) }}</span></span></button>
           <span v-if="!notes.due.length && !notes.logs.length" class="m">لا تنبيهات.</span>
         </div></div>
-      <button v-if="s.data && s.data.manager" type="button" class="btn tb-gear" @click="go('/board-settings')"><Icon name="gear" :size="18"/>تخصيص</button>
-      <button type="button" class="btn primary bd-new" @click="panel = {mode: 'new'}">+ طلب جديد</button>
+      <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="المزيد" :aria-expanded="more" @click.stop="more = !more; fopen = false; bell = false"><Icon name="more" :size="18"/></button>
+        <div v-if="more" class="cl-pop cl-menu" @click.stop><button type="button" @click="more = false; showArchive()"><Icon name="box" :size="16"/>الأرشيف</button>
+          <button v-if="s.data && s.data.manager" type="button" @click="go('/settings?tab=board')"><Icon name="gear" :size="16"/>تخصيص اللوحة</button></div></div>
+      <button type="button" class="cl-btn primary" @click="panel = {mode: 'new'}"><Icon name="plus" :size="16"/>طلب جديد</button>
     </div>
     <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
     <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
@@ -2668,13 +2674,13 @@ const Board = {
     <div v-else class="tb-cols">
       <section v-for="c in cols" :key="c.id" class="tb-col" :class="{over: over === c.id, deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name"
         @dragover.prevent="over = c.id; before = null" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="drop(c.id)">
-        <h2 class="tb-ch"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم"> 🚚</span>
-          <span class="bd-n" :class="{over: c.limit && c.items.length > c.limit}">{{ c.items.length }}<template v-if="c.limit"> / {{ c.limit }}<template v-if="c.items.length > c.limit"> ⚠</template></template></span></h2>
+        <h2 class="tb-ch"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
+          <span class="bd-n" :class="{over: c.limit && c.items.length > c.limit}">{{ c.items.length }}<template v-if="c.limit"> / {{ c.limit }}<template v-if="c.items.length > c.limit"> !</template></template></span></h2>
         <TransitionGroup name="tcm" tag="div" class="tb-list">
           <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :busy="busy === card.name" :drop-before="before === card.name"
             @open="open = card.name" @drag="dragging = $event" @dropon="dropOn" @menu="openMenu"/>
         </TransitionGroup>
-        <button v-if="c.deliver && paidCount(c)" type="button" class="tb-addbtn" @click="archivePaid(c.id)">🗄 أرشفة المدفوع كله ({{ paidCount(c) }})</button>
+        <button v-if="c.deliver && paidCount(c)" type="button" class="tb-addbtn" @click="archivePaid(c.id)">أرشفة المدفوع كله ({{ paidCount(c) }})</button>
         <template v-if="!c.deliver">
           <form v-if="adding === c.id" class="tb-add" @submit.prevent="addCard(c.id)">
             <textarea :id="'add-' + c.id" class="input" v-model="newTitle" rows="2" placeholder="عنوان البطاقة…" aria-label="عنوان البطاقة" @keydown.enter.prevent="addCard(c.id)" @keydown.esc="adding = null"></textarea>
@@ -2691,17 +2697,17 @@ const Board = {
 
     <div v-if="menu" class="tm-pop tb-menu" :style="{top: menu.top + 'px', left: menu.left + 'px'}" @click.stop>
       <b class="ellipsis">{{ menu.c.title }}</b>
-      <button type="button" class="tm-pop-row" @click="act('copy')">📋 نسخ البطاقة</button>
-      <button type="button" class="tm-pop-row" @click="act('archive')">🗄 أرشفة</button>
-      <button type="button" class="tm-pop-row" @click="act('photo')">📷 تصوير وإرفاق</button>
-      <label class="tm-pop-row">↔ نقل إلى <select class="input" style="width:auto;min-height:32px" @change="act('move', $event.target.value)"><option value="">…</option>
+      <button type="button" class="tm-pop-row" @click="act('copy')"><Icon name="file" :size="15"/>نسخ البطاقة</button>
+      <button type="button" class="tm-pop-row" @click="act('archive')"><Icon name="box" :size="15"/>أرشفة</button>
+      <button type="button" class="tm-pop-row" @click="act('photo')"><Icon name="image" :size="15"/>تصوير وإرفاق</button>
+      <label class="tm-pop-row">نقل إلى <select class="input" style="width:auto;min-height:32px" @change="act('move', $event.target.value)"><option value="">…</option>
         <option v-for="col in cfg.columns.filter(x => x.id !== menu.c.column)" :key="col.id" :value="col.id">{{ col.name }}</option></select></label>
     </div>
     <input ref="photoInput" type="file" accept="image/*" capture="environment" class="sr-only" tabindex="-1" aria-hidden="true" @change="onPhoto">
 
     <div v-if="archive" class="overlay tm-overlay" @click.self="archive = null">
       <div class="tm tb-archive" role="dialog" aria-modal="true" aria-label="الأرشيف">
-        <div class="bd-ph" style="padding:20px 22px 0"><h2>🗄 الأرشيف</h2><button type="button" class="btn ghost icon-btn" aria-label="إغلاق" @click="archive = null"><Icon name="x"/></button></div>
+        <div class="bd-ph" style="padding:20px 22px 0"><h2>الأرشيف</h2><button type="button" class="btn ghost icon-btn" aria-label="إغلاق" @click="archive = null"><Icon name="x"/></button></div>
         <div style="padding:16px 22px 22px;display:flex;flex-direction:column;gap:8px">
           <div v-if="!archive.length" class="m">لا بطاقات مؤرشفة.</div>
           <div v-for="a in archive" :key="a.name" class="bs-row"><span style="flex:1;min-width:0"><b>{{ a.title || a.name }}</b><span class="m">{{ a.customer_name }} · {{ ago(a.modified) }}</span></span>
@@ -3762,7 +3768,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': ['customers', 'settings', 'money'].includes(route.name)}">
+      <header class="topbar" :class="{'own-header': ['customers', 'settings', 'money', 'home', 'orders', 'order-new'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
