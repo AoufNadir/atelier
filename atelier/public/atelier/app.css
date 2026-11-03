@@ -1152,3 +1152,24 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
   .sm3-grid { grid-template-columns: 1fr; padding: 0 16px 16px; }
   .sm3-cat { display: none; } .sm3-search { width: 100%; }
 }
+
+/* customers: form, alerts, people, log, stats */
+.cs2 { width: min(680px, 100%); background: #F1F0F5; }
+.cs2-head { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; height: 70px; background: linear-gradient(120deg, #4B32C3, #2B1B4A); color: #fff; font-size: 20px; }
+.cs2-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.cs2-sec { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; background: #fff; box-shadow: 0 1px 1px rgba(9,30,66,.2); }
+.cs2-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+.cs2-f { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 4px; } .cs2-f.grow2 { flex: 2; }
+.cs2-f .err { color: var(--danger); font-size: 12px; }
+.cs2-person .input { flex: 1; min-width: 120px; }
+.sc2-alert { padding: 10px 12px; border-radius: 10px; background: #FDECEA; border: 1px solid #F5C8C2; color: #B42318; font-size: 13px; font-weight: 600; }
+.sc2-alert.off { background: #F1F0F5; border-color: var(--line-strong); color: var(--ink-2); font-weight: 400; }
+.sc2-menu { width: 230px; inset-inline-start: auto; inset-inline-end: 0; color: var(--ink); }
+.sc2-legal .bd-line span[dir="ltr"] { font-variant-numeric: tabular-nums; }
+.sc2-logf { display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid #F1F0F5; }
+.sc2-logt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.sc2-mchart { display: flex; gap: 6px; align-items: flex-end; height: 120px; border-bottom: 1px solid var(--line); }
+.sc2-mbar { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; }
+.sc2-mbar span:first-child { width: 60%; min-height: 2px; background: #9B87F5; border-radius: 4px 4px 0 0; }
+.sc2-mbar .m { font-size: 12px; }
+.sc2-tabs { flex-wrap: wrap; } .sc2-tabs button { font-size: 13px; }

@@ -84,7 +84,7 @@ def _address(doctype, name):
 def print_context(doc):
 	company = frappe.get_cached_doc("Company", doc.company)
 	party = doc.party if doc.doctype == "Payment Entry" else doc.customer
-	customer = frappe.db.get_value("Customer", party, ["customer_name", "customer_type", "mobile_no", "tax_id"], as_dict=True) or {}
+	customer = frappe.db.get_value("Customer", party, ["customer_name", "customer_type", "mobile_no", "tax_id", "atelier_rc", "atelier_nis", "atelier_ai"], as_dict=True) or {}
 	logo = company.company_logo
 	return {
 		"title": TITLES.get(doc.doctype, doc.doctype),
@@ -94,6 +94,7 @@ def print_context(doc):
 			"logo": (get_url(logo) if logo and logo.startswith("/") else logo), "address": _address("Company", company.name)},
 		"customer": {"name": customer.get("customer_name") or party, "phone": customer.get("mobile_no"),
 			"tax_id": customer.get("tax_id") if customer.get("customer_type") == "Company" else None,
+			**({"rc": customer.get("atelier_rc"), "nis": customer.get("atelier_nis"), "ai": customer.get("atelier_ai")} if customer.get("customer_type") == "Company" else {}),
 			"address": _address("Customer", party)},
 		"font_url": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600&display=swap",
 	}

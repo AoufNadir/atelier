@@ -703,10 +703,10 @@ def customer_fields():
 
 @frappe.whitelist()
 def customers2():
-	rows = api.customers(full=1)
+	rows = api.customers(full=1, include_disabled=1)
 	names = [r.name for r in rows] or [""]
-	extra = {r.name: r for r in frappe.get_all("Customer", filters={"name": ["in", names]}, fields=["name", "atelier_vip", "creation"])}
-	counts = dict(frappe.db.sql("""select customer, count(*) from `tabSales Order` where docstatus<2 and customer in %s group by customer""", [names]))
+	extra = {r.name: r for r in frappe.get_all("Customer", filters={"name": ["in", names]}, fields=["name", "atelier_vip", "creation", "atelier_tags", "disabled"])}
+	counts = dict(frappe.db.sql("""select customer, count(*) from `tabSales Order` where docstatus<2 and ifnull(atelier_archived, 0)=0 and customer in %s group by customer""", [names]))
 	month = str(get_first_day(nowdate()))
 	covers = {}
 	for so in frappe.get_all("Sales Order", filters={"customer": ["in", names], "docstatus": ["<", 2], "atelier_cover": ["is", "set"]},
@@ -718,12 +718,14 @@ def customers2():
 		r.covers = covers.get(r.name, [])
 		e = extra.get(r.name) or {}
 		r.vip = cint(e.get("atelier_vip"))
+		r.tags = _jl(e.get("atelier_tags"))
+		r.disabled = cint(e.get("disabled"))
 		r.orders = counts.get(r.name, 0)
 		r.since = str(e.get("creation") or "")[:10]
 		r.new = r.since >= month
 		r.away = bool(r.last_order) and (frappe.utils.getdate(nowdate()) - frappe.utils.getdate(r.last_order)).days >= AWAY_DAYS
 	cash = frappe.db.get_value("Customer", {"customer_name": "زبون نقدي"})
-	return {"rows": [r for r in rows if r.name != cash], "away_days": AWAY_DAYS}
+	return {"rows": [r for r in rows if r.name != cash], "away_days": AWAY_DAYS, "customer_tags": customer_tags(), "manager": _is_manager()}
 
 
 @frappe.whitelist()
@@ -763,6 +765,7 @@ def customer2(name):
 			order by si.posting_date asc limit 1""", name, as_dict=True)
 		res["oldest_unpaid"] = res["oldest_unpaid"][0] if res["oldest_unpaid"] else None
 	res["workshop"] = frappe.get_cached_value("Company", api._company(), "company_name")
+	res.update(customer_extras(name))
 	return res
 
 
@@ -927,3 +930,127 @@ def pay_supplier(invoice, mode_of_payment="Cash"):
 	pe.insert()
 	pe.submit()
 	return pe.name
+
+
+# ---------------------------------------------------------------- customers: legal ids, people, credit limit, groups, contact log, stats, merge
+CUSTOMER_FIELDS_2 = [
+	{"fieldname": "atelier_rc", "label": "السجل التجاري RC", "fieldtype": "Data", "insert_after": "tax_id"},
+	{"fieldname": "atelier_nis", "label": "NIS", "fieldtype": "Data", "insert_after": "atelier_rc"},
+	{"fieldname": "atelier_ai", "label": "المادة AI", "fieldtype": "Data", "insert_after": "atelier_nis"},
+	{"fieldname": "atelier_credit_limit", "label": "سقف الدين", "fieldtype": "Currency", "insert_after": "atelier_vip"},
+	{"fieldname": "atelier_tags", "label": "التصنيفات", "fieldtype": "Small Text", "insert_after": "atelier_credit_limit"},
+	{"fieldname": "atelier_contacts", "label": "الأشخاص", "fieldtype": "Text", "insert_after": "atelier_tags"},
+]
+DEFAULT_CUSTOMER_TAGS = [
+	{"id": "t-wholesale", "name": "جملة", "color": "#2563EB"}, {"id": "t-partner", "name": "مطبعة شريكة", "color": "#22A06B"},
+	{"id": "t-public", "name": "إدارة عمومية", "color": "#9B87F5"},
+]
+
+
+def customer_fields_2():
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	create_custom_fields({"Customer": [{**f, "module": "Atelier"} for f in CUSTOMER_FIELDS_2]})
+
+
+def customer_tags():
+	try:
+		return json.loads(frappe.db.get_default("atelier_customer_tags") or "null") or DEFAULT_CUSTOMER_TAGS
+	except ValueError:
+		return DEFAULT_CUSTOMER_TAGS
+
+
+@frappe.whitelist(methods=["POST"])
+def save_customer_tags(tags):
+	if not _is_manager():
+		frappe.throw(_("للمدير فقط"), frappe.PermissionError)
+	out = [{"id": t.get("id") or frappe.generate_hash(length=8), "name": (t.get("name") or "").strip()[:40], "color": t.get("color") or "#9A94AC"}
+		for t in frappe.parse_json(tags) or [] if (t.get("name") or "").strip()]
+	frappe.db.set_default("atelier_customer_tags", json.dumps(out, ensure_ascii=False))
+	return out
+
+
+@frappe.whitelist(methods=["POST"])
+def save_customer2(data):
+	"""The customer form: base fields through save_customer (contact, address), then legal ids, people, limit, groups, note."""
+	d = frappe.parse_json(data)
+	d["tax_id"] = d.get("nif")
+	name = api.save_customer(json.dumps(d, ensure_ascii=False))
+	company = d.get("customer_type") == "Company"
+	people = [{"name": (p.get("name") or "").strip()[:80], "role": (p.get("role") or "").strip()[:60], "phone": (p.get("phone") or "").strip()[:30]}
+		for p in d.get("contacts") or [] if (p.get("name") or "").strip()]
+	ids = {t["id"] for t in customer_tags()}
+	frappe.db.set_value("Customer", name, {
+		"atelier_rc": (d.get("rc") or "").strip() or None if company else None,
+		"atelier_nis": (d.get("nis") or "").strip() or None if company else None,
+		"atelier_ai": (d.get("ai") or "").strip() or None if company else None,
+		"atelier_credit_limit": flt(d.get("credit_limit")),
+		"atelier_tags": json.dumps([t for t in d.get("tags") or [] if t in ids]),
+		"atelier_contacts": json.dumps(people, ensure_ascii=False),
+		"atelier_note": (d.get("note") or "").strip()[:1000] or None,
+	})
+	return name
+
+
+@frappe.whitelist()
+def customer_credit(name):
+	"""For the new-order form: is this customer over their credit limit?"""
+	limit = flt(frappe.db.get_value("Customer", name, "atelier_credit_limit"))
+	owes = flt(frappe.db.sql("select sum(outstanding_amount) from `tabSales Invoice` where customer=%s and docstatus=1", name)[0][0]) if api._can("Sales Invoice") else 0
+	return {"limit": limit, "owes": owes, "over": bool(limit) and owes > limit}
+
+
+@frappe.whitelist(methods=["POST"])
+def add_customer_log(name, kind, text):
+	doc = frappe.get_doc("Customer", name)
+	doc.check_permission("read")
+	text = (text or "").strip()
+	if not text:
+		frappe.throw(_("اكتب ما حدث"))
+	icon = {"call": "📞", "whatsapp": "💬", "visit": "🤝", "promise": "🗓"}.get(kind, "📝")
+	doc.add_comment("Comment", icon + " " + frappe.utils.escape_html(text)[:2000])
+	return customer2(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_customer_disabled(name, disabled=1):
+	doc = frappe.get_doc("Customer", name)
+	doc.check_permission("write")
+	doc.db_set("disabled", cint(disabled))
+	return cint(disabled)
+
+
+@frappe.whitelist(methods=["POST"])
+def merge_customers(source, target):
+	"""Merge a duplicate into another customer: its orders, invoices, payments and files move over."""
+	if not _is_manager():
+		frappe.throw(_("الدمج للمدير فقط"), frappe.PermissionError)
+	if source == target:
+		frappe.throw(_("اختر عميلًا آخر"))
+	if frappe.db.get_value("Customer", source, "customer_type") != frappe.db.get_value("Customer", target, "customer_type"):
+		frappe.throw(_("لا يمكن دمج فرد مع مؤسسة"))
+	frappe.rename_doc("Customer", source, target, merge=True, force=True)
+	return target
+
+
+def customer_extras(name):
+	"""Extra blocks for the profile: legal ids, people, limit, groups, contact log, stats."""
+	c = frappe.db.get_value("Customer", name, ["tax_id", "atelier_rc", "atelier_nis", "atelier_ai", "atelier_credit_limit", "atelier_tags",
+		"atelier_contacts", "disabled"], as_dict=True) or {}
+	log = frappe.get_all("Comment", filters={"reference_doctype": "Customer", "reference_name": name, "comment_type": "Comment"},
+		fields=["name", "content", "owner", "creation"], order_by="creation desc", limit=50)
+	for l in log:
+		l.by = frappe.utils.get_fullname(l.owner)
+	months = frappe.db.sql("""select date_format(transaction_date, '%%Y-%%m') m, sum(grand_total) total from `tabSales Order`
+		where customer=%s and docstatus=1 and transaction_date >= %s group by m order by m""", (name, add_days(get_first_day(nowdate()), -150)), as_dict=True)
+	top = frappe.db.sql("""select coalesce(nullif(so.atelier_subject, ''), soi.item_name) what, count(distinct so.name) n from `tabSales Order` so
+		join `tabSales Order Item` soi on soi.parent=so.name where so.customer=%s and so.docstatus<2 group by what order by n desc limit 5""", name, as_dict=True)
+	return {"legal": {"nif": c.get("tax_id"), "rc": c.get("atelier_rc"), "nis": c.get("atelier_nis"), "ai": c.get("atelier_ai")},
+		"credit_limit": flt(c.get("atelier_credit_limit")), "tags": _jl(c.get("atelier_tags")), "contacts": _jl(c.get("atelier_contacts")),
+		"disabled": cint(c.get("disabled")), "log": log, "months": months, "top": top, "customer_tags": customer_tags()}
+
+
+def demo_customers_2():
+	frappe.set_user("Administrator")
+	customer_fields_2()
+	frappe.db.commit()

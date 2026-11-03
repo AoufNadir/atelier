@@ -45,7 +45,7 @@
     <div style="font-weight:600;font-size:14px"><bdi>{{ c.customer.name }}</bdi></div>
     {%- if c.customer.address %}<div class="muted">{{ c.customer.address }}</div>{% endif %}
     {%- if c.customer.phone %}<div class="muted">الهاتف: <span class="num">{{ c.customer.phone }}</span></div>{% endif %}
-    {%- if c.customer.tax_id %}<div class="muted"><span class="num">NIF: {{ c.customer.tax_id }}</span></div>{% endif %}
+    {%- if c.customer.tax_id or c.customer.rc %}<div class="muted"><span class="num">{% if c.customer.rc %}RC: {{ c.customer.rc }} · {% endif %}{% if c.customer.tax_id %}NIF: {{ c.customer.tax_id }}{% endif %}{% if c.customer.nis %} · NIS: {{ c.customer.nis }}{% endif %}{% if c.customer.ai %} · AI: {{ c.customer.ai }}{% endif %}</span></div>{% endif %}
     {%- if doc.get("atelier_subject") %}<div style="margin-top:4px">الموضوع: {{ doc.atelier_subject }}</div>{% endif %}
   </div>
 

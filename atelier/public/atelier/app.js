@@ -2138,7 +2138,8 @@ const BoardPanel = {
   setup(props, { emit }) {
     const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", what: "", price: "", advance: "", due: isoIn(0), assignee: "", tags: [] });
     const dueChips = [["اليوم", 0], ["غدًا", 1], ["بعد 3 أيام", 3], ["بعد أسبوع", 7]];
-    const saving = ref(false), error = ref(null), newName = ref("");
+    const saving = ref(false), error = ref(null), newName = ref(""), credit = ref(null);
+    watch(() => f.customer, async (c) => { credit.value = null; if (c) { try { credit.value = await call("customer_credit", { name: c.name }); } catch { /* optional */ } } }, { immediate: true });
     const toggle = (l, v) => { const i = l.indexOf(v); if (i >= 0) l.splice(i, 1); else l.push(v); };
     const onCustomerInput = () => { newName.value = document.getElementById("qo-customer")?.value?.trim() || ""; };
     async function save() {
@@ -2169,7 +2170,7 @@ const BoardPanel = {
     const onKey = (e) => { if (e.key === "Escape" && !state.sheet) emit("close"); };
     onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.querySelector(".bd-panel input, .bd-panel button")?.focus(), 50); });
     onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
-    return { f, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
+    return { credit, fig, f, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS, tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
@@ -2180,6 +2181,7 @@ const BoardPanel = {
         <div v-if="!f.customer && newName" class="bd-newc"><span class="m">عميل جديد</span>
           <input class="input" v-model="f.phone" inputmode="tel" dir="ltr" placeholder="الهاتف (اختياري)" aria-label="هاتف العميل الجديد">
           <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div>
+      <div v-if="credit && credit.over" class="sc2-alert" role="alert">⚠ هذا العميل تجاوز سقف الدين: عليه {{ fig(credit.owes) }} من {{ fig(credit.limit) }} دج</div>
       <div class="f"><label for="qo-what">ماذا يريد؟</label><input id="qo-what" class="input" v-model="f.what" placeholder="مثلًا: بطاقات زيارة 500"></div>
       <div class="bd-two"><div class="f"><label for="qo-price">السعر</label><div class="unit-wrap"><input id="qo-price" class="input num" inputmode="decimal" v-model="f.price" placeholder="لاحقًا"><span class="u">دج</span></div></div>
         <div class="f"><label for="qo-adv">تسبيق</label><div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0"><span class="u">دج</span></div></div></div>
@@ -2716,17 +2718,26 @@ const SimpleCustomers = {
     const sel = ref(state.query.get("c") || null), d = ref(null), err = ref(null), tab = ref("orders");
     watch(() => state.rev, () => { load(); if (sel.value) open(sel.value, true); });
     const q = ref(""), filter = ref("all"), sort = ref("last");
-    const all = computed(() => s.data?.rows || []);
+    const everyone = computed(() => s.data?.rows || []);
+    const all = computed(() => everyone.value.filter((c) => !c.disabled));
+    const tagF = ref(""), ctags = computed(() => Object.fromEntries((s.data?.customer_tags || []).map((x) => [x.id, x])));
     const owes = (c) => (c.balance || 0) > 0.005;
     const FILTERS = [["all", "الكل", () => true], ["debt", "عليهم دين", owes], ["company", "مؤسسات", (c) => c.customer_type === "Company"],
-      ["person", "أفراد", (c) => c.customer_type !== "Company"], ["away", "غابوا عنك", (c) => c.away]];
+      ["person", "أفراد", (c) => c.customer_type !== "Company"], ["away", "غابوا عنك", (c) => c.away], ["off", "موقوفون", (c) => c.disabled]];
     const SORTS = [["last", "آخر طلب"], ["orders", "الأكثر طلبًا"], ["debt", "الأكثر دينًا"], ["name", "الاسم"]];
     const sorter = { last: (a, b) => String(b.last_order || "").localeCompare(String(a.last_order || "")), orders: (a, b) => b.orders - a.orders || b.sales - a.sales,
       debt: (a, b) => (b.balance || 0) - (a.balance || 0), name: (a, b) => a.customer_name.localeCompare(b.customer_name, "ar") };
-    const rows = computed(() => all.value.filter(FILTERS.find((f) => f.key === filter.value || f[0] === filter.value)[2])
+    const rows = computed(() => (filter.value === "off" ? everyone.value.filter((c) => c.disabled) : all.value.filter(FILTERS.find((f) => f[0] === filter.value)[2]))
+      .filter((c) => !tagF.value || (c.tags || []).includes(tagF.value))
       .filter((c) => !q.value || (c.customer_name + " " + (c.mobile_no || "")).toLowerCase().includes(q.value.toLowerCase()))
       .sort((a, b) => b.vip - a.vip || sorter[sort.value](a, b)));
-    const count = (k) => all.value.filter(FILTERS.find((f) => f[0] === k)[2]).length;
+    const count = (k) => (k === "off" ? everyone.value.filter((c) => c.disabled).length : all.value.filter(FILTERS.find((f) => f[0] === k)[2]).length);
+    const exportCsv = () => {
+      const head = ["العميل", "النوع", "الهاتف", "الطلبات", "آخر طلب", "الرصيد"];
+      const lines = rows.value.map((c) => [c.customer_name, c.customer_type === "Company" ? "مؤسسة" : "فرد", c.mobile_no || "", c.orders || 0, c.last_order || "", (c.balance || 0).toFixed(2)]);
+      const csv = "\ufeff" + [head, ...lines].map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\n");
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); a.download = "العملاء.csv"; a.click();
+    };
     const kpi = computed(() => {
       const debt = all.value.filter(owes), top = [...all.value].sort(sorter.orders)[0];
       return { total: all.value.length, fresh: all.value.filter((c) => c.new).length, debt: debt.reduce((a, c) => a + c.balance, 0), debtN: debt.length,
@@ -2768,7 +2779,8 @@ const SimpleCustomers = {
     const view = ref((() => { try { return localStorage.getItem("atelier.customersView") || "cards"; } catch { return "cards"; } })());
     watch(view, (v) => { try { localStorage.setItem("atelier.customersView", v); } catch { /* private mode */ } });
     const badges = (c) => {
-      const l = [];
+      const l = (c.tags || []).filter((id) => ctags.value[id]).map((id) => ({ t: ctags.value[id].name, c: ctags.value[id].color, ink: inkOn(ctags.value[id].color) }));
+      if (c.disabled) l.unshift({ t: "موقوف", c: "#5C5670" });
       if (c.balance > 0.005) l.push({ t: "عليه " + fig(c.balance), c: "#E5484D" });
       if (c.overdue_days) l.push({ t: `متأخر ${c.overdue_days} يومًا`, c: "#B42318" });
       if (c.balance < -0.005) l.push({ t: "له تسبيق", c: "#22A06B" });
@@ -2776,7 +2788,32 @@ const SimpleCustomers = {
       if (c.away && c.last_order) l.push({ t: `غاب ${-daysFromToday(c.last_order)} يومًا`, c: "#F5D547", ink: "#4A3B00" });
       return l;
     };
-    return { view, badges, thumbTone, s, load, sel, d, err, tab, q, filter, sort, FILTERS, SORTS, rows, count, kpi, open, bal, lastWord, newOrder, pay, editNote, note, startNote, saveExtra,
+    const menu = ref(false), merging = ref(null);
+    const toggleDisabled = async () => { menu.value = false;
+      try { await call("set_customer_disabled", { name: d.value.name, disabled: d.value.disabled ? 0 : 1 }, true); toast(d.value.disabled ? "أُعيد تفعيل العميل" : "أُوقف العميل"); await open(d.value.name, true); load(); } catch (e) { err.value = e.message; } };
+    const doMerge = async () => {
+      const target = everyone.value.find((c) => c.name === merging.value); if (!target || !confirm(`دمج «${d.value.customer_name}» في «${target.customer_name}»؟ لا يمكن التراجع.`)) return;
+      try { await call("merge_customers", { source: d.value.name, target: target.name }, true); toast("تم الدمج"); merging.value = null; await load(); open(target.name); } catch (e) { err.value = e.message; } };
+    const exportOrders = () => { menu.value = false;
+      const lines = d.value.orders.map((o) => [o.atelier_subject || o.name, o.name, o.transaction_date, o.grand_total.toFixed(2), o.paid.toFixed(2)]);
+      const csv = "\ufeff" + [["الطلب", "الرقم", "التاريخ", "المبلغ", "دفع"], ...lines].map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\n");
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); a.download = `طلبات ${d.value.customer_name}.csv`; a.click(); };
+    onMounted(() => window.addEventListener("click", () => (menu.value = false)));
+    const LOG_KINDS = [["call", "📞 اتصال"], ["whatsapp", "💬 واتساب"], ["visit", "🤝 زيارة"], ["promise", "🗓 وعد بالدفع"], ["note", "📝 ملاحظة"]];
+    const logKind = ref("call"), logText = ref("");
+    const addLog = async () => { try { d.value = await call("add_customer_log", { name: d.value.name, kind: logKind.value, text: logText.value }, true); logText.value = ""; } catch (e) { err.value = e.message; } };
+    const months6 = computed(() => { const out = []; const base = parseDate(todayISO());
+      for (let i = 5; i >= 0; i--) { const m = new Date(base.getFullYear(), base.getMonth() - i, 1); const key = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, "0")}`;
+        out.push({ key, label: new Intl.DateTimeFormat("ar", { month: "short" }).format(m), total: (d.value?.months || []).find((x) => x.m === key)?.total || 0 }); } return out; });
+    const maxMonth = computed(() => Math.max(1, ...months6.value.map((m) => m.total)));
+    const stTo = ref(todayISO()), stFrom = ref(isoOf(new Date(parseDate(todayISO()).getFullYear(), parseDate(todayISO()).getMonth() - 3, 1)));
+    const statementUrl = computed(() => d.value ? `/api/method/atelier.api.statement_pdf?name=${encodeURIComponent(d.value.name)}&from_date=${stFrom.value}&to_date=${stTo.value}` : "#");
+    const sendStatement = () => {
+      window.open(statementUrl.value, "_blank", "noopener");
+      const text = `السلام عليكم ${d.value.customer_name}،\nنرسل لكم كشف حسابكم من ${date(stFrom.value)} إلى ${date(stTo.value)}.\nالرصيد الحالي: ${fig(Math.max(0, d.value.balance))} دج.\n${state.boot.company_label || ""}`;
+      window.open(waLink(d.value.mobile_no) + "?text=" + encodeURIComponent(text), "_blank", "noopener"); };
+    return { everyone, tagF, ctags, exportCsv, labelStyle, menu, merging, toggleDisabled, doMerge, exportOrders, LOG_KINDS, logKind, logText, addLog, months6, maxMonth,
+      stFrom, stTo, statementUrl, sendStatement, view, badges, thumbTone, s, load, sel, d, err, tab, q, filter, sort, FILTERS, SORTS, rows, count, kpi, open, bal, lastWord, newOrder, pay, editNote, note, startNote, saveExtra,
       remind, startRemind, sendRemind, reorder, uploading, onFile, stateTone, owesNow, isImg, waLink, money, fig, date, dueWord, ago, state, go, t };
   },
   template: `
@@ -2788,6 +2825,8 @@ const SimpleCustomers = {
       <span class="spacer"></span>
       <button v-for="f in FILTERS" :key="f[0]" type="button" class="bd-chip" :aria-pressed="filter === f[0]" @click="filter = f[0]">{{ f[1] }} {{ count(f[0]) }}</button>
       <label class="tb-filter"><span class="sr-only">ترتيب</span><select class="input" v-model="sort"><option v-for="o in SORTS" :key="o[0]" :value="o[0]">ترتيب: {{ o[1] }}</option></select></label>
+      <label v-if="s.data && s.data.customer_tags.length" class="tb-filter"><span class="sr-only">التصنيف</span><select class="input" v-model="tagF"><option value="">كل التصنيفات</option><option v-for="x in s.data.customer_tags" :key="x.id" :value="x.id">{{ x.name }}</option></select></label>
+      <button type="button" class="bd-chip" @click="exportCsv">📤 تصدير Excel</button>
       <button v-if="state.boot.can.customer" type="button" class="btn sc2-new" @click="state.sheet = {type: 'customer'}">+ عميل جديد</button>
     </div>
     <div v-if="s.data" class="sc2-kpis">
@@ -2832,12 +2871,32 @@ const SimpleCustomers = {
           <span class="sc2-cover-acts">
             <a v-if="d.mobile_no" class="btn sm" :href="'tel:' + d.mobile_no" aria-label="اتصال">📞</a>
             <a v-if="waLink(d.mobile_no)" class="btn sm sc-wa" target="_blank" rel="noopener" :href="waLink(d.mobile_no)">واتساب</a>
-            <button v-if="d.can_edit" type="button" class="btn sm" @click="state.sheet = {type: 'customer', name: d.name}">تعديل</button></span>
+            <button v-if="d.can_edit" type="button" class="btn sm" @click="state.sheet = {type: 'customer', name: d.name}">تعديل</button>
+            <span class="tm-pop-host"><button type="button" class="btn sm" aria-label="خيارات العميل" :aria-expanded="menu" @click.stop="menu = !menu">···</button>
+              <div v-if="menu" class="tm-pop sc2-menu" @click.stop>
+                <button v-if="s.data.manager" type="button" class="tm-pop-row" @click="menu = false; merging = ''">🔀 دمج مع عميل آخر</button>
+                <button v-if="d.can_edit" type="button" class="tm-pop-row" @click="toggleDisabled">{{ d.disabled ? '▶ إعادة تفعيل العميل' : '⏸ إيقاف العميل' }}</button>
+                <button type="button" class="tm-pop-row" @click="exportOrders">📤 تصدير طلباته</button></div></span></span>
         </div>
         <div class="sc2-pbody">
           <div class="sc2-id"><Avatar :name="d.customer_name" :size="64"/>
             <div style="min-width:0"><h2>{{ d.customer_name }} <button v-if="d.can_edit" type="button" class="sc-star-btn" :aria-pressed="!!d.vip" :title="d.vip ? 'إلغاء زبون مميز' : 'زبون مميز'" @click="saveExtra({vip: d.vip ? 0 : 1})">{{ d.vip ? '★' : '☆' }}</button></h2>
-              <span class="m">{{ d.customer_type === 'Company' ? 'مؤسسة' : 'فرد' }}<template v-if="d.contact_person"> · {{ d.contact_person }}</template> · منذ {{ date(d.since) }}</span></div></div>
+              <span class="m">{{ d.customer_type === 'Company' ? 'مؤسسة' : 'فرد' }}<template v-if="d.contact_person"> · {{ d.contact_person }}</template> · منذ {{ date(d.since) }}</span>
+              <span v-if="d.tags.length" class="tc-labels" style="margin-top:4px"><span v-for="id in d.tags.filter(x => ctags[x])" :key="id" class="tl" :style="labelStyle(ctags[id])">{{ ctags[id].name }}</span></span></div></div>
+          <div v-if="d.disabled" class="sc2-alert off">⏸ هذا العميل موقوف: لا يظهر في القوائم ولا في اختيار العملاء.</div>
+          <div v-if="d.credit_limit && d.balance > d.credit_limit" class="sc2-alert">⚠ تجاوز سقف الدين: عليه {{ fig(d.balance) }} من {{ fig(d.credit_limit) }} دج</div>
+          <div v-if="merging !== null" class="sc2-box"><b>دمج «{{ d.customer_name }}» في عميل آخر</b>
+            <span class="m">تنتقل كل طلباته وفواتيره ودفعاته وملفاته إلى العميل المختار، ويُحذف هذا الاسم. لا يمكن التراجع.</span>
+            <select class="input" v-model="merging" aria-label="العميل الذي يبقى"><option value="">اختر العميل الذي يبقى…</option>
+              <option v-for="c in everyone.filter(x => x.name !== d.name && x.customer_type === d.customer_type)" :key="c.name" :value="c.name">{{ c.customer_name }}</option></select>
+            <div class="row" style="gap:6px"><button type="button" class="btn sm danger-solid" :disabled="!merging" @click="doMerge">دمج</button><button type="button" class="btn ghost sm" @click="merging = null">إلغاء</button></div></div>
+          <div v-if="d.contacts.length" class="sc2-box"><b>الأشخاص</b>
+            <div v-for="p in d.contacts" :key="p.name + p.phone" class="row" style="gap:8px"><Avatar :name="p.name" :size="28"/><span style="flex:1;min-width:0"><b>{{ p.name }}</b><span v-if="p.role" class="m" style="display:inline"> · {{ p.role }}</span></span>
+              <a v-if="waLink(p.phone)" class="sm3-wa" style="display:grid;place-items:center;text-decoration:none" target="_blank" rel="noopener" :href="waLink(p.phone)" :aria-label="'واتساب ' + p.name">💬</a>
+              <a v-if="p.phone" class="btn ghost icon-btn sm" :href="'tel:' + p.phone" :aria-label="'اتصال ' + p.name">📞</a></div></div>
+          <div v-if="d.customer_type === 'Company' && (d.legal.rc || d.legal.nif || d.legal.nis || d.legal.ai)" class="sc2-box sc2-legal"><b>البيانات القانونية</b>
+            <div v-for="k in [['rc','RC'],['nif','NIF'],['nis','NIS'],['ai','AI']].filter(k => d.legal[k[0]])" :key="k[0]" class="bd-line"><span class="m">{{ k[1] }}</span><span dir="ltr">{{ d.legal[k[0]] }}</span></div></div>
+          <div v-else-if="d.customer_type === 'Company' && d.can_edit" class="sc2-alert off">البيانات القانونية (RC، NIF…) ناقصة — <a href="#" @click.prevent="state.sheet = {type: 'customer', name: d.name}">أضفها</a> لتظهر على فواتيره.</div>
 
           <div class="sc-note" :class="{empty: !d.note && !editNote}">
             <span aria-hidden="true">📌</span>
@@ -2864,6 +2923,8 @@ const SimpleCustomers = {
           <div class="sc2-tabs" role="tablist">
             <button type="button" role="tab" :aria-selected="tab === 'orders'" @click="tab = 'orders'">الطلبات {{ d.orders.length }}</button>
             <button type="button" role="tab" :aria-selected="tab === 'files'" @click="tab = 'files'">الملفات {{ d.card_files.length }}</button>
+            <button type="button" role="tab" :aria-selected="tab === 'log'" @click="tab = 'log'">التواصل</button>
+            <button type="button" role="tab" :aria-selected="tab === 'stats'" @click="tab = 'stats'">الإحصاء</button>
             <button v-if="d.balance !== undefined" type="button" role="tab" :aria-selected="tab === 'account'" @click="tab = 'account'">الحساب</button></div>
 
           <div v-if="tab === 'orders'" class="sc2-orders">
@@ -2886,18 +2947,120 @@ const SimpleCustomers = {
             </div>
             <div v-if="!d.card_files.length" class="m">لا ملفات بعد.</div>
           </div>
+          <div v-else-if="tab === 'log'" class="sc2-box">
+            <form class="sc2-logf" @submit.prevent="addLog">
+              <div class="row" style="gap:4px;flex-wrap:wrap"><button v-for="k in LOG_KINDS" :key="k[0]" type="button" class="sm3-pill" :aria-pressed="logKind === k[0]" @click="logKind = k[0]">{{ k[1] }}</button></div>
+              <textarea class="input" v-model="logText" rows="2" placeholder="ماذا حدث؟ مثلًا: وعد بدفع 20,000 يوم الخميس" aria-label="سجّل تواصلًا"></textarea>
+              <button type="submit" class="btn primary sm" style="align-self:flex-start" :disabled="!logText.trim()">حفظ</button></form>
+            <div v-if="!d.log.length" class="m">لا تواصل مسجّل بعد.</div>
+            <div v-for="l in d.log" :key="l.name" class="tm-act"><Avatar :name="l.by" :size="28"/><div style="flex:1;min-width:0"><b>{{ l.by }}</b> <span class="m" style="display:inline">{{ ago(l.creation) }}</span><div class="sc2-logt" v-html="l.content"></div></div></div>
+          </div>
+          <div v-else-if="tab === 'stats'" class="sc2-box">
+            <b>مشترياته آخر 6 أشهر</b>
+            <div class="sc2-mchart"><div v-for="m in months6" :key="m.key" class="sc2-mbar" :title="m.label + ': ' + fig(m.total) + ' دج'"><span :style="{height: (m.total / maxMonth * 100) + '%'}"></span><span class="m">{{ m.label }}</span></div></div>
+            <b style="margin-top:6px">أكثر ما يطلبه</b>
+            <div v-if="!d.top.length" class="m">لا طلبات بعد.</div>
+            <div v-for="x in d.top" :key="x.what" class="bd-line"><span class="ellipsis">{{ x.what }}</span><b>{{ x.n }}</b></div>
+          </div>
           <div v-else class="sc-account sc2-box">
             <div class="bd-line"><span class="m">مجموع المشتريات</span><b class="money">{{ money(d.invoiced) }}</b></div>
             <div class="bd-line"><span class="m">دفع</span><span class="money">{{ money(d.received) }}</span></div>
             <div class="bd-line"><span class="m">متوسط مدة الدفع</span><span>{{ d.avg_pay_days === null || d.avg_pay_days === undefined ? '—' : d.avg_pay_days + ' يومًا' }}</span></div>
             <div class="bd-line"><span class="m">آخر دفعة</span><span>{{ d.last_payment ? date(d.last_payment) : '—' }}</span></div>
-            <a class="btn" target="_blank" rel="noopener" :href="'/api/method/atelier.api.statement_pdf?name=' + encodeURIComponent(d.name)">كشف الحساب PDF</a>
+            <b style="margin-top:6px">كشف الحساب</b>
+            <div class="row" style="gap:8px"><label class="cs2-f"><span class="m">من</span><input type="date" class="input" v-model="stFrom"></label><label class="cs2-f"><span class="m">إلى</span><input type="date" class="input" v-model="stTo"></label></div>
+            <div class="row" style="gap:8px"><a class="btn" style="flex:1" target="_blank" rel="noopener" :href="statementUrl">⬇ تحميل PDF</a>
+              <button v-if="waLink(d.mobile_no)" type="button" class="btn sc-wa" style="flex:1" @click="sendStatement">💬 إرسال بواتساب</button></div>
+            <span v-if="waLink(d.mobile_no)" class="m">واتساب لا يقبل الإرفاق من رابط: حمّل الملف ثم أرفقه في المحادثة التي تُفتح.</span>
           </div>
           <button v-if="state.boot.can.order" type="button" class="btn primary bd-save" @click="newOrder">+ طلب لهذا العميل</button>
         </div>
         </template>
       </aside>
     </div>
+  </div>`,
+};
+
+// ------------------------------------------------------------------ customer form (new / edit), board identity
+const CustomerSheet2 = {
+  props: ["opts"], components: { Icon, Avatar },
+  setup(props) {
+    const editing = !!props.opts.name;
+    const f = reactive({ name: props.opts.name || null, customer_name: "", customer_type: "Individual", mobile_no: "", email_id: "", address: "", city: "",
+      nif: "", rc: "", nis: "", ai: "", contacts: [], credit_limit: "", tags: [], note: "" });
+    const tags = ref([]), ready = ref(!editing), saving = ref(false), error = ref(null), attempted = ref(false);
+    onMounted(async () => {
+      try {
+        if (editing) {
+          const d = await call("customer2", { name: f.name });
+          Object.assign(f, { customer_name: d.customer_name, customer_type: d.customer_type, mobile_no: d.mobile_no || "", email_id: d.email_id || "",
+            address: d.address || "", city: d.city || "", nif: d.legal.nif || "", rc: d.legal.rc || "", nis: d.legal.nis || "", ai: d.legal.ai || "",
+            contacts: d.contacts.map((c) => ({ ...c })), credit_limit: d.credit_limit || "", tags: [...d.tags], note: d.note || "" });
+          tags.value = d.customer_tags;
+        } else tags.value = (await call("customers2")).customer_tags;
+      } catch (e) { error.value = e.message; }
+      ready.value = true;
+      setTimeout(() => document.getElementById("c2-name")?.focus(), 50);
+    });
+    const company = computed(() => f.customer_type === "Company");
+    const errs = computed(() => ({ name: !f.customer_name.trim() ? "اكتب اسم العميل" : null,
+      email: f.email_id && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email_id) ? "البريد غير صالح" : null,
+      limit: f.credit_limit !== "" && !(+f.credit_limit >= 0) ? "السقف غير صحيح" : null }));
+    const toggleTag = (id) => { const i = f.tags.indexOf(id); if (i >= 0) f.tags.splice(i, 1); else f.tags.push(id); };
+    const close = () => (state.sheet = null);
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    onMounted(() => window.addEventListener("keydown", onKey));
+    onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+    async function save() {
+      attempted.value = true; error.value = null;
+      if (errs.value.name || errs.value.email || errs.value.limit) return;
+      saving.value = true;
+      try {
+        const name = await call("save_customer2", { data: JSON.stringify({ ...f, credit_limit: f.credit_limit === "" ? 0 : +f.credit_limit,
+          contact_person: f.contacts[0]?.name || "" }) }, true);
+        toast(editing ? "حُفظ العميل" : "أُضيف العميل"); close(); state.rev++;
+        if (!editing) go("/customers?c=" + encodeURIComponent(name));
+      } catch (e) { error.value = e.message; }
+      saving.value = false;
+    }
+    return { f, editing, tags, ready, saving, error, attempted, company, errs, toggleTag, close, save, labelStyle };
+  },
+  template: `
+  <div class="overlay tm-overlay" @click.self="close">
+    <form class="tm cs2" role="dialog" aria-modal="true" :aria-label="editing ? 'تعديل العميل' : 'عميل جديد'" novalidate @submit.prevent="save">
+      <div class="cs2-head"><b>{{ editing ? 'تعديل العميل' : 'عميل جديد' }}</b><button type="button" class="btn icon-btn tm-close" style="position:static" aria-label="إغلاق" @click="close"><Icon name="x"/></button></div>
+      <div v-if="!ready" class="tm-loading">جارٍ التحميل…</div>
+      <div v-else class="cs2-body">
+        <div class="sc2-tabs" role="group" aria-label="نوع العميل"><button type="button" :aria-selected="!company" @click="f.customer_type = 'Individual'">👤 فرد</button><button type="button" :aria-selected="company" @click="f.customer_type = 'Company'">🏢 مؤسسة</button></div>
+        <section class="cs2-sec"><b>المعلومات</b>
+          <div class="cs2-row"><label class="cs2-f grow2"><span class="m">{{ company ? 'اسم المؤسسة' : 'الاسم' }} *</span><input id="c2-name" class="input" v-model="f.customer_name" :aria-invalid="attempted && !!errs.name"><span v-if="attempted && errs.name" class="err">{{ errs.name }}</span></label>
+            <label class="cs2-f"><span class="m">الهاتف</span><input class="input" v-model="f.mobile_no" inputmode="tel" dir="ltr"></label></div>
+          <div class="cs2-row"><label class="cs2-f"><span class="m">البريد</span><input class="input" v-model="f.email_id" type="email" dir="ltr" :aria-invalid="attempted && !!errs.email"><span v-if="attempted && errs.email" class="err">{{ errs.email }}</span></label>
+            <label class="cs2-f grow2"><span class="m">العنوان</span><input class="input" v-model="f.address"></label>
+            <label class="cs2-f"><span class="m">المدينة</span><input class="input" v-model="f.city"></label></div>
+        </section>
+        <section v-if="company" class="cs2-sec"><b>البيانات القانونية <span class="m" style="display:inline;font-weight:400">· تظهر على الفاتورة</span></b>
+          <div class="cs2-row"><label class="cs2-f"><span class="m">السجل التجاري RC</span><input class="input" v-model="f.rc" dir="ltr"></label><label class="cs2-f"><span class="m">الرقم الجبائي NIF</span><input class="input" v-model="f.nif" dir="ltr"></label></div>
+          <div class="cs2-row"><label class="cs2-f"><span class="m">NIS</span><input class="input" v-model="f.nis" dir="ltr"></label><label class="cs2-f"><span class="m">المادة AI</span><input class="input" v-model="f.ai" dir="ltr"></label></div>
+        </section>
+        <section class="cs2-sec"><b>الأشخاص</b>
+          <div v-for="(p, i) in f.contacts" :key="i" class="cs2-row cs2-person">
+            <input class="input" v-model="p.name" placeholder="الاسم" :aria-label="'اسم الشخص ' + (i + 1)">
+            <input class="input" v-model="p.role" placeholder="الدور (المحاسبة، الطلبات…)" :aria-label="'دور الشخص ' + (i + 1)">
+            <input class="input" v-model="p.phone" placeholder="الهاتف" dir="ltr" inputmode="tel" :aria-label="'هاتف الشخص ' + (i + 1)">
+            <button type="button" class="btn ghost icon-btn sm danger" :aria-label="'حذف ' + (p.name || 'الشخص')" @click="f.contacts.splice(i, 1)"><Icon name="trash" :size="15"/></button></div>
+          <button type="button" class="tm-pop-add" style="border:0;padding:2px 0" @click="f.contacts.push({name: '', role: '', phone: ''})">+ إضافة شخص</button>
+        </section>
+        <section class="cs2-sec"><b>للفريق</b>
+          <div class="cs2-row"><label class="cs2-f"><span class="m">سقف الدين</span><div class="unit-wrap"><input class="input num" v-model="f.credit_limit" inputmode="decimal" placeholder="بلا سقف"><span class="u">دج</span></div><span v-if="attempted && errs.limit" class="err">{{ errs.limit }}</span></label>
+            <div class="cs2-f grow2"><span class="m">التصنيف</span><div class="bd-chips">
+              <button v-for="tg in tags" :key="tg.id" type="button" class="tl tl-btn" :class="{off: !f.tags.includes(tg.id)}" :style="labelStyle(tg)" :aria-pressed="f.tags.includes(tg.id)" @click="toggleTag(tg.id)">{{ f.tags.includes(tg.id) ? '✓ ' : '' }}{{ tg.name }}</button></div></div></div>
+          <label class="cs2-f"><span class="m">📌 ملاحظة ثابتة (تظهر في كل بطاقة جديدة له)</span><textarea class="input" v-model="f.note" rows="2"></textarea></label>
+        </section>
+        <div v-if="error" class="alert error" role="alert">{{ error }}</div>
+        <button type="submit" class="btn primary bd-save" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ العميل' }}</button>
+      </div>
+    </form>
   </div>`,
 };
 
@@ -3369,7 +3532,7 @@ const SECTION_NAV = [
 ];
 
 const App = {
-  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide, Board, SimpleCustomers, SimpleMoney, BoardSettings },
+  components: { Icon, SearchBox, Home, OrdersPage, OrderNew, OrderView, CustomerView, CustomerList, PaymentSheet, ExpenseSheet, CustomerSheet, ItemSheet, MoneyPage, StockPage, MachinesPage, ReportsPage, MorePage, PricesPage, TeamPage, StyleGuide, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2 },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -3448,7 +3611,7 @@ const App = {
 
     <PaymentSheet v-if="state.sheet && state.sheet.type==='payment'" :opts="state.sheet"/>
     <ExpenseSheet v-if="state.sheet && state.sheet.type==='expense'" :opts="state.sheet"/>
-    <CustomerSheet v-if="state.sheet && state.sheet.type==='customer'" :opts="state.sheet"/>
+    <CustomerSheet2 v-if="state.sheet && state.sheet.type==='customer'" :opts="state.sheet"/>
     <ItemSheet v-if="state.sheet && state.sheet.type==='item'" :opts="state.sheet"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>
   </div>`,

@@ -287,9 +287,9 @@ def _relation(group):
 
 
 @frappe.whitelist()
-def customers(q=None, full=0):
+def customers(q=None, full=0, include_disabled=0):
 	"""Picker search (q) or, with full=1, the customer list page with balances and order counts."""
-	filters = {"disabled": 0}
+	filters = {} if cint(include_disabled) else {"disabled": 0}
 	or_filters = {"customer_name": ["like", f"%{q}%"], "mobile_no": ["like", f"%{q}%"]} if q else None
 	rows = frappe.get_list("Customer", filters=filters, or_filters=or_filters,
 		fields=["name", "customer_name", "mobile_no", "customer_type", "email_id", "customer_group"], order_by="modified desc",
@@ -299,7 +299,7 @@ def customers(q=None, full=0):
 	names = [r.name for r in rows]
 	open_orders, last_order = {}, {}
 	if _can("Sales Order"):
-		for so in frappe.get_list("Sales Order", filters={"customer": ["in", names], "docstatus": ["<", 2]},
+		for so in frappe.get_list("Sales Order", filters={"customer": ["in", names], "docstatus": ["<", 2], "atelier_archived": ["!=", 1]},
 				fields=["customer", "status", "transaction_date"], limit=5000):
 			if so.status not in ("Closed", "Completed"):
 				open_orders[so.customer] = open_orders.get(so.customer, 0) + 1
@@ -1113,6 +1113,7 @@ def statement_pdf(name, from_date=None, to_date=None):
 
 # Simple workshop endpoints (board, quick order, money) — imported last: simple.py builds on this module.
 from atelier.simple import money3, pay_supplier, transfer_funds  # noqa: E402, F401
+from atelier.simple import add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
 from atelier.simple import customer2, customers2, reorder_card, set_customer_extra  # noqa: E402, F401
 from atelier.simple import archive_card, archive_paid, archived_cards, checklist_templates, copy_card, delete_checklist_template, mark_read, notifications, reorder, save_checklist_template  # noqa: E402, F401
 from atelier.simple import add_card, add_comment, board, board2, card, delete_file, file_added, move, move_card, quick_order, save_board, update_card, update_order  # noqa: E402, F401
