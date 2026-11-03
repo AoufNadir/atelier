@@ -8,7 +8,7 @@ app_license = "gpl-3.0"
 # Apps
 # ------------------
 
-# required_apps = []
+required_apps = ["erpnext"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -108,7 +108,9 @@ jinja = {"methods": ["atelier.printing.print_context", "atelier.printing.tafqit"
 # ------------
 
 # before_install = "atelier.install.before_install"
-# after_install = "atelier.install.after_install"
+after_install = "atelier.install.after_install"
+after_migrate = "atelier.install.after_migrate"
+setup_wizard_complete = "atelier.install.after_setup"
 
 # Uninstallation
 # ------------

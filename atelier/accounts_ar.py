@@ -14,9 +14,18 @@ FUNDS = {"Caisse auxiliaire : Succursale (ou Unité) B": "الصندوق", "Cais
 	"Comptes bancaires : Dinars": "البنك", "Banque postale (C.C.P)": "الحساب البريدي CCP"}
 
 
-def run():
+CHART = "Algerie - Plan Comptable General 2 avec code"
+
+
+def matches_chart(company):
+	return company.country == "Algeria" and company.default_currency == "DZD" and company.chart_of_accounts == CHART
+
+
+def run(company=None, commit=True):
 	from atelier import api
-	company = api._company()
+	company = company or api._company()
+	if not company or not matches_chart(frappe.get_doc("Company", company)):
+		return
 	keep = []
 	for number, label in EXPENSES:
 		name = frappe.db.get_value("Account", {"company": company, "account_number": number, "is_group": 0})
@@ -28,16 +37,22 @@ def run():
 		if name:
 			frappe.db.set_value("Account", name, "account_name", label)
 	frappe.db.set_default("atelier_expense_accounts", json.dumps(keep, ensure_ascii=False))
-	frappe.db.commit()
-	print(len(keep), "expense accounts;", frappe.get_all("Account", filters={"name": ["in", keep]}, pluck="account_name"))
+	if commit:
+		frappe.db.commit()
+	return len(keep)
 
 
-def default_bank():
+def default_bank(company=None, commit=True, only_if_missing=False):
 	"""The company's default bank was a stock-brokerage account; point it to the workshop's bank."""
 	from atelier import api
-	company = api._company()
+	company = company or api._company()
+	if not company or not matches_chart(frappe.get_doc("Company", company)):
+		return
+	if only_if_missing and frappe.db.get_value("Company", company, "default_bank_account"):
+		return
 	bank = frappe.db.get_value("Account", {"company": company, "account_name": "البنك", "is_group": 0})
 	if bank:
 		frappe.db.set_value("Company", company, "default_bank_account", bank)
-		frappe.db.commit()
-	print(frappe.db.get_value("Company", company, "default_bank_account"))
+		if commit:
+			frappe.db.commit()
+	return bank

@@ -1032,7 +1032,7 @@ def _order_docs(so):
 	return docs
 
 
-def setup_print_formats():
+def setup_print_formats(commit=True):
 	"""One Jinja print format shared by the documents (HTML in templates/print/atelier_doc.html), set as default."""
 	html = '{% include "templates/print/atelier_doc.html" %}'
 	for dt in ("Quotation", "Sales Order", "Delivery Note", "Sales Invoice", "Payment Entry"):
@@ -1044,7 +1044,8 @@ def setup_print_formats():
 		pf.save() if not pf.is_new() else pf.insert(set_name=name)
 		frappe.make_property_setter({"doctype": dt, "doctype_or_field": "DocType", "property": "default_print_format",
 			"value": name, "property_type": "Data"}, validate_fields_for_doctype=False)
-	frappe.db.commit()
+	if commit:
+		frappe.db.commit()
 
 
 @frappe.whitelist(methods=["POST"])

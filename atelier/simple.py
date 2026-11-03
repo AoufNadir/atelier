@@ -603,7 +603,14 @@ def reorder(column, names):
 	return True
 
 
-# checklist templates
+# checklist templates: configuration, not demo orders or customer data
+DEFAULT_CHECKLISTS = [
+	{"title": "بطاقات زيارة", "items": ["تصميم", "موافقة العميل", "طباعة", "قص", "تغليف"]},
+	{"title": "لافتة", "items": ["أخذ المقاسات", "تصميم", "موافقة العميل", "طباعة", "تركيب الإطار", "تركيب عند العميل"]},
+	{"title": "ملصقات", "items": ["تصميم", "موافقة العميل", "طباعة", "قص"]},
+]
+
+
 def _templates():
 	try:
 		return json.loads(frappe.db.get_default("atelier_checklists") or "[]")
@@ -681,11 +688,7 @@ def demo_extras():
 	frappe.set_user("Administrator")
 	extra_fields()
 	if not _templates():
-		frappe.db.set_default("atelier_checklists", json.dumps([
-			{"title": "بطاقات زيارة", "items": ["تصميم", "موافقة العميل", "طباعة", "قص", "تغليف"]},
-			{"title": "لافتة", "items": ["أخذ المقاسات", "تصميم", "موافقة العميل", "طباعة", "تركيب الإطار", "تركيب عند العميل"]},
-			{"title": "ملصقات", "items": ["تصميم", "موافقة العميل", "طباعة", "قص"]},
-		], ensure_ascii=False))
+		frappe.db.set_default("atelier_checklists", json.dumps(DEFAULT_CHECKLISTS, ensure_ascii=False))
 	frappe.db.commit()
 
 
@@ -1261,10 +1264,14 @@ def backup_now():
 	return _backups()
 
 
-def demo_settings():
-	frappe.set_user("Administrator")
+def settings_fields():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 	create_custom_fields({"Customer": [{"fieldname": "atelier_tva_exempt", "label": "معفى من TVA", "fieldtype": "Check", "insert_after": "atelier_ai", "module": "Atelier"}]})
+
+
+def demo_settings():
+	frappe.set_user("Administrator")
+	settings_fields()
 	frappe.db.commit()
 
 
