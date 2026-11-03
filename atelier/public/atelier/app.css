@@ -1323,3 +1323,6 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 }
 .cl-table td { white-space: nowrap; } .cl-table td:first-child { white-space: normal; }
 .cl.with-panel .wide-only { display: none; }
+
+/* pages with their own header (customers) drop the shared top bar on desktop; phones keep it for the back button */
+@media (min-width: 1024px) { .topbar.own-header { display: none; } .topbar.own-header ~ main .cl { min-height: 100vh; } .topbar.own-header ~ main .cl-panel { height: 100vh; } }
