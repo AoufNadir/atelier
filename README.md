@@ -60,6 +60,17 @@ Complete the ERPNext setup wizard before using Atelier:
 Sign in at `/atelier-login` and open `/atelier`. Assign users the ERPNext sales,
 projects, stock and accounting roles required for their work.
 
+Set the target site's canonical origin for server-rendered PDF assets:
+
+```bash
+bench --site <site> set-config host_name https://your-workshop.example.com
+```
+
+Replace the example with the site's actual origin. That hostname must resolve
+and reach the web server from the PDF-rendering container too. For a local
+`nasaq.localhost:8000` development site, use that local origin and a matching
+container host alias; do not carry the local alias into production.
+
 ## Automatic setup and upgrades
 
 `atelier/install.py` registers repeatable `after_install` and `after_migrate` hooks:

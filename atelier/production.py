@@ -103,7 +103,7 @@ def sync_stage(so):
 	steps = steps_of(so.project)
 	if not steps:
 		return
-	if so.per_delivered >= 100:
+	if flt(so.per_delivered) >= 100:
 		stage = "سُلّم"
 	else:
 		todo = [s for s in steps if s.status != "Completed"]
