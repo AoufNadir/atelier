@@ -1702,12 +1702,13 @@ const PaymentSheet = {
       } catch (e) { error.value = e.message; }
       saving.value = false;
     }
-    return { f, orders, saving, error, attempted, errs, save, close, done, t, money, state };
+    const owesNow = computed(() => orders.value.reduce((a, o) => a + Math.max(0, o.grand_total - (o.paid || 0)), 0));
+    return { owesNow, f, orders, saving, error, attempted, errs, save, close, done, t, money, state };
   },
   template: `
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="pay-h">
     <form class="sheet" novalidate @submit.prevent="save">
-      <div class="row"><h2 id="pay-h" style="flex:1">{{ t('p_title') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
+      <div class="sh-head"><div><h2 id="pay-h">{{ t('p_title') }}</h2><span class="muted">يُصدر وصل دفع تلقائيًا</span></div><button type="button" class="cl-btn icon ghost" :aria-label="t('close')" @click="close"><Icon name="x" :size="18"/></button></div>
       <template v-if="done">
         <div class="alert success"><Icon name="check" :size="16"/><span>{{ t('p_done', done) }}</span></div>
         <div class="row wrap"><a class="btn primary" target="_blank" rel="noopener" :href="'/api/method/frappe.utils.print_format.download_pdf?doctype=Payment%20Entry&name='+encodeURIComponent(done)">{{ t('p_receipt') }}</a>
@@ -1717,7 +1718,8 @@ const PaymentSheet = {
         <div v-if="error" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ error }}</span></div>
         <div class="field"><label for="p-c" class="req">{{ t('p_customer') }}</label>
           <CustomerPicker v-model="f.customer" input-id="p-c" :invalid="attempted && !!errs.customer"/>
-          <span v-if="attempted && errs.customer" class="error-text">{{ errs.customer }}</span></div>
+          <span v-if="attempted && errs.customer" class="error-text">{{ errs.customer }}</span>
+          <div v-if="owesNow > 0.005" class="sh-note bad">عليه {{ money(owesNow) }} على {{ orders.length }} {{ orders.length === 1 ? 'طلب' : 'طلبات' }}</div></div>
         <div class="field"><label for="p-a" class="req">{{ t('p_amount') }} ({{ t('currency') }})</label>
           <input id="p-a" class="input num" :class="{invalid: attempted && errs.amount}" type="text" inputmode="decimal" autocomplete="off" v-model="f.amount" placeholder="0.00" enterkeyhint="done">
           <span v-if="attempted && errs.amount" class="error-text">{{ errs.amount }}</span></div>
@@ -1726,7 +1728,7 @@ const PaymentSheet = {
         <div class="field"><label for="p-o">{{ t('p_order') }}</label>
           <select id="p-o" class="input" v-model="f.order"><option value="">{{ t('p_order_none') }}</option>
             <option v-for="o in orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + money(o.grand_total - o.paid) }}</option></select></div>
-        <button type="submit" class="btn primary block lg" :disabled="saving">{{ saving ? t('of_saving') : t('p_save') }}</button>
+<div class="sh-foot"><button type="submit" class="cl-btn primary" :disabled="saving">{{ saving ? t('of_saving') : t('p_save') }}</button><button type="button" class="cl-btn" @click="close">إلغاء</button></div>
       </template>
     </form>
   </div>`,
@@ -2065,7 +2067,7 @@ const ItemSheet = {
   template: `
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="is-h">
     <form class="sheet wide" novalidate @submit.prevent="save">
-      <div class="row"><h2 id="is-h" style="flex:1">{{ t('pr_new_service') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
+      <div class="sh-head"><div><h2 id="is-h">{{ t('pr_new_service') }}</h2><span class="muted">تظهر في الطلبات بسعرها حسب نوع العميل</span></div><button type="button" class="cl-btn icon ghost" :aria-label="t('close')" @click="close"><Icon name="x" :size="18"/></button></div>
       <div v-if="error" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ error }}</span></div>
       <div class="seg" role="group" :aria-label="t('it_kind')">
         <button type="button" :aria-pressed="f.kind==='service'" @click="f.kind='service'">{{ t('it_service') }}</button>
@@ -2085,7 +2087,7 @@ const ItemSheet = {
       <span v-if="attempted && errs.price" class="error-text">{{ errs.price }}</span>
       <div class="field"><label for="is-desc">{{ t('it_desc') }} <span class="cap">({{ t('optional') }})</span></label>
         <input id="is-desc" class="input" type="text" v-model="f.description" :placeholder="t('of_desc_ph')"></div>
-      <button type="submit" class="btn primary block lg" :disabled="saving">{{ saving ? t('of_saving') : t('it_save') }}</button>
+<div class="sh-foot"><button type="submit" class="cl-btn primary" :disabled="saving">{{ saving ? t('of_saving') : t('it_save') }}</button><button type="button" class="cl-btn" @click="close">إلغاء</button></div>
     </form>
   </div>`,
 };
@@ -2186,6 +2188,7 @@ const BoardPanel = {
         <div v-if="!f.customer && newName" class="bd-newc"><span class="m">عميل جديد</span>
           <input class="input" v-model="f.phone" inputmode="tel" dir="ltr" placeholder="الهاتف (اختياري)" aria-label="هاتف العميل الجديد">
           <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div>
+      <div v-if="credit && credit.note" class="sh-note warn">ملاحظة العميل: {{ credit.note }}</div>
       <div v-if="credit && credit.over" class="sc2-alert" role="alert">هذا العميل تجاوز سقف الدين: عليه {{ fig(credit.owes) }} من {{ fig(credit.limit) }} دج</div>
       <div class="f"><label for="qo-what">ماذا يريد؟</label><input id="qo-what" class="input" v-model="f.what" placeholder="مثلًا: بطاقات زيارة 500"></div>
       <div class="bd-two"><div class="f"><label for="qo-price">السعر</label><div class="unit-wrap"><input id="qo-price" class="input num" inputmode="decimal" v-model="f.price" placeholder="لاحقًا"><span class="u">دج</span></div></div>
@@ -2224,7 +2227,6 @@ const BoardPanel = {
       <div class="row" style="gap:8px">
         <button v-if="state.boot.can.payment && left > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
         <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', o.name, 'الورشة — عربي')">بون الطلب PDF</a></div>
-      <a class="m bd-more" :href="'/atelier/orders/' + o.name" @click.prevent="go('/orders/' + encodeURIComponent(o.name))">كل التفاصيل ›</a>
     </div>
   </aside>`,
 };
@@ -2517,7 +2519,7 @@ const CardModal = {
 };
 
 const Board = {
-  props: ["startNew"], components: { Icon, BoardCard, BoardPanel, CardModal, Avatar, TransitionGroup },
+  props: ["startNew", "openCard"], components: { Icon, BoardCard, BoardPanel, CardModal, Avatar, TransitionGroup },
   setup(props) {
     const { s, load } = useLoad(() => call("board2"));
     onMounted(load);
@@ -2535,7 +2537,7 @@ const Board = {
     const cols = computed(() => cfg.value.columns.map((col) => ({ ...col, items: rows.value.filter((c) => c.column === col.id).sort(order) })));
     const panel = ref(props.startNew ? { mode: "new", preset: state.quickCustomer || null } : null);
     state.quickCustomer = null;
-    const open = ref(state.query.get("card") || null);
+    const open = ref(props.openCard || state.query.get("card") || null);
     const busy = ref(null), dragging = ref(null), over = ref(null), before = ref(null);
     async function moveTo(c, col, beforeName) {
       busy.value = c.name;
@@ -3750,7 +3752,7 @@ const ExpenseSheet = {
   template: `
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="exp-h">
     <form class="sheet" novalidate @submit.prevent="save">
-      <div class="row"><h2 id="exp-h" style="flex:1">{{ t('e_title') }}</h2><button type="button" class="btn ghost icon-btn" :aria-label="t('close')" @click="close"><Icon name="x"/></button></div>
+      <div class="sh-head"><div><h2 id="exp-h">{{ t('e_title') }}</h2><span class="muted">يُخصم من الصندوق ويظهر في صفحة المال</span></div><button type="button" class="cl-btn icon ghost" :aria-label="t('close')" @click="close"><Icon name="x" :size="18"/></button></div>
       <template v-if="done">
         <div class="alert success"><Icon name="check" :size="16"/><span>{{ t('e_done', done.name) }}<template v-if="done.project"> · {{ t('e_on_order') }}</template><template v-if="done.receipt"> · {{ t('e_receipt_saved') }}</template></span></div>
         <div v-if="uploadWarn" class="alert warn" role="alert"><Icon name="alert" :size="16"/><span>{{ uploadWarn }}</span></div>
@@ -3771,9 +3773,9 @@ const ExpenseSheet = {
           <div v-if="chosen" class="row" style="gap:8px"><span class="badge b-info" style="font-size:var(--fs-body);padding:6px 10px">{{ label(chosen) }}</span>
             <button type="button" class="btn sm ghost" @click="f.account=''">{{ t('of_change') }}</button></div>
           <template v-else>
-            <div v-if="frequent.length" class="chips" role="group" :aria-label="t('e_frequent')">
-              <button v-for="a in frequent" :key="a.name" type="button" class="chip" @click="pick(a)">{{ a.account_name }}</button></div>
-            <input id="e-q" class="input" :class="{invalid: attempted && errs.account}" type="search" v-model="q" :placeholder="t('e_account_ph')" autocomplete="off">
+            <div v-if="frequent.length || opts.accounts.length <= 16" class="chips" role="group" :aria-label="t('e_frequent')">
+              <button v-for="a in (opts.accounts.length <= 16 ? opts.accounts : frequent)" :key="a.name" type="button" class="chip" @click="pick(a)">{{ a.account_name }}</button></div>
+            <input v-if="opts.accounts.length > 16" id="e-q" class="input" :class="{invalid: attempted && errs.account}" type="search" v-model="q" :placeholder="t('e_account_ph')" autocomplete="off">
             <div v-if="matches.length" class="list" style="border:1px solid var(--line);border-radius:10px">
               <button v-for="a in matches" :key="a.name" type="button" class="list-item" @click="pick(a)"><span class="main-col"><span class="ellipsis">{{ label(a) }}</span></span></button></div>
             <span v-else-if="q" class="meta">{{ t('search_none', q) }}</span>
@@ -3798,7 +3800,7 @@ const ExpenseSheet = {
         <div class="field"><label for="e-dt">{{ t('c_date') }}</label>
           <input id="e-dt" class="input" type="date" v-model="f.date" :max="new Date().toISOString().slice(0,10)">
           <span v-if="f.date" class="hint">{{ dfw.format(parseDate(f.date)) }}</span></div>
-        <button type="submit" class="btn primary block lg" :disabled="saving">{{ saving ? t('of_saving') : t('e_save') }}</button>
+<div class="sh-foot"><button type="submit" class="cl-btn primary" :disabled="saving">{{ saving ? t('of_saving') : t('e_save') }}</button><button type="button" class="cl-btn" @click="close">إلغاء</button></div>
       </template>
     </form>
   </div>`,
@@ -3863,7 +3865,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': ['customers', 'settings', 'money', 'home', 'orders', 'order-new', 'reports'].includes(route.name)}">
+      <header class="topbar" :class="{'own-header': ['customers', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
@@ -3873,7 +3875,7 @@ const App = {
       </header>
       <main id="main" tabindex="-1" style="outline:none">
         <Board v-if="['home', 'orders', 'order-new'].includes(route.name)" :key="route.name === 'order-new' ? state.path : 'board'" :start-new="route.name === 'order-new'"/>
-        <OrderView v-else-if="route.name==='order'" :id="route.id" :key="route.id"/>
+        <Board v-else-if="route.name==='order'" :key="'order-' + route.id" :open-card="route.id"/>
         <CustomerView v-else-if="route.name==='customer'" :id="route.id" :key="route.id + ':' + state.rev"/>
         <SimpleCustomers v-else-if="route.name==='customers'" :key="state.path + state.query"/>
         <SimpleMoney v-else-if="route.name==='money'"/>

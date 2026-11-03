@@ -1000,7 +1000,7 @@ def customer_credit(name):
 	"""For the new-order form: is this customer over their credit limit?"""
 	limit = flt(frappe.db.get_value("Customer", name, "atelier_credit_limit"))
 	owes = flt(frappe.db.sql("select sum(outstanding_amount) from `tabSales Invoice` where customer=%s and docstatus=1", name)[0][0]) if api._can("Sales Invoice") else 0
-	return {"limit": limit, "owes": owes, "over": bool(limit) and owes > limit}
+	return {"limit": limit, "owes": owes, "over": bool(limit) and owes > limit, "note": frappe.db.get_value("Customer", name, "atelier_note")}
 
 
 @frappe.whitelist(methods=["POST"])
