@@ -1010,8 +1010,8 @@ def add_customer_log(name, kind, text):
 	text = (text or "").strip()
 	if not text:
 		frappe.throw(_("اكتب ما حدث"))
-	icon = {"call": "📞", "whatsapp": "💬", "visit": "🤝", "promise": "🗓"}.get(kind, "📝")
-	doc.add_comment("Comment", icon + " " + frappe.utils.escape_html(text)[:2000])
+	label = {"call": "اتصال", "whatsapp": "واتساب", "visit": "زيارة", "promise": "وعد بالدفع"}.get(kind, "ملاحظة")
+	doc.add_comment("Comment", f"<b>{label}:</b> " + frappe.utils.escape_html(text)[:2000])
 	return customer2(name)
 
 
