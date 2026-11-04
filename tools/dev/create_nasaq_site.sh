@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+. "$(dirname "$(readlink -f "$0")")/lib.sh"
 set -eu
 
-cd "$HOME/erp/frappe_docker"
-status=/mnt/c/Users/User/.codex/visualizations/2026/11/01/01a1986c-dd33-7182-ab8f-1a85c8f9eb22/atelier-cloud-work/site-creation.status
+cd "$FRAPPE_DOCKER_DIR"
+status="$NASAQ_STATE_DIR/site-creation.status"
 if test -e development/frappe-bench/sites/nasaq.localhost; then
   echo 'nasaq.localhost already exists. Stopping without changing it.'
   printf 'already-exists\n' > "$status"
@@ -14,12 +15,12 @@ echo 'Enter the MariaDB root password, then choose and confirm the new Administr
 echo 'Passwords are entered privately in this terminal. Do not paste them into the chat.'
 echo 'The existing development.localhost site will not be changed.'
 printf 'waiting-for-input\n' > "$status"
-if docker compose -p erpdev -f .devcontainer/docker-compose.yml exec frappe bash -lc \
+if compose exec frappe bash -lc \
   'cd /workspace/development/frappe-bench && bench new-site nasaq.localhost --db-type mariadb --db-root-username root --mariadb-user-host-login-scope=%'; then
   printf 'created\n' > "$status"
-  echo 'NEW SITE CREATED. Return to Codex so the apps and clean setup can be installed.'
+  echo 'NEW SITE CREATED. Next: tools/dev/install_nasaq_apps.sh'
 else
   code=$?
   printf 'failed:%s\n' "$code" > "$status"
-  echo 'Creation did not finish. Do not delete or reset a site; return to Codex with the error.'
+  echo 'Creation did not finish. Do not delete or reset a site; keep the error and investigate.'
 fi

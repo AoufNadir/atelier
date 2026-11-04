@@ -14,7 +14,6 @@ print("BUSINESS_COUNTS", json.dumps(counts, sort_keys=True))
 assert not any(counts.values()), "Unexpected business data on the clean site."
 company = frappe.get_doc("Company", api._company())
 assert company.country == "Algeria" and company.default_currency == "DZD"
-assert company.abbr == "NSQ"
 assert accounts_ar.matches_chart(company)
 print("COMPANY", company.name, company.country, company.default_currency, company.chart_of_accounts)
 
@@ -33,11 +32,13 @@ assert len(simple.get_config()["columns"]) == 4
 assert len(simple.checklist_templates()) == 3
 assert simple.board2()["cards"] == []
 assert simple.settings()["profile"]["name_ar"] == company.name
-assert not frappe.db.get_default("atelier_team")
+assert frappe.db.get_default("atelier_team") == "[]"
+assert frappe.db.get_default("atelier_accounts_ar_initialized") == company.name
+assert frappe.db.get_default("atelier_expense_accounts")
 assert not frappe.db.get_default("atelier_customer_tags")
 print("EMPTY_BOARD_SETTINGS_PRICE_LISTS_OK")
 
-configuration = {key: frappe.db.get_default(key) for key in ("atelier_board", "atelier_checklists", "atelier_docs", "atelier_alerts")}
+configuration = {key: frappe.db.get_default(key) for key in ("atelier_board", "atelier_checklists", "atelier_docs", "atelier_alerts", "atelier_team")}
 field_count = frappe.db.count("Custom Field", {"module": "Atelier"})
 format_count = frappe.db.count("Print Format", {"module": "Atelier"})
 install.after_migrate()

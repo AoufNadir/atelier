@@ -1,5 +1,6 @@
+. "$(dirname "$(readlink -f "$0")")/lib.sh"
 set -e
-cd ~/erp/frappe_docker/development/frappe-bench
+cd "$FRAPPE_DOCKER_DIR/development"/frappe-bench
 P=apps/atelier/atelier/public/atelier
 mkdir -p $P/vendor && cp apps/frappe/node_modules/vue/dist/vue.esm-browser.prod.js $P/vendor/ && cp apps/frappe/node_modules/vue/LICENSE $P/vendor/vue-LICENSE.txt
 cat > /tmp/mkicon.py <<'PY'

@@ -1,0 +1,5 @@
+# Scripts run inside WSL and containers: keep LF even when edited on Windows.
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.ps1 text eol=crlf

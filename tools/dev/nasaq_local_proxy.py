@@ -4,13 +4,14 @@ HTTP bytes are forwarded without logging or examining request data.
 """
 import ipaddress
 import json
+import os
 import select
 import socket
 import socketserver
 import subprocess
 
 networks = json.loads(subprocess.check_output([
-    "docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", "erpdev-frappe-1",
+    "docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", os.environ.get("NASAQ_COMPOSE_PROJECT", "erpdev") + "-frappe-1",
 ], text=True))
 target = str(ipaddress.ip_address(next(n["IPAddress"] for n in networks.values() if n.get("IPAddress"))))
 

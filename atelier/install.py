@@ -36,6 +36,7 @@ def setup():
 		"atelier_checklists": simple.DEFAULT_CHECKLISTS,
 		"atelier_docs": simple.DOC_DEFAULTS,
 		"atelier_alerts": simple.ALERT_DEFAULTS,
+		"atelier_team": [],  # the workshop adds its own people; never sample names
 	}.items():
 		if frappe.db.get_default(key) is None:
 			frappe.db.set_default(key, json.dumps(value, ensure_ascii=False))

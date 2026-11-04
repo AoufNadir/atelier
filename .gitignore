@@ -14,6 +14,8 @@ build/
 # Site configuration, credentials and database exports never belong to an app.
 .env
 .env.*
+!.env.example
+nasaq.env
 site_config.json
 common_site_config.json
 sites/

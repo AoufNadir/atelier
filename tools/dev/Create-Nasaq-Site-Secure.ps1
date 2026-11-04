@@ -1,3 +1,4 @@
 $ErrorActionPreference = 'Stop'
 $Host.UI.RawUI.WindowTitle = 'Nasaq - new Administrator password'
-wsl.exe -d Ubuntu-24.04 -- python3 /mnt/f/App/ERP/scripts/create_nasaq_with_container_credentials.py
+. (Join-Path $PSScriptRoot 'Nasaq-Common.ps1')
+wsl.exe -d $NasaqDistro -- python3 "$NasaqTools/create_nasaq_with_container_credentials.py"

@@ -8,14 +8,18 @@ import subprocess
 import sys
 from datetime import datetime
 
-bench = Path.home() / "erp/frappe_docker/development/frappe-bench"
-project = Path.home() / "erp/frappe_docker"
+project = Path(os.environ.get("FRAPPE_DOCKER_DIR", Path.home() / "erp/frappe_docker"))
+bench = project / "development/frappe-bench"
+frappe_container = os.environ.get("NASAQ_COMPOSE_PROJECT", "erpdev") + "-frappe-1"
+mariadb_container = os.environ.get("NASAQ_COMPOSE_PROJECT", "erpdev") + "-mariadb-1"
 site = bench / "sites/nasaq.localhost"
-status = Path("/mnt/c/Users/User/.codex/visualizations/2026/11/01/01a1986c-dd33-7182-ab8f-1a85c8f9eb22/atelier-cloud-work/site-creation.status")
+state_dir = Path(os.environ.get("NASAQ_STATE_DIR", Path.home() / ".local/state/nasaq"))
+state_dir.mkdir(parents=True, exist_ok=True)
+status = state_dir / "site-creation.status"
 
 def database_query(sql):
     result = subprocess.run([
-        "docker", "exec", "erpdev-mariadb-1", "sh", "-c",
+        "docker", "exec", mariadb_container, "sh", "-c",
         'MYSQL_PWD="${MARIADB_ROOT_PASSWORD:-$MYSQL_ROOT_PASSWORD}" exec mariadb -uroot --batch --skip-column-names -e "$1"',
         "query", sql,
     ], capture_output=True, text=True)
@@ -51,7 +55,7 @@ while True:
     print("Passwords must be nonempty and match. Try again.")
 
 root = subprocess.check_output([
-    "docker", "exec", "erpdev-mariadb-1", "sh", "-c",
+    "docker", "exec", mariadb_container, "sh", "-c",
     'printf %s "${MARIADB_ROOT_PASSWORD:-$MYSQL_ROOT_PASSWORD}"',
 ], text=True)
 if not root:
@@ -64,8 +68,7 @@ new_site.callback(site="nasaq.localhost", db_type="mariadb", db_root_username="r
 '''
 status.write_text("creating\n")
 result = subprocess.run([
-    "docker", "compose", "-p", "erpdev", "-f", ".devcontainer/docker-compose.yml",
-    "exec", "-T", "-w", "/workspace/development/frappe-bench", "frappe", "env/bin/python", "-c", code,
+    "docker", "exec", "-i", "-w", "/workspace/development/frappe-bench", frappe_container, "env/bin/python", "-c", code,
 ], cwd=project, input=json.dumps({"root": root, "admin": administrator}), text=True, capture_output=True)
 safe_output = result.stdout + result.stderr
 for secret in (root, administrator, confirm):
@@ -75,6 +78,6 @@ print(safe_output)
 del root, administrator, confirm
 status.write_text("created\n" if result.returncode == 0 else f"failed:{result.returncode}\n")
 if result.returncode:
-    print("Creation failed. No site was deleted. Return to Codex with the error.")
+    print("Creation failed. No site was deleted. Keep the error and investigate.")
     sys.exit(result.returncode)
-print("NEW SITE CREATED. Return to Codex to install ERPNext and Atelier.")
+print("NEW SITE CREATED. Next: tools/dev/install_nasaq_apps.sh")

@@ -1,8 +1,9 @@
 """Read-only diagnosis. Credentials stay inside the existing database container."""
+import os
 import subprocess
 
 result = subprocess.run([
-    "docker", "exec", "erpdev-mariadb-1", "sh", "-c",
+    "docker", "exec", os.environ.get("NASAQ_COMPOSE_PROJECT", "erpdev") + "-mariadb-1", "sh", "-c",
     'MYSQL_PWD="${MARIADB_ROOT_PASSWORD:-$MYSQL_ROOT_PASSWORD}" '
     'mariadb -uroot --batch --skip-column-names '
     '-e "SELECT User, Host FROM mysql.user WHERE User = \'root\';"',

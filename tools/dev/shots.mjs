@@ -6,8 +6,8 @@ import { mkdirSync, writeFileSync, mkdtempSync, readdirSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const EDGE = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
-const BASE = "http://development.localhost:8000";
+const EDGE = process.env.EDGE_PATH || "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
+const BASE = process.env.NASAQ_BASE || "http://development.localhost:8000";
 const OUT = new URL("../docs/screenshots/", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
 const PORT = 9333;
 mkdirSync(OUT, { recursive: true });
