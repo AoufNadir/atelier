@@ -6,7 +6,7 @@
 <style>
   .atl { direction: rtl; font-family: "Cairo", "Noto Sans Arabic", "DejaVu Sans", sans-serif; font-size: 12px; color: #17202A; line-height: 1.6; }
   .atl table { width: 100%; border-collapse: collapse; }
-  .atl .num { direction: ltr; unicode-bidi: embed; display: inline-block; }
+  .atl .num { direction: ltr; unicode-bidi: embed; display: inline-block; white-space: nowrap; }
   .atl .head td { vertical-align: top; }
   .atl .brand { font-size: 18px; font-weight: 600; color: #0F4C81; }
   .atl .muted { color: #5F6872; font-size: 11px; }
@@ -30,7 +30,8 @@
       {%- if c.company.address %}<div class="muted">{{ c.company.address }}</div>{% endif %}
       <div class="muted">{% if c.company.phone %}الهاتف: <span class="num">{{ c.company.phone }}</span>{% endif %}{% if c.company.email %} · <span class="num">{{ c.company.email }}</span>{% endif %}</div>
       {%- if c.company.name_fr %}<div class="muted"><span class="num">{{ c.company.name_fr }}</span></div>{% endif %}
-      <div class="muted"><span class="num">RC: {{ c.company.rc or "—" }} · NIF: {{ c.company.tax_id or "—" }} · NIS: {{ c.company.nis or "—" }} · AI: {{ c.company.ai or "—" }}</span></div>
+      {%- set ids = [("RC", c.company.rc), ("NIF", c.company.tax_id), ("NIS", c.company.nis), ("AI", c.company.ai)] | selectattr(1) | list %}
+      {%- if ids %}<div class="muted">{% for k, v in ids %}<span class="num">{{ k }}: {{ v }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
     </td>
     <td>
       <div class="title">{{ c.title }}</div>

@@ -35,6 +35,8 @@
   .lg-logo b { display: block; font-size: 40px; line-height: 1.1; } .lg-logo span { color: #B9AEDB; }
   .lg-tag { max-width: 440px; } .lg-tag b { display: block; font-size: 30px; line-height: 1.5; } .lg-tag p { color: #D6CEEB; line-height: 1.9; margin: 12px 0 0; }
   .lg-where { color: #8F84B5; font-size: 13px; }
+  .lg-check { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+  .lg-check input { width: 18px; height: 18px; accent-color: #4B32C3; margin: 0; }
   [hidden] { display: none !important; }
   @media (max-width: 900px) {
     .lg { flex-direction: column-reverse; } .lg-form-side { width: auto; flex: 1; align-items: flex-start; padding-top: 28px; }
@@ -50,6 +52,7 @@
       <label class="lg-field"><span>البريد الإلكتروني</span><span class="lg-input"><input id="usr" type="email" autocomplete="username" required autofocus></span></label>
       <div class="lg-field"><div class="lg-row"><label for="pwd" style="font-size:13px;color:#667085">كلمة السر</label><button type="button" class="lg-link" id="forgot">نسيت كلمة السر؟</button></div>
         <span class="lg-input"><input id="pwd" type="password" autocomplete="current-password" required><button type="button" class="lg-link" id="show" aria-controls="pwd">إظهار</button></span></div>
+      <label class="lg-check"><input id="remember" type="checkbox" checked> تذكّرني على هذا الجهاز</label>
       <div id="msg" class="lg-msg err" role="alert" hidden></div>
       <button id="go" type="submit" class="lg-btn">دخول</button>
       <div class="lg-foot">ليس لديك حساب؟ اطلبه من مدير المطبعة.</div>
@@ -78,7 +81,12 @@
     $("go").disabled = true; $("go").textContent = "جارٍ الدخول…";
     try {
       const r = await fetch("/api/method/login", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ usr, pwd }) });
-      if (r.ok) { location.href = safeNext; return; }
+      if (r.ok) {
+        // Not remembered: a cookie without expiry lives until the browser closes; the app signs out when it is gone.
+        try { localStorage.setItem("atelier.remember", $("remember").checked ? "1" : "0"); } catch (x) { /* private mode */ }
+        document.cookie = "atelier_live=1; path=/; SameSite=Lax";
+        location.href = safeNext; return;
+      }
       say(r.status === 429 ? "محاولات كثيرة. انتظر قليلًا ثم أعد المحاولة." : "البريد أو كلمة السر غير صحيحة.");
     } catch { say("تعذّر الاتصال بالخادم. تحقق من الشبكة."); }
     $("go").disabled = false; $("go").textContent = "دخول";

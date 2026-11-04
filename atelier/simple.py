@@ -1118,7 +1118,7 @@ def settings():
 	return {
 		"profile": workshop_profile(), "docs": doc_settings(), "alerts": alert_settings(),
 		"users": users, "funds": [a for a in accs if a.name in used or a.name in defaults], "all_funds": accs, "modes": modes,
-		"backups": _backups(),
+		"backups": _backups(), "email": email_settings(),
 	}
 
 
@@ -1379,3 +1379,62 @@ def reports2(period="month", start=None, end=None):
 	return {"period": {"kind": period, "from": str(a), "to": str(b), "prev_from": str(pa), "prev_to": str(pb)},
 		"now": now, "prev": prev, "months": months, "profit": profit, "ageing": ageing,
 		"top_customers": top_customers, "top_services": top_services, "team": sorted(team.values(), key=lambda t: -t["done"])}
+
+
+def payment_order_field():
+	"""Payment Entry → the order an advance was taken for (used to keep advances on their own order)."""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	create_custom_fields({"Payment Entry": [{"fieldname": "atelier_order", "label": "طلب التسبيق", "fieldtype": "Link", "options": "Sales Order",
+		"insert_after": "party_name", "read_only": 1, "module": "Atelier"}]})
+	frappe.db.commit()
+
+
+# ---------------------------------------------------------------- outgoing email (password reset, new accounts)
+MAIL_ACCOUNT = "نسق — البريد الصادر"
+
+
+def email_settings():
+	name = frappe.db.get_value("Email Account", {"default_outgoing": 1}) or frappe.db.get_value("Email Account", MAIL_ACCOUNT)
+	if not name:
+		return {"configured": 0, "email_id": "", "smtp_server": "", "smtp_port": 587, "security": "tls", "login_id": ""}
+	a = frappe.get_doc("Email Account", name)
+	return {"configured": 1, "name": a.name, "email_id": a.email_id, "smtp_server": a.smtp_server, "smtp_port": a.smtp_port or 587,
+		"security": "ssl" if a.use_ssl_for_outgoing else "tls" if a.use_tls else "none", "login_id": a.login_id or "",
+		"has_password": 1 if a.get_password("password", raise_exception=False) else 0}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_email(cfg):
+	"""Outgoing mail through the workshop's own mailbox. The password is typed by the manager and stored encrypted by Frappe."""
+	_manager_only()
+	c = frappe.parse_json(cfg) or {}
+	email = (c.get("email_id") or "").strip()
+	if not frappe.utils.validate_email_address(email) or not (c.get("smtp_server") or "").strip():
+		frappe.throw(_("اكتب البريد وخادم الإرسال"))
+	name = frappe.db.get_value("Email Account", {"default_outgoing": 1}) or frappe.db.get_value("Email Account", MAIL_ACCOUNT)
+	a = frappe.get_doc("Email Account", name) if name else frappe.new_doc("Email Account")
+	if a.is_new():
+		a.email_account_name = MAIL_ACCOUNT
+	a.email_id = email
+	a.enable_outgoing, a.default_outgoing, a.enable_incoming = 1, 1, 0
+	a.smtp_server = c["smtp_server"].strip()
+	a.smtp_port = cint(c.get("smtp_port")) or 587
+	sec = c.get("security") or "tls"
+	a.use_tls, a.use_ssl_for_outgoing = (1 if sec == "tls" else 0), (1 if sec == "ssl" else 0)
+	login = (c.get("login_id") or "").strip()
+	a.login_id_is_different = 1 if login and login != email else 0
+	a.login_id = login if a.login_id_is_different else None
+	if c.get("password"):
+		a.password = c["password"]
+	a.awaiting_password = 0
+	a.flags.ignore_validate = False
+	a.save(ignore_permissions=True)
+	return email_settings()
+
+
+@frappe.whitelist(methods=["POST"])
+def test_email(to):
+	_manager_only()
+	frappe.sendmail(recipients=[to], subject="نسق — رسالة تجريبية", message="<p dir='rtl'>البريد الصادر يعمل.</p>", now=True)
+	return True

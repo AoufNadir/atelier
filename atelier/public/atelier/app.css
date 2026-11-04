@@ -1526,3 +1526,10 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 
 .who-out { all: unset; cursor: pointer; margin-inline-start: auto; width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: #B9AEDB; }
 .who-out:hover { background: rgba(255,255,255,.08); color: #fff; } .who-out:focus-visible { outline: 2px solid #D4F06A; }
+
+/* the orders board needs no shared bar on phones either: its header has search and actions, and it is the home page (no back) */
+.topbar.no-bar { display: none; }
+/* card window: the cover is a thin strip, the image shows in the attachments */
+.tm-cover[style*="url"] { min-height: 58px; height: 58px; background-size: cover; background-position: center; position: relative; }
+.tm-cover[style*="url"]::before { content: ""; position: absolute; inset: 0; background: linear-gradient(to left, rgba(255,255,255,.96) 0%, rgba(255,255,255,.9) 55%, rgba(255,255,255,.55) 100%); }
+.tm-cover > * { position: relative; }

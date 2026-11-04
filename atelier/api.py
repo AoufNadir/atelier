@@ -636,7 +636,7 @@ def create_order(data):
 
 	payment = None
 	if flt(advance.get("amount")) > 0:
-		payment = _receive(customer, flt(advance["amount"]), advance["mode_of_payment"], so if so.docstatus == 1 else None)
+		payment = _receive(customer, flt(advance["amount"]), advance["mode_of_payment"], so if so.docstatus == 1 else None, so.name)
 
 	return {"customer": customer, "project": project, "sales_order": so.name, "submitted": so.docstatus == 1,
 		"price_pending": price_pending, "estimate": estimate, "payment": payment}
@@ -651,7 +651,7 @@ def _cash_account(mode, company):
 		return frappe.db.get_value("Company", company, "default_cash_account")
 
 
-def _receive(customer, amount, mode, sales_order=None):
+def _receive(customer, amount, mode, sales_order=None, order_name=None):
 	company = _company()
 	account = _cash_account(mode, company)
 	if sales_order:
@@ -673,6 +673,8 @@ def _receive(customer, amount, mode, sales_order=None):
 	pe.reference_no = pe.reference_no or "—"
 	pe.reference_date = nowdate()
 	pe.remarks = _("تسبيق")
+	# the order this advance belongs to, even when it is not confirmed yet (see invoice_order)
+	pe.atelier_order = sales_order.name if sales_order else order_name
 	pe.insert()
 	pe.submit()
 	return pe.name
@@ -1006,6 +1008,12 @@ def invoice_order(name):
 	si = make_sales_invoice(so.name)
 	si.allocate_advances_automatically = 1
 	si.set_advances()
+	# ERPNext offers every open advance of the customer; keep only this order's own advances,
+	# so an advance paid for one job is never swallowed by another job's invoice.
+	own = set(frappe.get_all("Payment Entry Reference", filters={"reference_doctype": "Sales Order", "reference_name": so.name, "docstatus": 1}, pluck="parent"))
+	own |= set(frappe.get_all("Payment Entry", filters={"atelier_order": so.name, "docstatus": 1}, pluck="name"))
+	si.set("advances", [a for a in si.advances if a.reference_type != "Payment Entry" or a.reference_name in own])
+	si.allocate_advances_automatically = 0  # otherwise validate() reallocates every open advance again
 	si.insert()
 	si.submit()
 	return si.name
@@ -1115,7 +1123,7 @@ def statement_pdf(name, from_date=None, to_date=None):
 
 
 # Simple workshop endpoints (board, quick order, money) — imported last: simple.py builds on this module.
-from atelier.simple import reports2  # noqa: E402, F401
+from atelier.simple import reports2, save_email, test_email  # noqa: E402, F401
 from atelier.simple import money3, pay_supplier, transfer_funds  # noqa: E402, F401
 from atelier.simple import backup_now, rename_fund, reset_link, save_alerts, save_doc_settings, save_profile, save_user, set_mode_account, settings  # noqa: E402, F401
 from atelier.simple import add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
