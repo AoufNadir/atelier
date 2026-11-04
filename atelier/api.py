@@ -11,7 +11,7 @@ from atelier import production
 # Production-step endpoints live in production.py and are exposed under atelier.api like the rest.
 from atelier.production import save_steps, save_team, set_service_steps, set_tags, step_action, step_order_supplier, step_supplier_invoice, team  # noqa: F401
 
-MODES = [("Cash", "نقدًا"), ("Wire Transfer", "تحويل بنكي"), ("Cheque", "صك")]
+MODES = [("Cash", "كاش"), ("BaridiMob", "بريدي موب"), ("CCP", "CCP"), ("Wire Transfer", "تحويل بنكي"), ("Cheque", "صك")]
 STAGES = ["جديد", "تصميم", "بانتظار موافقة العميل", "طباعة", "تشطيب", "جاهز للتسليم", "سُلّم"]
 
 
@@ -75,6 +75,7 @@ def boot():
 		"is_demo": "DÉMO" in (company or "") or "تجريبي" in (company or ""),
 		"items": _with_prices(items),
 		"stages": STAGES,
+		"units": simple_units(),
 		**production.boot_info(),
 		"modes": [{"value": v, "label": l} for v, l in MODES if frappe.db.exists("Mode of Payment", v)],
 		"can": {
@@ -286,10 +287,42 @@ def _relation(group):
 	return "subcontract" if group == RELATIONS["subcontract"] else "final"
 
 
+_AR_FOLD = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ة": "ه", "ى": "ي", "ؤ": "و", "ئ": "ي", "ـ": None})
+
+
+def _fold(text):
+	"""Arabic spelling variants and diacritics compare equal: أحمد = احمد, فاطمة = فاطمه."""
+	text = "".join(c for c in (text or "").lower() if not "\u064b" <= c <= "\u0652")
+	return text.translate(_AR_FOLD)
+
+
+def _rank_customers(q, rows, limit=50):
+	"""Names starting with the text first, then a word start, then anywhere, then the phone."""
+	needle, ranked = _fold(q.strip()), []
+	for row in rows:
+		name = _fold(row.customer_name)
+		if name.startswith(needle):
+			rank = 0
+		elif any(word.startswith(needle) for word in name.split()):
+			rank = 1
+		elif needle in name:
+			rank = 2
+		elif needle in (row.mobile_no or ""):
+			rank = 3
+		else:
+			continue
+		ranked.append((rank, name, row))
+	ranked.sort(key=lambda entry: entry[:2])
+	return [entry[2] for entry in ranked[:limit]]
+
+
 @frappe.whitelist()
 def customers(q=None, full=0, include_disabled=0):
 	"""Picker search (q) or, with full=1, the customer list page with balances and order counts."""
 	filters = {} if cint(include_disabled) else {"disabled": 0}
+	if q and not cint(full):
+		return _rank_customers(q, frappe.get_list("Customer", filters=filters, order_by="modified desc", limit=5000,
+			fields=["name", "customer_name", "mobile_no", "customer_type", "email_id", "customer_group"]))
 	or_filters = {"customer_name": ["like", f"%{q}%"], "mobile_no": ["like", f"%{q}%"]} if q else None
 	rows = frappe.get_list("Customer", filters=filters, or_filters=or_filters,
 		fields=["name", "customer_name", "mobile_no", "customer_type", "email_id", "customer_group"], order_by="modified desc",
@@ -640,6 +673,16 @@ def create_order(data):
 
 	return {"customer": customer, "project": project, "sales_order": so.name, "submitted": so.docstatus == 1,
 		"price_pending": price_pending, "estimate": estimate, "payment": payment}
+
+
+def simple_units():
+	from atelier import simple
+
+	return simple.units()
+
+
+def mode_funds(company):
+	return set(frappe.get_all("Mode of Payment Account", filters={"company": company, "parent": ["in", [m[0] for m in MODES]]}, pluck="default_account"))
 
 
 def _cash_account(mode, company):
@@ -1071,7 +1114,7 @@ def create_item(data):
 		frappe.throw(_("يوجد بند بهذا الاسم"))
 	uom = (data.get("uom") or "قطعة").strip()
 	if not frappe.db.exists("UOM", uom):
-		frappe.get_doc({"doctype": "UOM", "uom_name": uom, "must_be_whole_number": uom in ("قطعة", "ورقة", "علبة")}).insert(ignore_permissions=True)
+		frappe.get_doc({"doctype": "UOM", "uom_name": uom, "must_be_whole_number": next((u["whole"] for u in simple_units() if u["name"] == uom), 0)}).insert(ignore_permissions=True)
 	product = data.get("kind") == "product"
 	group = "خدمات" if not product else "منتجات"
 	if not frappe.db.exists("Item Group", group):
@@ -1127,7 +1170,7 @@ from atelier.simple import reports2, save_email, test_email  # noqa: E402, F401
 from atelier.simple import create_purchase_order, create_supplier_invoice, save_supplier, set_supplier_disabled, supplier2, suppliers2  # noqa: E402, F401
 from atelier.simple import money3, pay_supplier, transfer_funds  # noqa: E402, F401
 from atelier.simple import backup_now, rename_fund, reset_link, save_alerts, save_doc_settings, save_profile, save_user, set_mode_account, settings  # noqa: E402, F401
-from atelier.simple import add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
+from atelier.simple import save_units, add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
 from atelier.simple import customer2, customers2, reorder_card, set_customer_extra  # noqa: E402, F401
 from atelier.simple import archive_card, archive_paid, archived_cards, checklist_templates, copy_card, delete_checklist_template, mark_read, notifications, reorder, save_checklist_template  # noqa: E402, F401
 from atelier.simple import add_card, add_comment, board, board2, card, delete_file, file_added, move, move_card, quick_order, save_board, update_card, update_order  # noqa: E402, F401

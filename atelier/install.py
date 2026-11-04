@@ -38,6 +38,7 @@ def setup():
 		"atelier_checklists": simple.DEFAULT_CHECKLISTS,
 		"atelier_docs": simple.DOC_DEFAULTS,
 		"atelier_alerts": simple.ALERT_DEFAULTS,
+		"atelier_units": simple.DEFAULT_UNITS,
 		"atelier_team": [],  # the workshop adds its own people; never sample names
 	}.items():
 		if frappe.db.get_default(key) is None:
@@ -65,3 +66,4 @@ def setup_company():
 			accounts_ar.run(company=company.name, commit=False)
 			frappe.db.set_default("atelier_accounts_ar_initialized", company.name)
 		accounts_ar.default_bank(company=company.name, commit=False, only_if_missing=True)
+		accounts_ar.payment_modes(company.name)

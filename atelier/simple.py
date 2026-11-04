@@ -835,7 +835,7 @@ def money3(offset=0):
 	balances = {a.name: one("select sum(debit - credit) from `tabGL Entry` where is_cancelled=0 and account=%s", a.name) for a in accs}
 	# the French chart has many cash/bank accounts: show only the ones in use, plus the company defaults
 	used = {r[0] for r in frappe.db.sql("select distinct account from `tabGL Entry` where is_cancelled=0 and account in %s", [cash])}
-	defaults = set(frappe.get_cached_value("Company", company, ["default_cash_account", "default_bank_account"]) or [])
+	defaults = api.mode_funds(company) | set(frappe.get_cached_value("Company", company, ["default_cash_account", "default_bank_account"]) or [])
 	shown = [a for a in accs if a.name in used or a.name in defaults] or accs
 	weeks = []
 	for i in range(7, -1, -1):
@@ -1110,7 +1110,7 @@ def settings():
 	accs = frappe.get_all("Account", filters={"company": company, "account_type": ["in", ["Cash", "Bank"]], "is_group": 0, "disabled": 0},
 		fields=["name", "account_name", "account_type"])
 	used = {r[0] for r in frappe.db.sql("select distinct account from `tabGL Entry` where is_cancelled=0")}
-	defaults = set(frappe.get_cached_value("Company", company, ["default_cash_account", "default_bank_account"]) or [])
+	defaults = api.mode_funds(company) | set(frappe.get_cached_value("Company", company, ["default_cash_account", "default_bank_account"]) or [])
 	modes = []
 	for v, label in api.MODES:
 		if frappe.db.exists("Mode of Payment", v):
@@ -1441,6 +1441,36 @@ def test_email(to):
 
 
 # ---------------------------------------------------------------- suppliers: list, profile, purchase orders, supplier invoices, payments
+DEFAULT_UNITS = [
+	{"name": "قطعة", "group": "بالعدد", "whole": 1}, {"name": "ورقة", "group": "بالعدد", "whole": 1},
+	{"name": "علبة", "group": "بالعدد", "whole": 1}, {"name": "خدمة", "group": "بالعدد", "whole": 1},
+	{"name": "م²", "group": "بالمقاس", "whole": 0}, {"name": "سم²", "group": "بالمقاس", "whole": 0},
+	{"name": "متر طولي", "group": "بالمقاس", "whole": 0}, {"name": "ساعة", "group": "بالوقت", "whole": 0},
+]
+
+
+def units():
+	try:
+		return json.loads(frappe.db.get_default("atelier_units") or "null") or DEFAULT_UNITS
+	except ValueError:
+		return DEFAULT_UNITS
+
+
+@frappe.whitelist(methods=["POST"])
+def save_units(rows):
+	_manager_only()
+	seen, out = set(), []
+	for row in frappe.parse_json(rows) or []:
+		name = (row.get("name") or "").strip()[:40]
+		if name and name not in seen:
+			seen.add(name)
+			out.append({"name": name, "group": (row.get("group") or "أخرى").strip()[:40], "whole": 1 if row.get("whole") else 0})
+	if not out:
+		frappe.throw(_("أبقِ وحدة واحدة على الأقل"))
+	frappe.db.set_default("atelier_units", json.dumps(out, ensure_ascii=False))
+	return out
+
+
 SUPPLIER_FIELDS = [
 	{"fieldname": "atelier_supplies", "label": "ما نشتريه منه", "fieldtype": "Data", "insert_after": "supplier_name"},
 	{"fieldname": "atelier_phone", "label": "الهاتف", "fieldtype": "Data", "insert_after": "atelier_supplies"},

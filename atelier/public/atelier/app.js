@@ -285,7 +285,7 @@ const SearchBox = {
 const CustomerPicker = {
   props: ["modelValue", "invalid", "inputId"], emits: ["update:modelValue"], components: { Icon },
   setup(props, { emit }) {
-    const q = ref(""), list = ref([]), open = ref(false);
+    const q = ref(""), list = ref([]), open = ref(false), searched = ref(false);
     let timer;
     const fetchList = async () => { try { list.value = await call("customers", q.value ? { q: q.value } : {}); } catch { list.value = []; } };
     watch(q, () => { clearTimeout(timer); timer = setTimeout(fetchList, 200); });
@@ -588,11 +588,11 @@ const PricesPage = {
 };
 
 // ------------------------------------------------------------------ new service / product
-const ITEM_UNITS = ["قطعة", "ورقة", "م²", "متر", "ساعة", "علبة"];
+const unitGroups = () => { const g = {}; (state.boot.units || []).forEach((u) => (g[u.group] ||= []).push(u.name)); return Object.entries(g); };
 const ItemSheet = {
   props: ["opts"], components: { Icon },
   setup() {
-    const f = reactive({ item_name: "", kind: "service", uom: "قطعة", price_individual: "", price_company: "", description: "" });
+    const f = reactive({ item_name: "", kind: "service", uom: state.boot.units?.[0]?.name || "قطعة", price_individual: "", price_company: "", description: "" });
     const saving = ref(false), error = ref(null), attempted = ref(false);
     const errs = computed(() => ({
       item_name: !f.item_name.trim() ? t("it_err_name") : null,
@@ -611,7 +611,7 @@ const ItemSheet = {
       } catch (e) { error.value = e.message; }
       saving.value = false;
     }
-    return { f, saving, error, attempted, errs, save, close, ITEM_UNITS, t };
+    return { f, saving, error, attempted, errs, save, close, unitGroups, t };
   },
   template: `
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="is-h">
@@ -626,7 +626,7 @@ const ItemSheet = {
         <input id="is-name" class="input" :class="{invalid: attempted && errs.item_name}" type="text" v-model="f.item_name" :placeholder="t('it_name_ph')" autocomplete="off">
         <span v-if="attempted && errs.item_name" class="error-text">{{ errs.item_name }}</span></div>
       <div class="field"><span class="label">{{ t('it_unit') }}</span>
-        <div class="chips" role="group" :aria-label="t('it_unit')"><button v-for="u in ITEM_UNITS" :key="u" type="button" class="chip" :aria-pressed="f.uom===u" @click="f.uom=u">{{ u }}</button></div></div>
+        <select class="input" v-model="f.uom" :aria-label="t('it_unit')"><optgroup v-for="g in unitGroups()" :key="g[0]" :label="g[0]"><option v-for="u in g[1]" :key="u" :value="u">{{ u }}</option></optgroup></select></div>
       <div class="grid-2">
         <div class="field"><label for="is-pi">{{ t('pr_individual_prices') }} ({{ t('currency') }})</label>
           <input id="is-pi" class="input num" type="text" inputmode="decimal" autocomplete="off" v-model="f.price_individual" :placeholder="t('it_price_ph')"></div>
@@ -672,12 +672,13 @@ const CustomerField = {
     watch(q, (v) => {
       if (props.modelValue && v !== props.modelValue.customer_name) emit("update:modelValue", null);
       clearTimeout(timer);
+      searched.value = false;
       if (!v.trim()) { list.value = []; return; }
-      timer = setTimeout(async () => { try { list.value = await call("customers", { q: v.trim() }); open.value = true; } catch { list.value = []; } }, 200);
+      timer = setTimeout(async () => { try { list.value = await call("customers", { q: v.trim() }); searched.value = true; open.value = true; } catch { list.value = []; } }, 200);
     });
     const pick = (c) => { emit("update:modelValue", { name: c.name, customer_name: c.customer_name }); q.value = c.customer_name; open.value = false; };
     const blur = () => setTimeout(() => (open.value = false), 150);
-    return { q, list, open, pick, blur };
+    return { q, list, open, searched, pick, blur };
   },
   template: `
   <div class="cf">
@@ -685,6 +686,7 @@ const CustomerField = {
     <div v-if="open && list.length && !modelValue" class="cf-list" role="listbox">
       <button v-for="c in list" :key="c.name" type="button" role="option" @mousedown.prevent="pick(c)">{{ c.customer_name }} <span class="m" dir="ltr">{{ c.mobile_no || '' }}</span></button>
     </div>
+    <div v-else-if="open && searched && !list.length && !modelValue && q.trim()" class="cf-list cf-none">لا يوجد عميل بهذا الاسم. سيُنشأ عميل جديد عند الحفظ.</div>
   </div>`,
 };
 
@@ -1385,7 +1387,7 @@ const SimpleCustomers = {
             <div v-if="fopen" class="cl-pop cl-filters" @click.stop>
               <div class="cl-fgroup"><span>النوع</span><div class="cl-seg"><button v-for="x in TYPES" :key="x[0]" type="button" :aria-pressed="draft.type === x[0]" @click="draft.type = x[0]">{{ x[1] }}</button></div></div>
               <div class="cl-fgroup"><span>الحالة</span><div class="cl-seg wrap"><button v-for="x in STATUSES" :key="x[0]" type="button" :aria-pressed="draft.status === x[0]" @click="draft.status = x[0]">{{ x[1] }}</button></div></div>
-              <label v-if="s.data && s.data.customer_tags.length" class="cl-fgroup"><span>التصنيف</span><select class="input" v-model="draft.tag"><option value="">كل التصنيفات</option><option v-for="x in s.data.customer_tags" :key="x.id" :value="x.id">{{ x.name }}</option></select></label>
+              <label v-if="s.data && s.data.rows.some((c) => (c.tags || []).length)" class="cl-fgroup"><span>التصنيف</span><select class="input" v-model="draft.tag"><option value="">كل التصنيفات</option><option v-for="x in s.data.customer_tags" :key="x.id" :value="x.id">{{ x.name }}</option></select></label>
               <label class="cl-fgroup"><span>الترتيب</span><select class="input" v-model="draft.sort"><option v-for="x in SORTS" :key="x[0]" :value="x[0]">{{ x[1] }}</option></select></label>
               <div class="cl-pop-foot"><button type="button" class="cl-link" @click="resetFilters">إعادة ضبط</button><button type="button" class="cl-btn primary" @click="applyFilters">تطبيق</button></div>
             </div>
@@ -1616,7 +1618,7 @@ const CustomerSheet2 = {
         </section>
         <section class="cs2-sec"><b>للفريق</b>
           <div class="cs2-row"><label class="cs2-f"><span class="m">سقف الدين</span><div class="unit-wrap"><input class="input num" v-model="f.credit_limit" inputmode="decimal" placeholder="بلا سقف"><span class="u">دج</span></div><span v-if="attempted && errs.limit" class="err">{{ errs.limit }}</span></label>
-            <div class="cs2-f grow2"><span class="m">التصنيف</span><div class="bd-chips">
+            <div v-if="f.tags.length" class="cs2-f grow2"><span class="m">التصنيف</span><div class="bd-chips">
               <button v-for="tg in tags" :key="tg.id" type="button" class="tl tl-btn" :class="{off: !f.tags.includes(tg.id)}" :style="labelStyle(tg)" :aria-pressed="f.tags.includes(tg.id)" @click="toggleTag(tg.id)">{{ f.tags.includes(tg.id) ? '✓ ' : '' }}{{ tg.name }}</button></div></div></div>
           <label class="cs2-f"><span class="m">ملاحظة ثابتة (تظهر في كل بطاقة جديدة له)</span><textarea class="input" v-model="f.note" rows="2"></textarea></label>
           <label class="bs-deliver"><input type="checkbox" :checked="!!f.tva_exempt" @change="f.tva_exempt = $event.target.checked ? 1 : 0">معفى من TVA</label>
@@ -2045,8 +2047,27 @@ const SETTINGS_GROUPS = [
 const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "الوثائق والضريبة"], ["team", "👥", "الفريق والحسابات"], ["board", "▦", "تخصيص اللوحة"],
   ["prices", "🏷", "الخدمات والأسعار"], ["funds", "💳", "الدفع والصناديق"], ["alerts", "🔔", "التنبيهات"], ["backup", "💾", "النسخ الاحتياطي"]];
 
+const UnitsCard = {
+  setup() {
+    const rows = ref((state.boot.units || []).map((u) => ({ ...u }))), name = ref(""), busy = ref(false);
+    const persist = async () => {
+      busy.value = true;
+      try { state.boot.units = await call("save_units", { rows: JSON.stringify(rows.value) }, true); rows.value = state.boot.units.map((u) => ({ ...u })); toast("حُفظت الوحدات"); }
+      catch (e) { toast(e.message); rows.value = state.boot.units.map((u) => ({ ...u })); }
+      finally { busy.value = false; }
+    };
+    const add = () => { const v = name.value.trim(); if (!v || rows.value.some((u) => u.name === v)) return; rows.value.push({ name: v, group: "أخرى", whole: 0 }); name.value = ""; persist(); };
+    const drop = (i) => { rows.value.splice(i, 1); persist(); };
+    return { rows, name, busy, add, drop };
+  },
+  template: `
+  <div class="st2-card"><div class="st2-grp"><div class="st2-lbl"><b>وحدات البيع</b><span>تظهر عند إضافة خدمة أو منتج. الخدمات الموجودة تبقى على وحدتها.</span></div>
+    <div class="st2-fields"><div class="bd-chips"><span v-for="(u, i) in rows" :key="u.name" class="chip">{{ u.name }} <button type="button" :disabled="busy" :aria-label="'حذف ' + u.name" style="all:unset;cursor:pointer;margin-inline-start:6px" @click="drop(i)">×</button></span></div>
+      <div class="st2-line"><input class="input" v-model="name" aria-label="وحدة جديدة" placeholder="وحدة جديدة، مثل: كغ" @keyup.enter="add"><button type="button" class="cl-btn sm" :disabled="busy || !name.trim()" @click="add">إضافة</button></div></div></div></div>`,
+};
+
 const SettingsPage = {
-  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage },
+  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, UnitsCard },
   setup(props) {
     const { s, load } = useLoad(() => call("settings"));
     onMounted(load);
@@ -2166,7 +2187,7 @@ const SettingsPage = {
         </template>
 
         <div v-else-if="tab === 'board'" class="st2-card st2-embed"><BoardSettings :embedded="true"/></div>
-        <div v-else-if="tab === 'prices'" class="st2-card st2-embed"><PricesPage :embedded="true"/></div>
+        <template v-else-if="tab === 'prices'"><UnitsCard/><div class="st2-card st2-embed"><PricesPage :embedded="true"/></div></template>
 
         <div v-else-if="tab === 'funds'" class="st2-card">
           <div class="st2-grp"><div class="st2-lbl"><b>الصناديق</b><span>الأسماء التي تظهر في صفحة المال وفي تسجيل الدفعات.</span></div>

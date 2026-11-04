@@ -1535,3 +1535,4 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .tm-cover > * { position: relative; }
 
 .cl-bal.warn-b { color: var(--c-warn); } .cl-bal.warn-b i { background: #F79009; }
+.cf-none { padding: 10px 14px; color: var(--muted, #6b6880); font-size: 13px; }

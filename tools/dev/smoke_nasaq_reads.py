@@ -25,3 +25,21 @@ for module_name in ("atelier.api", "atelier.simple", "atelier.production"):
             frappe.db.rollback()
 print("SMOKE_READS", "passed", passed, "failed", failed)
 assert not failed
+
+# Payment methods reach the agreed funds, and search ranking works. Nothing here is written.
+from atelier import accounts_ar, api, simple
+
+company = api._company()
+for mode, label in accounts_ar.MODE_FUNDS.items():
+    assert frappe.db.exists("Mode of Payment", mode), mode
+    account = api._cash_account(mode, company)
+    name = frappe.db.get_value("Account", account, "account_name")
+    print("MODE", mode, "->", name, frappe.db.get_value("Account", account, "account_type"))
+    if mode != "Cash":
+        assert name == label, (mode, name)
+assert {u["name"] for u in simple.units()} >= {"م²", "سم²", "متر طولي", "ساعة", "خدمة"}
+rows = [frappe._dict(customer_name=n, mobile_no=m) for n, m in [("سعيد أحمد", "0550"), ("احمد علي", "0661"), ("فاطمة", "0770"), ("محمد", "0555279877")]]
+assert [r.customer_name for r in api._rank_customers("أحمد", rows)] == ["احمد علي", "سعيد أحمد"]
+assert [r.customer_name for r in api._rank_customers("فاطمه", rows)] == ["فاطمة"]
+assert [r.customer_name for r in api._rank_customers("279877", rows)] == ["محمد"]
+print("PAYMENT_MODES_UNITS_SEARCH_OK")
