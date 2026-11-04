@@ -142,8 +142,8 @@ def money():
 	def one(sql, *args):
 		return flt(frappe.db.sql(sql, args)[0][0])
 
-	cash_in = one("select sum(debit) from `tabGL Entry` where is_cancelled=0 and posting_date between %s and %s and account in %s", start, end, cash)
-	cash_out = one("select sum(credit) from `tabGL Entry` where is_cancelled=0 and posting_date between %s and %s and account in %s", start, end, cash)
+	cash_in = one("select sum(debit) from `tabGL Entry` where is_cancelled=0 and is_opening='No' and posting_date between %s and %s and account in %s", start, end, cash)
+	cash_out = one("select sum(credit) from `tabGL Entry` where is_cancelled=0 and is_opening='No' and posting_date between %s and %s and account in %s", start, end, cash)
 	moves = frappe.db.sql(
 		"""select gle.voucher_type, gle.voucher_no, gle.posting_date, sum(gle.debit - gle.credit) amount,
 		max(gle.remarks) remarks, max(gle.owner) owner
@@ -827,8 +827,8 @@ def money3(offset=0):
 		return flt(frappe.db.sql(sql, args)[0][0])
 
 	def inout(a, b):
-		return (one("select sum(debit) from `tabGL Entry` where is_cancelled=0 and posting_date between %s and %s and account in %s", a, b, cash),
-			one("select sum(credit) from `tabGL Entry` where is_cancelled=0 and posting_date between %s and %s and account in %s", a, b, cash))
+		return (one("select sum(debit) from `tabGL Entry` where is_cancelled=0 and is_opening='No' and posting_date between %s and %s and account in %s", a, b, cash),
+			one("select sum(credit) from `tabGL Entry` where is_cancelled=0 and is_opening='No' and posting_date between %s and %s and account in %s", a, b, cash))
 
 	income, expenses = inout(start, end)
 	pin, pout = inout(pstart, pend)
@@ -891,6 +891,8 @@ def _move_meta(m):
 		cat = _("دفعة عميل") if pe.get("payment_type") == "Receive" else (_("دفع لمورد") if pe.get("party_type") == "Supplier" else _("تحويل"))
 		return cat, order, frappe.db.get_value("Sales Order", order, "atelier_subject") if order else None
 	if m.voucher_type == "Journal Entry":
+		if frappe.db.get_value("Journal Entry", m.voucher_no, "is_opening") == "Yes":
+			return _("رصيد افتتاحي"), None, None
 		acc = frappe.db.sql("""select acc.account_name, jea.project from `tabJournal Entry Account` jea join `tabAccount` acc on acc.name=jea.account
 			where jea.parent=%s and acc.root_type in ('Expense','Asset') and acc.account_type not in ('Cash','Bank') limit 1""", m.voucher_no, as_dict=True)
 		if not acc:
@@ -1201,14 +1203,14 @@ def save_user(email, full_name, role="staff", enabled=1):
 	for r in want:
 		user.append("roles", {"role": r})
 	user.save(ignore_permissions=True)
-	link = user.reset_password(send_email=False) if new else None
+	link = user._reset_password(send_email=False) if new else None
 	return {"name": user.name, "link": link}
 
 
 @frappe.whitelist(methods=["POST"])
 def reset_link(email):
 	_manager_only()
-	return frappe.get_doc("User", email).reset_password(send_email=False)
+	return frappe.get_doc("User", email)._reset_password(send_email=False)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1441,6 +1443,67 @@ def test_email(to):
 
 
 # ---------------------------------------------------------------- suppliers: list, profile, purchase orders, supplier invoices, payments
+OPENING_ACCOUNT_NUMBER = "11"  # Report à Nouveau: starting money is neither income nor a sale
+
+
+def _opening_counter(company):
+	account = frappe.db.get_value("Account", {"company": company, "account_number": OPENING_ACCOUNT_NUMBER, "is_group": 0, "root_type": "Equity"})
+	if not account:
+		frappe.throw(_("لم يوجد حساب الترحيل من جديد (11) في دليل الحسابات"))
+	return account
+
+
+def _opening_entry(account):
+	rows = frappe.db.sql("""select je.name, je.posting_date, jea.debit_in_account_currency amount
+		from `tabJournal Entry` je join `tabJournal Entry Account` jea on jea.parent=je.name
+		where je.docstatus=1 and je.is_opening='Yes' and jea.account=%s limit 1""", account, as_dict=True)
+	return rows[0] if rows else None
+
+
+@frappe.whitelist()
+def opening_balances():
+	_manager_only()
+	company = api._company()
+	rows = []
+	for account in sorted(api.mode_funds(company)):
+		entry = _opening_entry(account)
+		rows.append({"account": account, "label": frappe.db.get_value("Account", account, "account_name"),
+			"entry": entry.name if entry else None, "amount": flt(entry.amount) if entry else 0,
+			"date": str(entry.posting_date) if entry else None})
+	return {"rows": rows, "counter": frappe.db.get_value("Account", _opening_counter(company), "account_name")}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_opening(account, amount, posting_date):
+	"""One opening entry per fund: posted against 11, so it never counts as income."""
+	_manager_only()
+	company, amount = api._company(), flt(amount)
+	if amount <= 0:
+		frappe.throw(_("اكتب مبلغًا أكبر من صفر"))
+	if account not in api.mode_funds(company):
+		frappe.throw(_("حساب غير صالح"))
+	if _opening_entry(account):
+		frappe.throw(_("لهذا الصندوق رصيد افتتاحي. ألغه أولًا لتصحيحه"))
+	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Opening Entry", "is_opening": "Yes", "company": company,
+		"posting_date": posting_date, "user_remark": _("رصيد افتتاحي"),
+		"accounts": [{"account": account, "debit_in_account_currency": amount},
+			{"account": _opening_counter(company), "credit_in_account_currency": amount}]})
+	je.insert(ignore_permissions=True)
+	je.submit()
+	return je.name
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_opening(entry):
+	_manager_only()
+	je = frappe.get_doc("Journal Entry", entry)
+	if je.is_opening != "Yes" or je.docstatus != 1:
+		frappe.throw(_("هذا ليس قيدًا افتتاحيًا"))
+	je.flags.ignore_permissions = True
+	je.cancel()
+	return True
+
+
 DEFAULT_UNITS = [
 	{"name": "قطعة", "group": "بالعدد", "whole": 1}, {"name": "ورقة", "group": "بالعدد", "whole": 1},
 	{"name": "علبة", "group": "بالعدد", "whole": 1}, {"name": "خدمة", "group": "بالعدد", "whole": 1},

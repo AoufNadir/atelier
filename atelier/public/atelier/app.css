@@ -1536,3 +1536,5 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 
 .cl-bal.warn-b { color: var(--c-warn); } .cl-bal.warn-b i { background: #F79009; }
 .cf-none { padding: 10px 14px; color: var(--muted, #6b6880); font-size: 13px; }
+/* The board page is not a flex row: the new-order panel slides over it instead of falling below. */
+.bd-panel { position: fixed; top: 0; bottom: 0; inset-inline-end: 0; width: min(420px, 100vw); height: 100dvh; overflow-y: auto; z-index: 60; box-shadow: 0 0 40px rgba(16, 24, 40, .22); }

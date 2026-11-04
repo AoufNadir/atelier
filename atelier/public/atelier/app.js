@@ -2047,6 +2047,26 @@ const SETTINGS_GROUPS = [
 const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "الوثائق والضريبة"], ["team", "👥", "الفريق والحسابات"], ["board", "▦", "تخصيص اللوحة"],
   ["prices", "🏷", "الخدمات والأسعار"], ["funds", "💳", "الدفع والصناديق"], ["alerts", "🔔", "التنبيهات"], ["backup", "💾", "النسخ الاحتياطي"]];
 
+const OpeningGroup = {
+  setup() {
+    const d = ref(null), date = ref(isoIn(0)), busy = ref(false), error = ref(null);
+    const load = async () => { try { d.value = await call("opening_balances"); d.value.rows.forEach((r) => (r.input = "")); error.value = null; } catch (e) { error.value = e.message; } };
+    const run = async (fn, msg) => { busy.value = true; try { await fn(); toast(msg); await load(); } catch (e) { toast(e.message, "error"); } finally { busy.value = false; } };
+    const save = (r) => run(() => call("save_opening", { account: r.account, amount: r.input, posting_date: date.value }, true), "سُجّل الرصيد الافتتاحي");
+    const cancel = (r) => { if (confirm(`إلغاء الرصيد الافتتاحي لـ«${r.label}»؟`)) run(() => call("cancel_opening", { entry: r.entry }, true), "أُلغي الرصيد الافتتاحي"); };
+    load();
+    return { d, date, busy, error, save, cancel, money };
+  },
+  template: `
+  <div class="st2-grp"><div class="st2-lbl"><b>الرصيد الافتتاحي</b><span>المال الموجود عند بداية العمل. يظهر في الأرصدة ولا يُحسب دخلًا.</span></div>
+    <div class="st2-fields"><p v-if="error" class="muted">{{ error }}</p>
+      <template v-if="d"><label class="st2-line"><span style="min-width:110px">تاريخ البداية</span><input class="input" type="date" v-model="date"></label>
+        <div v-for="r in d.rows" :key="r.account" class="st2-line"><span style="min-width:110px">{{ r.label }}</span>
+          <template v-if="r.entry"><b class="money">{{ money(r.amount) }}</b><span class="muted">{{ r.date }}</span><button type="button" class="cl-btn sm" :disabled="busy" @click="cancel(r)">إلغاء</button></template>
+          <template v-else><input class="input" type="number" min="0" step="0.01" v-model="r.input" :aria-label="'رصيد ' + r.label" placeholder="0"><button type="button" class="cl-btn sm" :disabled="busy || !(+r.input > 0)" @click="save(r)">تسجيل</button></template></div>
+        <span class="muted">يُسجَّل مقابل حساب «{{ d.counter }}» (11).</span></template></div></div>`,
+};
+
 const UnitsCard = {
   setup() {
     const rows = ref((state.boot.units || []).map((u) => ({ ...u }))), name = ref(""), busy = ref(false);
@@ -2067,7 +2087,7 @@ const UnitsCard = {
 };
 
 const SettingsPage = {
-  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, UnitsCard },
+  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, UnitsCard, OpeningGroup },
   setup(props) {
     const { s, load } = useLoad(() => call("settings"));
     onMounted(load);
@@ -2193,6 +2213,7 @@ const SettingsPage = {
           <div class="st2-grp"><div class="st2-lbl"><b>الصناديق</b><span>الأسماء التي تظهر في صفحة المال وفي تسجيل الدفعات.</span></div>
             <div class="st2-fields"><div v-for="x in s.data.funds" :key="x.name" class="st2-line"><span class="muted" style="min-width:44px">{{ x.account_type === 'Bank' ? 'بنك' : 'نقد' }}</span>
               <input class="input" v-model="x.account_name" :aria-label="'اسم ' + x.name"><button type="button" class="cl-btn sm" :disabled="!!busy" @click="renameFund(x)">حفظ</button></div></div></div>
+          <OpeningGroup/>
           <div class="st2-grp"><div class="st2-lbl"><b>طرق الدفع</b><span>إلى أي صندوق يدخل المال حسب طريقة الدفع.</span></div>
             <div class="st2-fields"><div v-for="m in s.data.modes" :key="m.value" class="st2-line"><span style="min-width:110px">{{ m.label }}</span>
               <select class="input" v-model="m.account" :aria-label="'صندوق ' + m.label"><option :value="null" disabled>غير محدد</option><option v-for="x in s.data.all_funds" :key="x.name" :value="x.name">{{ x.account_name }}</option></select>
