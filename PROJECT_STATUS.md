@@ -7,7 +7,7 @@
 **التطبيق يعمل محليًا على هذا الحاسوب:** <http://nasaq.localhost:8001/atelier-login> (بعد `tools/dev/Start-Nasaq.ps1`).
 
 - الموقع `nasaq.localhost` نظيف: Frappe 16.55.1 وERPNext 16.53.0 وAtelier، وشركة «نَسَق للطباعة»، ولا سجلات أعمال.
-- الفرع: `chore/multi-computer-setup` مبني على `origin/main`. commits محلية **غير مرفوعة**؛ لن تظهر على حاسوب آخر قبل الرفع.
+- الفرع: `chore/multi-computer-setup` مبني على `origin/main` و**مرفوع إلى GitHub**، ولم يُدمج في `main` بعد. على حاسوب آخر: `git switch chore/multi-computer-setup`.
 - فرع استرداد محلي: `backup/before-github-connect-20261104`. نسخة ZIP: `C:\Users\HB\Documents\atelier-main-backup-zip-original.zip`.
 
 ## التحقق الذي تم فعلًا
@@ -34,7 +34,7 @@
 
 1. المستخدم: ادخل بحساب Administrator وافتح `/atelier`، وجرّب إنشاء عميل وطلب.
 2. أصلح ما يظهر في الواجهة، وأضف أفراد الفريق من الإعدادات.
-3. عند طلب المستخدم فقط: ارفع الفرع `chore/multi-computer-setup` إلى GitHub، ثم ادمجه في `main`.
+3. عند طلب المستخدم فقط: ادمج الفرع `chore/multi-computer-setup` في `main`.
 
 ## الإصلاحات أثناء أول تشغيل
 
