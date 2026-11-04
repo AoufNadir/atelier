@@ -78,7 +78,7 @@ def quick_order(data):
 	what = (d.get("what") or "").strip()
 	price = d.get("price")
 	mode = d.get("mode") or "Cash"
-	if flt(d.get("advance")) > 0 and mode not in [m[0] for m in api.MODES]:
+	if flt(d.get("advance")) > 0 and mode not in [m[0] for m in api.all_modes()]:
 		frappe.throw(_("طريقة الدفع غير صالحة"))
 	res = api.create_order(json.dumps({
 		"customer": d.get("customer"), "new_customer": d.get("new_customer") or {},
@@ -887,7 +887,7 @@ def money3(offset=0):
 		"payers": cint(one("""select count(distinct party) from `tabPayment Entry` where docstatus=1 and payment_type='Receive'
 			and party_type='Customer' and posting_date between %s and %s""", start, end)),
 		"weeks": weeks, "moves": moves, "categories": cats, "debtors": debtors, "payables": payables,
-		"modes": [{"value": v, "label": l} for v, l in api.MODES if frappe.db.exists("Mode of Payment", v)],
+		"modes": [{"value": v, "label": l} for v, l in api.all_modes() if frappe.db.exists("Mode of Payment", v)],
 	}
 
 
@@ -1126,7 +1126,7 @@ def settings():
 	used = {r[0] for r in frappe.db.sql("select distinct account from `tabGL Entry` where is_cancelled=0")}
 	defaults = api.mode_funds(company) | set(frappe.get_cached_value("Company", company, ["default_cash_account", "default_bank_account"]) or [])
 	modes = []
-	for v, label in api.MODES:
+	for v, label in api.all_modes():
 		if frappe.db.exists("Mode of Payment", v):
 			modes.append({"value": v, "label": label, "account": frappe.db.get_value("Mode of Payment Account", {"parent": v, "company": company}, "default_account")})
 	return {
@@ -1238,9 +1238,12 @@ def rename_fund(account, label):
 
 
 @frappe.whitelist(methods=["POST"])
-def set_mode_account(mode, account):
-	"""Which fund a payment method lands in (cash → the cash box, transfer → the bank…)."""
+def set_mode_account(mode, account, label=None):
+	"""Which fund a payment method lands in, and the name shown for it."""
 	_manager_only()
+	label = (label or "").strip()[:60]
+	if label:
+		_save_modes([(v, label if v == mode else old) for v, old in api.all_modes()])
 	company = api._company()
 	mop = frappe.get_doc("Mode of Payment", mode)
 	row = next((r for r in mop.accounts if r.company == company), None)
@@ -1514,6 +1517,86 @@ def save_card_cost(name, data):
 	doc.flags.ignore_permissions = True
 	doc.save()
 	return _cost_view(name)
+
+
+def _save_modes(modes):
+	frappe.db.set_default("atelier_modes", json.dumps([{"value": v, "label": l} for v, l in modes], ensure_ascii=False))
+
+
+@frappe.whitelist(methods=["POST"])
+def add_fund(label, fund_type):
+	"""A new cash box or bank account, placed beside the company's default one in the chart."""
+	_manager_only()
+	label = (label or "").strip()[:80]
+	if not label or fund_type not in ("Cash", "Bank"):
+		frappe.throw(_("اكتب اسم الصندوق واختر نوعه"))
+	company = api._company()
+	existing = frappe.db.get_value("Account", {"company": company, "account_name": label}, ["name", "disabled", "account_type"], as_dict=True)
+	if existing and not (existing.disabled and existing.account_type == fund_type):
+		frappe.throw(_("يوجد حساب بهذا الاسم"))
+	if existing:  # a removed fund comes back
+		frappe.db.set_value("Account", existing.name, "disabled", 0)
+		frappe.db.set_default("atelier_funds", json.dumps(api._stored_list("atelier_funds") + [existing.name], ensure_ascii=False))
+		return existing.name
+	default = frappe.db.get_value("Company", company, "default_cash_account" if fund_type == "Cash" else "default_bank_account")
+	account = frappe.get_doc({"doctype": "Account", "company": company, "account_name": label, "account_type": fund_type,
+		"parent_account": frappe.db.get_value("Account", default, "parent_account"), "is_group": 0}).insert(ignore_permissions=True)
+	frappe.db.set_default("atelier_funds", json.dumps(api._stored_list("atelier_funds") + [account.name], ensure_ascii=False))
+	return account.name
+
+
+@frappe.whitelist(methods=["POST"])
+def remove_fund(account):
+	"""Any fund with no movement and no payment method. Accounts are disabled: the chart keeps them."""
+	_manager_only()
+	company = api._company()
+	if frappe.db.get_value("Account", account, "account_type") not in ("Cash", "Bank"):
+		frappe.throw(_("حساب غير صالح"))
+	if frappe.db.exists("GL Entry", {"account": account}):
+		frappe.throw(_("لهذا الصندوق حركات مالية، فلا يمكن حذفه"))
+	if frappe.db.exists("Mode of Payment Account", {"default_account": account, "parent": ["in", [m[0] for m in api.all_modes()]]}):
+		frappe.throw(_("هذا الصندوق مرتبط بطريقة دفع. غيّر ربطها أولًا"))
+	if account in frappe.get_cached_value("Company", company, ["default_cash_account", "default_bank_account"]):
+		frappe.throw(_("هذا هو الصندوق الافتراضي للشركة، فلا يمكن حذفه"))
+	frappe.db.set_value("Account", account, "disabled", 1)
+	frappe.db.set_default("atelier_funds", json.dumps([a for a in api._stored_list("atelier_funds") if a != account], ensure_ascii=False))
+	return True
+
+
+@frappe.whitelist(methods=["POST"])
+def add_mode(label, account):
+	_manager_only()
+	label, company = (label or "").strip()[:60], api._company()
+	kind = frappe.db.get_value("Account", account, "account_type")
+	if not label or kind not in ("Cash", "Bank"):
+		frappe.throw(_("اكتب اسم الطريقة واختر صندوقها"))
+	if any(label in m for m in api.all_modes()):
+		frappe.throw(_("توجد طريقة بهذا الاسم"))
+	if frappe.db.exists("Mode of Payment", label):
+		doc = frappe.get_doc("Mode of Payment", label)  # a method removed earlier comes back
+	else:
+		doc = frappe.get_doc({"doctype": "Mode of Payment", "mode_of_payment": label, "type": kind, "enabled": 1})
+	row = next((r for r in doc.accounts if r.company == company), None)
+	if row:
+		row.default_account = account
+	else:
+		doc.append("accounts", {"company": company, "default_account": account})
+	doc.save(ignore_permissions=True)
+	_save_modes(api.all_modes() + [(label, label)])
+	return label
+
+
+@frappe.whitelist(methods=["POST"])
+def remove_mode(value):
+	"""Leaves the list; the record stays, so past payments keep their method."""
+	_manager_only()
+	modes = api.all_modes()
+	if value not in [m[0] for m in modes]:
+		frappe.throw(_("طريقة غير صالحة"))
+	if len(modes) == 1:
+		frappe.throw(_("أبقِ طريقة دفع واحدة على الأقل"))
+	_save_modes([m for m in modes if m[0] != value])
+	return True
 
 
 OPENING_ACCOUNT_NUMBER = "11"  # Report à Nouveau: starting money is neither income nor a sale

@@ -2176,7 +2176,13 @@ const SettingsPage = {
     const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast("نُسخ الرابط"); } catch { /* user can select it */ } };
     // funds
     const renameFund = (f) => run("fund", () => call("rename_fund", { account: f.name, label: f.account_name }, true), "حُفظ الاسم");
-    const setMode = (m) => run("mode", () => call("set_mode_account", { mode: m.value, account: m.account }, true), "حُفظ");
+    const newFund = reactive({ label: "", type: "Cash" }), newMode = reactive({ label: "", account: null });
+    const refreshModes = async () => { await load(); state.boot.modes = (await call("boot")).modes; };
+    const addFund = () => run("fund", async () => { await call("add_fund", { label: newFund.label, fund_type: newFund.type }, true); newFund.label = ""; await load(); }, "أُضيف الصندوق");
+    const removeFund = (x) => { if (confirm(`حذف «${x.account_name}»؟`)) run("fund", async () => { await call("remove_fund", { account: x.name }, true); await load(); }, "حُذف الصندوق"); };
+    const addMode = () => run("mode", async () => { await call("add_mode", { label: newMode.label, account: newMode.account }, true); newMode.label = ""; newMode.account = null; await refreshModes(); }, "أُضيفت الطريقة");
+    const removeMode = (m) => { if (confirm(`حذف «${m.label}»؟ تبقى الدفعات السابقة كما هي.`)) run("mode", async () => { await call("remove_mode", { value: m.value }, true); await refreshModes(); }, "حُذفت الطريقة"); };
+    const setMode = (m) => run("mode", async () => { await call("set_mode_account", { mode: m.value, account: m.account, label: m.label }, true); await refreshModes(); }, "حُفظ");
     const backup = () => run("backup", async () => { s.data.backups = await call("backup_now", {}, true); }, "أُنشئت نسخة احتياطية");
     const size = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.round(b / 1024) + " KB");
     const sample = computed(() => { const net = 18000, tax = docs.tva ? net * (+docs.tva_rate || 0) / 100 : 0; return { net, tax, total: net + tax }; });
@@ -2192,7 +2198,7 @@ const SettingsPage = {
       mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"] };
     const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
     return { mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
-      renameFund, setMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
+      renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
   },
   template: `
   <div class="cl st2">
@@ -2270,12 +2276,14 @@ const SettingsPage = {
         <div v-else-if="tab === 'funds'" class="st2-card">
           <div class="st2-grp"><div class="st2-lbl"><b>الصناديق</b><span>الأسماء التي تظهر في صفحة المال وفي تسجيل الدفعات.</span></div>
             <div class="st2-fields"><div v-for="x in s.data.funds" :key="x.name" class="st2-line"><span class="muted" style="min-width:44px">{{ x.account_type === 'Bank' ? 'بنك' : 'نقد' }}</span>
-              <input class="input" v-model="x.account_name" :aria-label="'اسم ' + x.name"><button type="button" class="cl-btn sm" :disabled="!!busy" @click="renameFund(x)">حفظ</button></div></div></div>
-          <OpeningGroup/>
+              <input class="input" v-model="x.account_name" :aria-label="'اسم ' + x.name"><button type="button" class="cl-btn sm" :disabled="!!busy" @click="renameFund(x)">حفظ</button><button type="button" class="cl-btn sm" :disabled="!!busy" @click="removeFund(x)">حذف</button></div>
+              <div class="st2-line"><select class="input" style="width:auto" v-model="newFund.type" aria-label="نوع الصندوق الجديد"><option value="Cash">نقد</option><option value="Bank">بنك</option></select><input class="input" v-model="newFund.label" aria-label="اسم الصندوق الجديد" placeholder="صندوق جديد"><button type="button" class="cl-btn sm" :disabled="!!busy || !newFund.label.trim()" @click="addFund">+ إضافة</button></div></div></div>
+          <OpeningGroup :key="s.data.funds.length"/>
           <div class="st2-grp"><div class="st2-lbl"><b>طرق الدفع</b><span>إلى أي صندوق يدخل المال حسب طريقة الدفع.</span></div>
-            <div class="st2-fields"><div v-for="m in s.data.modes" :key="m.value" class="st2-line"><span style="min-width:110px">{{ m.label }}</span>
+            <div class="st2-fields"><div v-for="m in s.data.modes" :key="m.value" class="st2-line"><input class="input" style="width:150px;flex:none" v-model="m.label" :aria-label="'اسم الطريقة ' + m.value">
               <select class="input" v-model="m.account" :aria-label="'صندوق ' + m.label"><option :value="null" disabled>غير محدد</option><option v-for="x in s.data.all_funds" :key="x.name" :value="x.name">{{ x.account_name }}</option></select>
-              <button type="button" class="cl-btn sm" :disabled="!!busy || !m.account" @click="setMode(m)">حفظ</button></div></div></div>
+              <button type="button" class="cl-btn sm" :disabled="!!busy || !m.account" @click="setMode(m)">حفظ</button><button type="button" class="cl-btn sm" :disabled="!!busy" @click="removeMode(m)">حذف</button></div>
+              <div class="st2-line"><input class="input" v-model="newMode.label" aria-label="اسم طريقة الدفع الجديدة" placeholder="طريقة جديدة"><select class="input" v-model="newMode.account" aria-label="صندوق الطريقة الجديدة"><option :value="null" disabled>الصندوق</option><option v-for="x in s.data.funds" :key="x.name" :value="x.name">{{ x.account_name }}</option></select><button type="button" class="cl-btn sm" :disabled="!!busy || !newMode.label.trim() || !newMode.account" @click="addMode">+ إضافة</button></div></div></div>
         </div>
 
         <div v-else-if="tab === 'alerts'" class="st2-card">

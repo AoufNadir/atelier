@@ -77,7 +77,7 @@ def boot():
 		"stages": STAGES,
 		"units": simple_units(),
 		**production.boot_info(),
-		"modes": [{"value": v, "label": l} for v, l in MODES if frappe.db.exists("Mode of Payment", v)],
+		"modes": [{"value": v, "label": l} for v, l in all_modes() if frappe.db.exists("Mode of Payment", v)],
 		"can": {
 			"order": _can("Sales Order", "create"),
 			"customer": _can("Customer", "create"),
@@ -681,8 +681,23 @@ def simple_units():
 	return simple.units()
 
 
+def _stored_list(key):
+	try:
+		return json.loads(frappe.db.get_default(key) or "[]")
+	except ValueError:
+		return []
+
+
+def all_modes():
+	"""The workshop's payment methods: the built-in list until it customizes them."""
+	stored = _stored_list("atelier_modes")
+	return [(m["value"], m["label"]) for m in stored] if stored else list(MODES)
+
+
 def mode_funds(company):
-	return set(frappe.get_all("Mode of Payment Account", filters={"company": company, "parent": ["in", [m[0] for m in MODES]]}, pluck="default_account"))
+	linked = frappe.get_all("Mode of Payment Account", filters={"company": company, "parent": ["in", [m[0] for m in all_modes()]]}, pluck="default_account")
+	funds = set(linked) | {a for a in _stored_list("atelier_funds") if frappe.db.exists("Account", a)}
+	return {a for a in funds if not frappe.db.get_value("Account", a, "disabled")}
 
 
 def _cash_account(mode, company):
@@ -1170,7 +1185,7 @@ from atelier.simple import reports2, save_email, test_email  # noqa: E402, F401
 from atelier.simple import create_purchase_order, create_supplier_invoice, save_supplier, set_supplier_disabled, supplier2, suppliers2  # noqa: E402, F401
 from atelier.simple import money3, pay_supplier, transfer_funds  # noqa: E402, F401
 from atelier.simple import backup_now, rename_fund, reset_link, save_alerts, save_doc_settings, save_profile, save_user, set_mode_account, settings  # noqa: E402, F401
-from atelier.simple import card_cost, save_card_cost, cancel_opening, opening_balances, save_opening, save_units, add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
+from atelier.simple import add_fund, add_mode, remove_fund, remove_mode, card_cost, save_card_cost, cancel_opening, opening_balances, save_opening, save_units, add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
 from atelier.simple import customer2, customers2, reorder_card, set_customer_extra  # noqa: E402, F401
 from atelier.simple import archive_card, archive_paid, archived_cards, checklist_templates, copy_card, delete_checklist_template, mark_read, notifications, reorder, save_checklist_template  # noqa: E402, F401
 from atelier.simple import add_card, add_comment, board, board2, card, delete_file, file_added, move, move_card, quick_order, save_board, update_card, update_order  # noqa: E402, F401
