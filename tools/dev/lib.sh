@@ -22,6 +22,8 @@ mkdir -p "$NASAQ_STATE_DIR"
 compose() {
   local files=(-f .devcontainer/docker-compose.yml)
   [ -f "$FRAPPE_DOCKER_DIR/.devcontainer/compose.ports.yml" ] && files+=(-f .devcontainer/compose.ports.yml)
-  [ -x "$FRAPPE_DOCKER_DIR/development/frappe-bench/env/bin/python" ] && files+=(-f "$NASAQ_TOOLS_DIR/compose.nasaq.yml")
+  # env/bin/python points into the container's pyenv installation, so it cannot
+  # be resolved on the WSL host. The regular venv config survives that boundary.
+  [ -f "$FRAPPE_DOCKER_DIR/development/frappe-bench/env/pyvenv.cfg" ] && files+=(-f "$NASAQ_TOOLS_DIR/compose.nasaq.yml")
   (cd "$FRAPPE_DOCKER_DIR" && docker compose -p "$NASAQ_COMPOSE_PROJECT" "${files[@]}" "$@")
 }

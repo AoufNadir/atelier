@@ -4,7 +4,7 @@
 
 ## الحالة الآن
 
-**التطبيق لا يعمل بعد على أي بيئة في متناولنا.** Ubuntu-24.04 وDocker جاهزان الآن، وأُصلح تعليق WSL بإعادة تشغيل خدمته بصلاحية مدير. المستخدم الافتراضي هو `hb` ونجح تشغيل hello-world من حسابه. بيئة ERPNext والموقع لم يُجهّزا بعد.
+**موقع نسق لم يعمل بعد.** Ubuntu وDocker جاهزان، وثُبّت Frappe 16.55.1 وERPNext 16.53.0 بنجاح. مجلد Atelier مُركّب داخل الحاوية. توجد عملية bootstrap تفاعلية مفتوحة تنتظر من المستخدم اختيار كلمة مرور Administrator للموقع الجديد؛ لا تبدأ عملية ثانية قبل فحص الحالة.
 
 - الفرع: `chore/multi-computer-setup` (commits محلية **غير مرفوعة**).
 - سجل Git متصل الآن بسجل GitHub الحقيقي. أُعيد تطبيق commits المحلية فوق `origin/main` بعد التحقق من تطابق محتوى ZIP، والاختلاف كان في executable bits فقط. الفرع `main` يتابع `origin/main`؛ لم يُرفع فرع العمل.
@@ -32,7 +32,7 @@
 
 ## لم يُختبر
 
-تركيب المجلد في حاوية المشروع، و`install_nasaq_apps.sh` و`bootstrap_nasaq.sh`، والتثبيت الحقيقي على ERPNext، والواجهة، وPDF، و`Connect-GitHub.ps1`، و`atelier/tests`. أما `install_docker.sh` فقد شُغّل ونجح بالفعل.
+اكتمال `install_nasaq_apps.sh` و`bootstrap_nasaq.sh`، وتثبيت Atelier على موقع nasaq، والواجهة، وPDF، و`atelier/tests`. نجح تشغيل `install_docker.sh` و`setup_dev.sh` و`Connect-GitHub.ps1` فعليًا، وتحقق تركيب مجلد التطبيق داخل الحاوية.
 
 ## مشكلات معروفة
 
@@ -44,7 +44,7 @@
 
 1. المستخدم الافتراضي `hb` موجود بعضوية sudo وdocker. اكتمل تعيين كلمة مروره بواسطة المستخدم وتحقق `passwd -S hb` بالحالة P. نجح `docker info` وhello-world من حسابه. لا تعِد تثبيت Docker أو إنشاء الحساب أو طلب كلمة مرور جديدة.
 2. تسجيل GitHub ناجح بحساب AoufNadir، واكتمل `gh auth setup-git` و`Connect-GitHub.ps1`. لا تعِد الربط أو تسجيل الدخول دون فحص. لا ترفع أي تغييرات دون طلب المستخدم.
-3. بدأ Codex `setup_dev.sh` بالفعل من hb. يُنزّل صور الحاويات ويجهّز bench؛ تحقق من حالته قبل إطلاق تجهيز ثانٍ. بعد نجاحه تابع `bootstrap_nasaq.sh` وإنشاء الموقع؛ المستخدم يكتب كلمة مرور Administrator للموقع بنفسه في طرفية تفاعلية.
+3. اكتمل `setup_dev.sh` وتحقق `bench version`. توجد نافذة PowerShell تفاعلية تشغّل `bootstrap_nasaq.sh` وتنتظر اختيار كلمة مرور Administrator. الحالة في `/home/hb/.local/state/nasaq/site-creation.status`: `waiting-for-new-administrator-password` عند آخر فحص. بعد إدخال المستخدم كلمة المرور مرتين يواصل السكربت تثبيت التطبيقات والإعداد والتحقق تلقائيًا. لا تطلق bootstrap موازيًا.
 4. اختبر الواجهة على `http://nasaq.localhost:8001/atelier-login`.
 5. حدّث هذا الملف، وارفع عند طلب المستخدم فقط.
 
@@ -95,3 +95,12 @@
 - جُلب `origin/main` بنجاح. كان اختلاف ZIP في تسعة executable bits فقط؛ كل blob مطابق. أُصلح `Connect-GitHub.ps1` ليسمح باختلاف 100644/100755 فقط عندما يبقى blob نفسه، ويتوقف عند أي اختلاف محتوى أو نوع ملف.
 - أُنشئ فرع استرداد محلي `backup/before-github-connect-20261104` قبل إعادة تطبيق commits المحلية على `origin/main`. نجح rebase دون تعارض، وحُذفت علامة zip-baseline بواسطة السكربت بعد الربط، ولم يُنفّذ push.
 - بدأ `setup_dev.sh` من hb: استُنسخ frappe_docker في `/home/hb/erp/frappe_docker`، وجار تنزيل MariaDB وRedis وfrappe/bench. لا تعتبر bench أو ERPNext مثبتين حتى يتحقق اكتمال السكربت.
+
+## اكتمال بيئة التشغيل وانتظار كلمة مرور الموقع — 2026-11-04
+
+- انتهى `setup_dev.sh` بخروج 0 و`SETUP_DONE`. بُنيت ملفات الواجهة، وثُبّت Frappe 16.55.1 (b1b7d48) وERPNext 16.53.0 (34f6ff8)، كما أكد `bench version` داخل الحاوية.
+- عُثر على خطأ فعلي في `lib.sh`: فحص `-x env/bin/python` على WSL يفشل لأن الرابط يشير إلى Python داخل الحاوية. استُبدل بفحص الملف العادي `env/pyvenv.cfg`.
+- بعد التصحيح وإعادة compose، تحقق تركيب `/workspace/development/frappe-bench/apps/atelier`، ووجود `atelier/install.py` داخل الحاوية. نجح `bash -n tools/dev/lib.sh`.
+- موقع development.localhost أنشأه installer الرسمي كجزء من بيئة التطوير؛ لم يُنسخ إلى nasaq ولم يُحذف. موقع nasaq يُنشأ مستقلًا.
+- فُتحت نافذة تفاعلية لإكمال `bootstrap_nasaq.sh` من hb. آخر حالة `waiting-for-new-administrator-password`؛ المستخدم فقط يختار كلمة مرور الموقع، دون عرضها أو تخزينها في المستودع. لا حاجة لإعادة تثبيت المتطلبات أو إعادة تسجيل GitHub.
+- بعد نجاح bootstrap شغّل `tools/dev/Start-Nasaq.ps1`، وتحقق من الاستجابة والواجهة. رابط nasaq لم يُؤكد بعد. لم يُنفّذ push.
