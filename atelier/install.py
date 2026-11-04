@@ -30,6 +30,8 @@ def setup():
 	simple.customer_fields()
 	simple.customer_fields_2()
 	simple.settings_fields()
+	simple.supplier_fields()
+	simple.payment_order_field()
 	api.setup_print_formats(commit=False)
 	for key, value in {
 		"atelier_board": simple.DEFAULT_CONFIG,

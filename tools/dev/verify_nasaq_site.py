@@ -22,6 +22,8 @@ for dt, fields in {
     "Item": ["atelier_steps"],
     "Sales Order": ["atelier_subject", "atelier_stage", "atelier_assignee", "atelier_column", "atelier_labels", "atelier_members", "atelier_description", "atelier_checklist", "atelier_cover", "atelier_due_time", "atelier_archived", "atelier_pos"],
     "Sales Order Item": ["atelier_price_pending"],
+    "Supplier": ["atelier_supplies", "atelier_phone", "atelier_email", "atelier_address", "atelier_rc", "atelier_note"],
+    "Payment Entry": ["atelier_order"],
     "Customer": ["atelier_note", "atelier_vip", "atelier_rc", "atelier_nis", "atelier_ai", "atelier_credit_limit", "atelier_tags", "atelier_contacts", "atelier_tva_exempt"],
 }.items():
     meta = frappe.get_meta(dt)
