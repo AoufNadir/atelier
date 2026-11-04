@@ -49,6 +49,8 @@
     {%- if c.customer.phone %}<div class="muted">الهاتف: <span class="num">{{ c.customer.phone }}</span></div>{% endif %}
     {%- if c.customer.tax_id or c.customer.rc %}<div class="muted"><span class="num">{% if c.customer.rc %}RC: {{ c.customer.rc }} · {% endif %}{% if c.customer.tax_id %}NIF: {{ c.customer.tax_id }}{% endif %}{% if c.customer.nis %} · NIS: {{ c.customer.nis }}{% endif %}{% if c.customer.ai %} · AI: {{ c.customer.ai }}{% endif %}</span></div>{% endif %}
     {%- if doc.get("atelier_subject") %}<div style="margin-top:4px">الموضوع: {{ doc.atelier_subject }}</div>{% endif %}
+    {%- if c.show_description and doc.get("atelier_description") %}<div class="muted" style="margin-top:4px;white-space:pre-line">{{ doc.atelier_description }}</div>{% endif %}
+    {%- if dt == "Quotation" and doc.get("valid_till") %}<div class="muted" style="margin-top:4px">صالح حتى: <span class="num">{{ frappe.utils.formatdate(doc.valid_till, "dd/MM/yyyy") }}</span></div>{% endif %}
   </div>
 
   {%- if dt == "Payment Entry" %}

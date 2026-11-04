@@ -4,7 +4,7 @@ import json
 
 import frappe
 
-from atelier import api, dev_build, production, simple
+from atelier import api, dev_build, production, quotes, simple
 
 
 def after_install():
@@ -32,6 +32,7 @@ def setup():
 	simple.settings_fields()
 	simple.supplier_fields()
 	simple.payment_order_field()
+	quotes.custom_fields()
 	api.setup_print_formats(commit=False)
 	for key, value in {
 		"atelier_board": simple.DEFAULT_CONFIG,

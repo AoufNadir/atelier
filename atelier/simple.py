@@ -71,20 +71,43 @@ def _general_item():
 	return GENERAL_ITEM
 
 
+def _order_lines(d):
+	"""One line per service or free text. The older one-line form still works."""
+	rows = d.get("lines")
+	if rows is None:
+		rows = [{"text": d.get("what"), "qty": 1, "rate": d.get("price")}]
+	lines = []
+	for row in rows:
+		text = (row.get("text") or "").strip()[:280]
+		code = row.get("item_code")
+		if not text and not code:
+			continue
+		if code and not frappe.db.get_value("Item", code, "is_sales_item"):
+			frappe.throw(_("خدمة غير صالحة"))
+		rate = row.get("rate")
+		lines.append({"item_code": code or _general_item(), "qty": flt(row.get("qty")) or 1, "description": text,
+			"rate": None if rate in (None, "") else flt(rate)})
+	return lines
+
+
+def _order_subject(lines):
+	if not lines:
+		return ""
+	first = lines[0]["description"] or frappe.db.get_value("Item", lines[0]["item_code"], "item_name")
+	return first[:120] + (f" +{len(lines) - 1}" if len(lines) > 1 else "")
+
+
 @frappe.whitelist(methods=["POST"])
 def quick_order(data):
 	"""One short form: customer, what, price, advance, due date, who works on it, tags."""
 	d = frappe.parse_json(data)
-	what = (d.get("what") or "").strip()
-	price = d.get("price")
+	lines = _order_lines(d)
 	mode = d.get("mode") or "Cash"
 	if flt(d.get("advance")) > 0 and mode not in [m[0] for m in api.all_modes()]:
 		frappe.throw(_("طريقة الدفع غير صالحة"))
 	res = api.create_order(json.dumps({
 		"customer": d.get("customer"), "new_customer": d.get("new_customer") or {},
-		"subject": what, "delivery_date": d.get("delivery_date"), "no_steps": 1,
-		"items": [{"item_code": _general_item(), "qty": 1, "description": what,
-			"rate": None if price in (None, "") else flt(price)}] if what else [],
+		"subject": _order_subject(lines), "delivery_date": d.get("delivery_date"), "no_steps": 1, "items": lines,
 		"advance": {"amount": flt(d.get("advance")), "mode_of_payment": mode},
 	}, ensure_ascii=False))
 	so = res["sales_order"]
@@ -134,7 +157,13 @@ def update_order(name, assignee=None, price=None):
 	if price not in (None, "") and so.docstatus == 0:
 		if flt(price) < 0:
 			frappe.throw(_("السعر لا يكون سالبًا"))
-		rates = {r.name: flt(price) / max(flt(r.qty), 1) for r in so.items}
+		# The price is the order's total: lines already priced keep their rate, the rest share what remains.
+		pending = [r for r in so.items if r.atelier_price_pending]
+		remaining = flt(price) - sum(flt(r.qty) * flt(r.rate) for r in so.items if not r.atelier_price_pending)
+		if remaining < 0:
+			frappe.throw(_("السعر أقل من مجموع البنود المسعّرة"))
+		units = sum(flt(r.qty) for r in pending)
+		rates = {r.name: remaining / units for r in pending}
 		api.price_order(name, json.dumps(rates))
 		api.confirm_order(name)
 	return name
@@ -1078,7 +1107,7 @@ def demo_customers_2():
 
 # ---------------------------------------------------------------- settings: workshop profile, documents and TVA, accounts, funds, alerts, backups
 PROFILE_KEYS = ["name_ar", "name_fr", "address", "city", "phone", "phone2", "email", "rc", "nif", "nis", "ai", "rib", "logo"]
-DOC_DEFAULTS = {"tva": 0, "tva_rate": 19, "footer": "شكرًا لثقتكم", "payment_days": 0}
+DOC_DEFAULTS = {"tva": 0, "tva_rate": 19, "footer": "شكرًا لثقتكم", "payment_days": 0, "quote_days": 15, "show_description": 1}
 ALERT_DEFAULTS = {"assign": 1, "mention": 1, "due": 1}
 TVA_TEMPLATE = "TVA (atelier)"
 
@@ -1168,7 +1197,8 @@ def save_doc_settings(docs):
 	_manager_only()
 	d = frappe.parse_json(docs) or {}
 	clean = {"tva": cint(d.get("tva")), "tva_rate": min(100, max(0, flt(d.get("tva_rate") or 19))), "footer": str(d.get("footer") or "")[:300],
-		"payment_days": max(0, cint(d.get("payment_days")))}
+		"payment_days": max(0, cint(d.get("payment_days"))), "quote_days": max(1, cint(d.get("quote_days")) or 15),
+		"show_description": 1 if d.get("show_description") else 0}
 	if clean["tva"]:
 		clean["tva_template"] = _tva_template(clean["tva_rate"])
 	frappe.db.set_default("atelier_docs", json.dumps(clean, ensure_ascii=False))

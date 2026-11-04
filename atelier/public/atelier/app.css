@@ -1556,3 +1556,5 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .bd-savebar .bd-save { width: 100%; }
 .tb .cf-list button { color: #1F2430; }
 .stock-body { display: flex; flex-direction: column; gap: 16px; padding: 0 28px 28px; }
+.ol-row { display: grid; grid-template-columns: 80px auto 1fr auto; gap: 6px; align-items: center; padding-bottom: 6px; }
+.ol-row .ol-text { grid-column: 1 / -1; }

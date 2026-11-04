@@ -83,14 +83,15 @@ def _address(doctype, name):
 
 def print_context(doc):
 	company = frappe.get_cached_doc("Company", doc.company)
-	party = doc.party if doc.doctype == "Payment Entry" else doc.customer
+	party = {"Payment Entry": doc.get("party"), "Quotation": doc.get("party_name")}.get(doc.doctype) or doc.get("customer")
 	customer = frappe.db.get_value("Customer", party, ["customer_name", "customer_type", "mobile_no", "tax_id", "atelier_rc", "atelier_nis", "atelier_ai"], as_dict=True) or {}
 	from atelier.simple import doc_settings, workshop_profile
 	prof, docs = workshop_profile(), doc_settings()
 	logo = prof.get("logo") or company.company_logo
 	address = "، ".join(x for x in (prof.get("address"), prof.get("city")) if x) or _address("Company", company.name)
 	return {
-		"title": TITLES.get(doc.doctype, doc.doctype),
+		"title": "فاتورة شكلية Pro forma" if doc.get("atelier_kind") == "proforma" else TITLES.get(doc.doctype, doc.doctype),
+		"show_description": _show_description(),
 		"date": formatdate(doc.get("posting_date") or doc.get("transaction_date"), "dd/MM/yyyy"),
 		"is_demo": "DÉMO" in company.name or "تجريبي" in company.name,
 		"company": {"name": prof.get("name_ar") or company.company_name, "name_fr": prof.get("name_fr"),
@@ -105,3 +106,9 @@ def print_context(doc):
 			"address": _address("Customer", party)},
 		"font_url": "https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap",
 	}
+
+
+def _show_description():
+	from atelier import simple
+
+	return simple.doc_settings().get("show_description", 1)

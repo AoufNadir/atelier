@@ -677,7 +677,7 @@ const CustomerField = {
       if (!v.trim()) { list.value = []; return; }
       timer = setTimeout(async () => { try { list.value = await call("customers", { q: v.trim() }); searched.value = true; open.value = true; } catch { list.value = []; } }, 200);
     });
-    const pick = (c) => { emit("update:modelValue", { name: c.name, customer_name: c.customer_name }); q.value = c.customer_name; open.value = false; };
+    const pick = (c) => { emit("update:modelValue", { name: c.name, customer_name: c.customer_name, customer_type: c.customer_type }); q.value = c.customer_name; open.value = false; };
     const blur = () => setTimeout(() => (open.value = false), 150);
     return { q, list, open, searched, pick, blur };
   },
@@ -695,7 +695,7 @@ const CustomerField = {
 const BoardPanel = {
   props: ["mode", "order", "preset", "columns"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
   setup(props, { emit }) {
-    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", what: "", price: "", advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
+    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", lines: [{ text: "", item_code: null, uom: "", qty: 1, rate: "", auto: false }], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
     const startColumns = computed(() => (props.columns || []).filter((c) => !c.deliver));
     if (startColumns.value.length) f.column = startColumns.value[0].id;
     const dueChips = computed(() => (state.boot?.lists?.due || []).map((c) => [c.label, c.days]));
@@ -703,17 +703,33 @@ const BoardPanel = {
     watch(() => f.customer, async (c) => { credit.value = null; if (c) { try { credit.value = await call("customer_credit", { name: c.name }); } catch { /* optional */ } } }, { immediate: true });
     const toggle = (l, v) => { const i = l.indexOf(v); if (i >= 0) l.splice(i, 1); else l.push(v); };
     const onCustomerInput = () => { newName.value = document.getElementById("qo-customer")?.value?.trim() || ""; };
+    // a line is a known service (its price follows the customer's type) or free text
+    const customerType = computed(() => f.customer?.customer_type || f.type);
+    const priceOf = (it) => { const v = customerType.value === "Company" ? it.price_company : it.price_individual; return v === null || v === undefined ? "" : v; };
+    const lineInput = (l) => {
+      const it = (state.boot.items || []).find((x) => x.item_name === l.text.trim());
+      l.item_code = it ? it.item_code : null; l.uom = it ? uom(it.stock_uom) : "";
+      if (it && (l.rate === "" || l.auto)) { l.rate = priceOf(it); l.auto = l.rate !== ""; }
+      if (!it && l.auto) { l.rate = ""; l.auto = false; }
+    };
+    watch(customerType, () => f.lines.forEach((l) => { if (l.auto) { const it = state.boot.items.find((x) => x.item_code === l.item_code); if (it) { l.rate = priceOf(it); l.auto = l.rate !== ""; } } }));
+    const addLine = () => f.lines.push({ text: "", item_code: null, uom: "", qty: 1, rate: "", auto: false });
+    const dropLine = (i) => { f.lines.splice(i, 1); if (!f.lines.length) addLine(); };
+    const filled = computed(() => f.lines.filter((l) => l.text.trim()));
+    const total = computed(() => (filled.value.length && filled.value.every((l) => l.rate !== "") ? filled.value.reduce((sum, l) => sum + (+l.qty || 0) * (+l.rate || 0), 0) : null));
     async function save() {
       error.value = null; onCustomerInput();
       if (!f.customer && !newName.value) return (error.value = "اكتب اسم العميل");
-      if (!f.what.trim()) return (error.value = "اكتب ماذا يريد العميل");
-      if (f.price !== "" && !(+f.price >= 0)) return (error.value = "السعر غير صحيح");
+      if (!filled.value.length) return (error.value = "اكتب ماذا يريد العميل");
+      if (filled.value.some((l) => !(+l.qty > 0))) return (error.value = "الكمية غير صحيحة");
+      if (filled.value.some((l) => l.rate !== "" && !(+l.rate >= 0))) return (error.value = "السعر غير صحيح");
       if (f.advance !== "" && !(+f.advance >= 0)) return (error.value = "التسبيق غير صحيح");
+      if (total.value !== null && +f.advance > total.value) return (error.value = "التسبيق أكبر من المجموع");
       saving.value = true;
       try {
         await call("quick_order", { data: JSON.stringify({
           customer: f.customer?.name || null, new_customer: f.customer ? {} : { name: newName.value, phone: f.phone, type: f.type },
-          what: f.what, price: f.price === "" ? null : +f.price, advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
+          lines: filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty, rate: l.rate === "" ? null : +l.rate })), advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
         }) }, true);
         toast("حُفظ الطلب"); emit("saved");
       } catch (e) { error.value = e.message; } finally { saving.value = false; }
@@ -731,7 +747,7 @@ const BoardPanel = {
     const onKey = (e) => { if (e.key === "Escape" && !state.sheet) emit("close"); };
     onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.querySelector(".bd-panel input, .bd-panel button")?.focus(), 50); });
     onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
-    return { credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
+    return { lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
@@ -744,9 +760,15 @@ const BoardPanel = {
           <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div></div>
       <div v-if="credit && credit.note" class="sh-note warn">ملاحظة العميل: {{ credit.note }}</div>
       <div v-if="credit && credit.over" class="sc2-alert" role="alert">هذا العميل تجاوز سقف الدين: عليه {{ fig(credit.owes) }} من {{ fig(credit.limit) }} دج</div>
-      <div class="f"><label for="qo-what">ماذا يريد؟</label><input id="qo-what" class="input" v-model="f.what" placeholder="مثلًا: بطاقات زيارة 500"></div>
-      <div class="bd-two"><div class="f"><label for="qo-price">السعر</label><div class="unit-wrap"><input id="qo-price" class="input num" inputmode="decimal" v-model="f.price" placeholder="لاحقًا"><span class="u">دج</span></div></div>
-        <div class="f"><label for="qo-adv">تسبيق</label><div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0"><span class="u">دج</span></div></div></div>
+      <div class="f"><span class="lbl">ماذا يريد؟</span>
+        <div v-for="(l, i) in f.lines" :key="i" class="ol-row">
+          <input class="input ol-text" list="svc-list" v-model="l.text" @input="lineInput(l)" aria-label="الخدمة" placeholder="اختر خدمة أو اكتب وصفًا">
+          <input class="input num" inputmode="decimal" v-model="l.qty" aria-label="الكمية" placeholder="الكمية"><span class="m">{{ l.uom }}</span>
+          <input class="input num" inputmode="decimal" v-model="l.rate" @input="l.auto = false" aria-label="سعر الوحدة" placeholder="السعر لاحقًا">
+          <button v-if="f.lines.length > 1" type="button" class="btn ghost icon-btn" :aria-label="'حذف البند ' + (i + 1)" @click="dropLine(i)">×</button></div>
+        <datalist id="svc-list"><option v-for="it in state.boot.items" :key="it.item_code" :value="it.item_name"></option></datalist>
+        <div class="row" style="justify-content:space-between"><button type="button" class="tb-addbtn" @click="addLine">+ بند آخر</button><span v-if="filled.length" class="m">المجموع: <b class="money">{{ total === null ? 'يُحدَّد لاحقًا' : money(total) }}</b></span></div></div>
+      <div class="f"><label for="qo-adv">تسبيق</label><div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0"><span class="u">دج</span></div></div>
       <div v-if="+f.advance > 0" class="f"><span class="lbl">طريقة دفع التسبيق</span><div class="bd-chips"><button v-for="m in state.boot.modes" :key="m.value" type="button" class="bd-chip" :aria-pressed="f.mode === m.value" @click="f.mode = m.value">{{ m.label }}</button></div></div>
       <div class="f"><span class="lbl">متى يستلم؟</span><div class="bd-chips">
         <button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button>
@@ -947,6 +969,11 @@ const CardModal = {
       if (!(+price.value > 0)) { err.value = "أدخل السعر"; return; }
       try { await call("update_order", { name: props.name, price: +price.value }, true); price.value = ""; await load(); emit("changed"); toast("حُفظ السعر"); } catch (x) { err.value = x.message; }
     };
+    const quote = async (kind) => {
+      const win = window.open("about:blank", "_blank"); // opened now: browsers block it after an await
+      try { const name = await call("card_quote", { order: props.name, kind }, true); if (win) win.location = pdfUrl("Quotation", name, "الورشة — عربي"); }
+      catch (x) { if (win) win.close(); toast(x.message, "error"); }
+    };
     const pay = () => (state.sheet = { type: "payment", customer: { name: d.value.customer, customer_name: d.value.customer_name }, order: props.name });
     watch(() => state.rev, load);
     const customer = ref(null);
@@ -990,7 +1017,7 @@ const CardModal = {
     const dueTone = computed(() => { if (!d.value?.due || d.value.per_delivered >= 100) return ""; const n = daysFromToday(d.value.due); return n < 0 ? "late" : n <= 1 ? "soon" : ""; });
     watch(customer, () => (pickClient.value = false));
     return { tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
-      uploading, onFiles, delFile, comment, addComment, price, setPrice, pay, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
+      uploading, onFiles, delFile, comment, addComment, price, setPrice, pay, quote, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
   <div class="overlay tm-overlay" @click.self="$emit('close')">
@@ -1114,6 +1141,7 @@ const CardModal = {
               <div class="bd-line"><span class="m">الباقي</span><b class="money" :class="{'bd-late': d.grand_total - d.paid > 0.005}">{{ money(Math.max(0, d.grand_total - d.paid)) }}</b></div></template>
             <div class="row" style="gap:8px"><button v-if="state.boot.can.payment && !d.price_pending && d.grand_total - d.paid > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
               <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, 'الورشة — عربي')">بون PDF</a></div>
+            <div v-if="!d.price_pending" class="row" style="gap:8px"><button type="button" class="btn" style="flex:1" @click="quote('devis')">Devis PDF</button><button type="button" class="btn" style="flex:1" @click="quote('proforma')">Pro forma PDF</button></div>
           </div>
           <CostSection v-if="d.money" :name="d.name" :key="d.name + ':' + d.grand_total" @use-price="price = $event"/>
           <h3>التعليقات والنشاط</h3>
@@ -2266,6 +2294,8 @@ const SettingsPage = {
               <label v-if="docs.tva" class="cl-fgroup" style="max-width:180px"><span>النسبة</span><div class="unit-wrap"><input class="input num" v-model="docs.tva_rate" inputmode="decimal"><span class="u">%</span></div></label></div></div>
           <div class="st2-grp"><div class="st2-lbl"><b>أسفل الوثائق والدفع</b><span>النص يُطبع أسفل كل بون وفاتورة. المهلة تحدّد تاريخ استحقاق الفاتورة.</span></div>
             <div class="st2-fields"><label class="cl-fgroup"><span>نص أسفل الوثائق</span><input class="input" v-model="docs.footer"></label>
+              <label class="st2-check"><input type="checkbox" :checked="!!docs.show_description" @change="docs.show_description = $event.target.checked ? 1 : 0"><span>إظهار وصف البطاقة في البون والعرض</span></label>
+              <label class="cl-fgroup" style="max-width:220px"><span>صلاحية Devis</span><div class="unit-wrap"><input class="input num" v-model="docs.quote_days" inputmode="numeric"><span class="u">يوم</span></div></label>
               <label class="cl-fgroup" style="max-width:220px"><span>مهلة الدفع</span><div class="unit-wrap"><input class="input num" v-model="docs.payment_days" inputmode="numeric"><span class="u">يوم</span></div></label>
               <span class="muted">الطابع الجبائي على الدفع نقدًا غير مفعّل بعد في هذه النسخة.</span></div></div>
         </div>
