@@ -87,6 +87,7 @@ def boot():
 			"expense": _can("Journal Entry", "create"),
 			"finance": _can("GL Entry", "read"),
 			"cost": _can("Cost Estimate", "read"),
+			"stock": _can("Bin", "read"),
 		},
 	}
 
@@ -834,7 +835,8 @@ def stock():
 	names = {i["item_code"]: i["item_name"] for i in items.values()}
 	for m in moves:
 		m.item_name = names.get(m.item_code, m.item_code)
-	return {"items": list(items.values()), "moves": moves, "can_value": _can("GL Entry")}
+	return {"items": list(items.values()), "moves": moves, "can_value": _can("GL Entry"),
+		"can_buy": _can("Purchase Invoice", "create"), "can_issue": _can("Stock Entry", "create")}
 
 
 @frappe.whitelist()
@@ -1192,6 +1194,7 @@ from atelier.simple import reports2, save_email, test_email  # noqa: E402, F401
 from atelier.simple import create_purchase_order, create_supplier_invoice, save_supplier, set_supplier_disabled, supplier2, suppliers2  # noqa: E402, F401
 from atelier.simple import money3, pay_supplier, transfer_funds  # noqa: E402, F401
 from atelier.simple import backup_now, rename_fund, reset_link, save_alerts, save_doc_settings, save_profile, save_user, set_mode_account, settings  # noqa: E402, F401
+from atelier.materials import add_material, remove_material, stock_count, stock_issue, stock_purchase, update_material
 from atelier.simple import save_list, add_fund, add_mode, remove_fund, remove_mode, card_cost, save_card_cost, cancel_opening, opening_balances, save_opening, save_units, add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
 from atelier.simple import customer2, customers2, reorder_card, set_customer_extra  # noqa: E402, F401
 from atelier.simple import archive_card, archive_paid, archived_cards, checklist_templates, copy_card, delete_checklist_template, mark_read, notifications, reorder, save_checklist_template  # noqa: E402, F401

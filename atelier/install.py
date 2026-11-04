@@ -59,7 +59,7 @@ def setup_company():
 			}).insert(ignore_permissions=True)
 	if not company:
 		return
-	from atelier import accounts_ar
+	from atelier import accounts_ar, materials
 
 	if accounts_ar.matches_chart(company):
 		if not frappe.db.get_default("atelier_accounts_ar_initialized"):
@@ -67,3 +67,4 @@ def setup_company():
 			frappe.db.set_default("atelier_accounts_ar_initialized", company.name)
 		accounts_ar.default_bank(company=company.name, commit=False, only_if_missing=True)
 		accounts_ar.payment_modes(company.name)
+		materials.setup(company.name)

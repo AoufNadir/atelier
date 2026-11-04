@@ -1555,3 +1555,4 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .bd-savebar { position: sticky; bottom: 0; margin-inline: -20px; padding: 10px 20px; background: #fff; border-top: 1px solid #E4E7EC; z-index: 10; }
 .bd-savebar .bd-save { width: 100%; }
 .tb .cf-list button { color: #1F2430; }
+.stock-body { display: flex; flex-direction: column; gap: 16px; padding: 0 28px 28px; }

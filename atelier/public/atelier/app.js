@@ -136,7 +136,7 @@ const route = computed(() => {
   if (p === "/suppliers") return { name: "suppliers" };
   if ((m = p.match(/^\/suppliers\/(.+)$/))) return { name: "supplier", id: decodeURIComponent(m[1]) };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
-  if (["/money", "/reports", "/prices", "/team", "/board-settings", "/settings"].includes(p)) return { name: p.slice(1) };
+  if (["/money", "/reports", "/prices", "/team", "/board-settings", "/settings", "/stock"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
@@ -2611,14 +2611,79 @@ const NAV = [
   { key: "money", path: "/money", icon: "wallet", label: "nav_money_simple", match: ["money"], need: "finance" },
 ];
 const SECTION_NAV = [
+  { key: "stock", path: "/stock", icon: "box", label: "nav_stock", match: ["stock"], need: "stock" },
   { key: "machines", path: "/machines", icon: "gear", label: "nav_machines", match: ["machines"] },
   { key: "prices", path: "/prices", icon: "tag", label: "nav_prices", match: ["prices"], need: "prices" },
   { key: "reports", path: "/reports", icon: "chart", label: "nav_reports", match: ["reports"], need: "finance" },
   { key: "team", path: "/team", icon: "users", label: "nav_team", match: ["team"], need: "prices" },
 ];
 
+const StockPage = {
+  components: { Icon },
+  setup() {
+    const { s, load } = useLoad(() => call("stock"));
+    onMounted(load);
+    const busy = ref(false), err = ref(null), q = ref(""), sheet = ref(null), orders = ref([]);
+    const items = computed(() => (s.data?.items || []).filter((i) => i.item_name.toLowerCase().includes(q.value.trim().toLowerCase())));
+    const low = computed(() => (s.data?.items || []).filter((i) => i.low));
+    const units = computed(() => state.boot.units || []);
+    const suppliers = computed(() => state.boot.suppliers || []);
+    const open = async (kind, item) => {
+      err.value = null;
+      sheet.value = { kind, item, name: item?.item_name || "", uom: units.value[0]?.name || "قطعة", min_qty: item?.safety_stock || 0, qty: kind === "count" ? (item?.qty ?? "") : "", rate: "", supplier: "", order: "", note: "", bill: "" };
+      if (kind === "issue") { try { orders.value = (await call("board2")).cards; } catch { orders.value = []; } }
+    };
+    const TITLES = { add: "مادة جديدة", edit: "تعديل المادة", buy: "شراء من مورد", issue: "صرف مادة", count: "جرد" };
+    const submit = async () => {
+      const f = sheet.value, code = f.item?.item_code;
+      busy.value = true; err.value = null;
+      try {
+        if (f.kind === "add") await call("add_material", { name: f.name, uom: f.uom, min_qty: f.min_qty }, true);
+        if (f.kind === "edit") await call("update_material", { item_code: code, name: f.name, min_qty: f.min_qty }, true);
+        if (f.kind === "buy") await call("stock_purchase", { item_code: code, qty: f.qty, rate: f.rate, supplier: f.supplier, bill_no: f.bill }, true);
+        if (f.kind === "issue") await call("stock_issue", { item_code: code, qty: f.qty, sales_order: f.order, note: f.note }, true);
+        if (f.kind === "count") await call("stock_count", { item_code: code, qty: f.qty, rate: f.rate }, true);
+        sheet.value = null; toast("تم الحفظ"); await load();
+      } catch (e) { err.value = e.message; } finally { busy.value = false; }
+    };
+    const remove = async (i) => {
+      if (!confirm(`حذف «${i.item_name}»؟ يبقى سجلها محفوظًا.`)) return;
+      try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
+    };
+    const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
+    return { s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom };
+  },
+  template: `
+  <div class="page tb cb">
+    <div class="row" style="gap:10px;padding:20px 28px 12px;flex-wrap:wrap"><h1 style="margin:0;font-size:24px">المخزون</h1><span style="flex:1"></span>
+      <input class="input" style="max-width:260px" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><button type="button" class="cl-btn primary" @click="open('add')"><Icon name="plus" :size="16"/>مادة جديدة</button></div>
+    <div v-if="s.error" class="alert error" style="margin:0 28px 12px">{{ s.error }}</div>
+    <div v-if="low.length" class="alert error" style="margin:0 28px 12px">مواد تحت الحد الأدنى: {{ low.map((i) => i.item_name).join('، ') }}</div>
+    <div v-if="s.data" class="stock-body">
+      <section class="mn-card"><table class="cl-table mn-table"><thead><tr><th>المادة</th><th class="n">الكمية</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th>إجراء</th></tr></thead>
+        <tbody><tr v-for="i in items" :key="i.item_code"><td><b>{{ i.item_name }}</b></td><td class="n" :class="{'bd-late': i.low}">{{ i.qty }} {{ uom(i.uom) }}</td><td class="n">{{ i.safety_stock || '—' }}</td><td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
+          <td><div class="row" style="gap:4px;flex-wrap:wrap"><button v-if="s.data.can_buy" type="button" class="cl-btn sm" @click="open('buy', i)">شراء</button><button v-if="s.data.can_issue" type="button" class="cl-btn sm" :disabled="i.qty <= 0" @click="open('issue', i)">صرف</button><button type="button" class="cl-btn sm" @click="open('count', i)">جرد</button><button type="button" class="cl-btn sm" @click="open('edit', i)">تعديل</button><button type="button" class="cl-btn sm" @click="remove(i)">حذف</button></div></td></tr>
+          <tr v-if="!items.length"><td colspan="5" class="muted" style="text-align:center;padding:24px">لا مواد بعد. أضف مادة ثم سجّل رصيدها بالجرد أو الشراء.</td></tr></tbody></table></section>
+      <section v-if="s.data.moves.length" class="mn-card"><div class="mn-card-h"><b>آخر الحركات</b></div><table class="cl-table mn-table"><tbody><tr v-for="m in s.data.moves" :key="m.voucher_no + m.item_code"><td>{{ m.item_name }}</td><td>{{ MOVE[m.voucher_type] || m.voucher_type }}</td><td class="n" dir="ltr">{{ m.actual_qty }}</td><td class="n">{{ date(m.posting_date) }}</td></tr></tbody></table></section>
+    </div>
+    <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><h2>{{ TITLES[sheet.kind] }}<template v-if="sheet.item"> · {{ sheet.item.item_name }}</template></h2></div>
+      <div v-if="err" class="alert error">{{ err }}</div>
+      <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'"><div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" v-model="sheet.name"></div>
+        <div v-if="sheet.kind === 'add'" class="field"><label for="st-uom">الوحدة</label><select id="st-uom" class="input" v-model="sheet.uom"><option v-for="u in units" :key="u.name" :value="u.name">{{ u.name }}</option></select></div>
+        <div class="field"><label for="st-min">الحد الأدنى للتنبيه</label><input id="st-min" class="input" inputmode="decimal" v-model="sheet.min_qty"></div></template>
+      <template v-else><div class="field"><label for="st-qty">{{ sheet.kind === 'count' ? 'الكمية الفعلية' : 'الكمية' }}</label><input id="st-qty" class="input" inputmode="decimal" v-model="sheet.qty"></div>
+        <div v-if="sheet.kind !== 'issue'" class="field"><label for="st-rate">سعر الوحدة (دج){{ sheet.kind === 'count' ? ' — مطلوب للرصيد الأول' : '' }}</label><input id="st-rate" class="input" inputmode="decimal" v-model="sheet.rate"></div>
+        <template v-if="sheet.kind === 'buy'"><div class="field"><label for="st-sup">المورد</label><select id="st-sup" class="input" v-model="sheet.supplier"><option value="" disabled>اختر المورد</option><option v-for="x in suppliers" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select></div>
+          <div class="field"><label for="st-bill">رقم فاتورة المورد (اختياري)</label><input id="st-bill" class="input" v-model="sheet.bill"></div></template>
+        <template v-if="sheet.kind === 'issue'"><div class="field"><label for="st-order">الطلب (اختياري)</label><select id="st-order" class="input" v-model="sheet.order"><option value="">بدون طلب</option><option v-for="o in orders" :key="o.name" :value="o.name">{{ o.title || o.name }}</option></select></div>
+          <div class="field"><label for="st-note">ملاحظة</label><input id="st-note" class="input" v-model="sheet.note"></div></template></template>
+      <div class="sh-foot"><button type="button" class="cl-btn" @click="sheet = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="busy">حفظ</button></div>
+    </form></div>
+  </div>`,
+};
+
 const App = {
-  components: { Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { StockPage, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -2683,6 +2748,7 @@ const App = {
         <SimpleCustomers v-else-if="route.name==='customers' || route.name==='customer'" :key="state.path + state.query" :open-id="route.id"/>
         <SimpleMoney v-else-if="route.name==='money'"/>
         <SuppliersPage v-else-if="route.name==='suppliers' || route.name==='supplier'" :key="state.path" :open-id="route.id"/>
+        <StockPage v-else-if="route.name==='stock'"/>
         <ReportsPage2 v-else-if="route.name==='reports'"/>
         <SettingsPage v-else-if="route.name==='prices'" key="prices" start="prices"/>
         <SettingsPage v-else-if="route.name==='team'" key="team" start="team"/>
