@@ -15,6 +15,7 @@ only one copy of the code.
 | `Start-Nasaq.ps1` | Daily start from Windows: containers, bench, site web process, forwarding. |
 | `Connect-GitHub.ps1` | Connects a ZIP-based checkout to origin. Reads only; pushes nothing. |
 | `install_nasaq_apps.sh` | Registers the mounted app, installs ERPNext and Atelier, migrates. |
+| `install_pdf_deps.sh` | Chromium libraries and Arabic fonts in the container; runs on setup and start. |
 | `start.sh` | Starts the dev containers and `bench start`. |
 | `dc.sh` | Runs a bench command inside the frappe container: `bash dc.sh "bench --site … migrate"`. |
 | `commit_app.sh` | Commits the app with the message read from stdin. |

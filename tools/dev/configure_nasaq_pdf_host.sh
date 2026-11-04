@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 . "$(dirname "$(readlink -f "$0")")/lib.sh"
 set -eu
+bash "$NASAQ_TOOLS_DIR/install_pdf_deps.sh"
 cd "$FRAPPE_DOCKER_DIR"
 compose exec -T \
   -w /workspace/development/frappe-bench frappe /home/frappe/.local/bin/bench \
