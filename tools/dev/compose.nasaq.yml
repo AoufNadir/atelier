@@ -1,0 +1,4 @@
+services:
+  frappe:
+    extra_hosts:
+      - "nasaq.localhost:127.0.0.1"

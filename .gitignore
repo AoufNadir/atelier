@@ -33,3 +33,7 @@ private/
 .DS_Store
 .idea/
 .vscode/
+
+# screenshots and PDFs made by tools/dev scripts
+tools/docs/
+*.log
