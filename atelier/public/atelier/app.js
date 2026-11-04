@@ -763,8 +763,8 @@ const BoardPanel = {
       <div class="f"><span class="lbl">ماذا يريد؟</span>
         <div v-for="(l, i) in f.lines" :key="i" class="ol-row">
           <input class="input ol-text" list="svc-list" v-model="l.text" @input="lineInput(l)" aria-label="الخدمة" placeholder="اختر خدمة أو اكتب وصفًا">
-          <input class="input num" inputmode="decimal" v-model="l.qty" aria-label="الكمية" placeholder="الكمية"><span class="m">{{ l.uom }}</span>
-          <input class="input num" inputmode="decimal" v-model="l.rate" @input="l.auto = false" aria-label="سعر الوحدة" placeholder="السعر لاحقًا">
+          <label class="ol-f"><span class="m">الكمية<template v-if="l.uom"> ({{ l.uom }})</template></span><input class="input num" inputmode="decimal" v-model="l.qty"></label>
+          <label class="ol-f"><span class="m">سعر الوحدة (دج)</span><input class="input num" inputmode="decimal" v-model="l.rate" @input="l.auto = false" placeholder="لاحقًا"></label>
           <button v-if="f.lines.length > 1" type="button" class="btn ghost icon-btn" :aria-label="'حذف البند ' + (i + 1)" @click="dropLine(i)">×</button></div>
         <datalist id="svc-list"><option v-for="it in state.boot.items" :key="it.item_code" :value="it.item_name"></option></datalist>
         <div class="row" style="justify-content:space-between"><button type="button" class="tb-addbtn" @click="addLine">+ بند آخر</button><span v-if="filled.length" class="m">المجموع: <b class="money">{{ total === null ? 'يُحدَّد لاحقًا' : money(total) }}</b></span></div></div>
@@ -779,9 +779,8 @@ const BoardPanel = {
         <a v-if="!state.boot.team.length" href="/atelier/team" class="m" @click.prevent="go('/team')">أضف أسماء الفريق أولًا</a></div></div>
       <div class="f"><span class="lbl">وسم</span><div class="bd-chips">
         <button v-for="q in QUICK_TAGS" :key="q[0]" type="button" class="qtag" :class="['tg-' + q[1], {on: f.tags.includes(q[0])}]" :aria-pressed="f.tags.includes(q[0])" @click="toggle(f.tags, q[0])">{{ f.tags.includes(q[0]) ? '✓ ' : '' }}{{ q[0] }}</button></div></div>
-      <div v-if="error" class="alert error" role="alert">{{ error }}</div>
       <div class="spacer"></div>
-      <div class="bd-savebar"><button type="submit" class="btn primary bd-save" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ الطلب' }}</button></div>
+      <div class="bd-savebar"><div v-if="error" class="alert error" role="alert" style="margin-bottom:8px">{{ error }}</div><button type="submit" class="btn primary bd-save" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ الطلب' }}</button></div>
     </form>
 
     <div v-else class="bd-form">
