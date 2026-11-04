@@ -1548,3 +1548,10 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .tb .bd-panel .bd-chip { background: #fff; color: #1F2430; border-color: #E4E7EC; }
 .tb .bd-panel .bd-chip[aria-pressed="true"] { background: #1F2430; color: #fff; border-color: #1F2430; }
 .bd-panel .bd-date { width: 100%; }
+.bd-panel .bd-form { gap: 10px; padding: 16px 20px 0; }
+.bd-panel .bd-form .input { min-height: 40px; }
+.bd-panel .bd-chip { min-height: 34px; padding: 0 10px; font-size: 13px; }
+.bd-newc-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.bd-savebar { position: sticky; bottom: 0; margin-inline: -20px; padding: 10px 20px; background: #fff; border-top: 1px solid #E4E7EC; z-index: 10; }
+.bd-savebar .bd-save { width: 100%; }
+.tb .cf-list button { color: #1F2430; }

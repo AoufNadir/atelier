@@ -285,7 +285,7 @@ const SearchBox = {
 const CustomerPicker = {
   props: ["modelValue", "invalid", "inputId"], emits: ["update:modelValue"], components: { Icon },
   setup(props, { emit }) {
-    const q = ref(""), list = ref([]), open = ref(false), searched = ref(false);
+    const q = ref(""), list = ref([]), open = ref(false);
     let timer;
     const fetchList = async () => { try { list.value = await call("customers", q.value ? { q: q.value } : {}); } catch { list.value = []; } };
     watch(q, () => { clearTimeout(timer); timer = setTimeout(fetchList, 200); });
@@ -667,7 +667,7 @@ const Avatar = {
 const CustomerField = {
   props: ["modelValue"], emits: ["update:modelValue"],
   setup(props, { emit }) {
-    const q = ref(props.modelValue?.customer_name || ""), list = ref([]), open = ref(false);
+    const q = ref(props.modelValue?.customer_name || ""), list = ref([]), open = ref(false), searched = ref(false);
     let timer;
     watch(q, (v) => {
       if (props.modelValue && v !== props.modelValue.customer_name) emit("update:modelValue", null);
@@ -686,7 +686,7 @@ const CustomerField = {
     <div v-if="open && list.length && !modelValue" class="cf-list" role="listbox">
       <button v-for="c in list" :key="c.name" type="button" role="option" @mousedown.prevent="pick(c)">{{ c.customer_name }} <span class="m" dir="ltr">{{ c.mobile_no || '' }}</span></button>
     </div>
-    <div v-else-if="open && searched && !list.length && !modelValue && q.trim()" class="cf-list cf-none">لا يوجد عميل بهذا الاسم. سيُنشأ عميل جديد عند الحفظ.</div>
+    <div v-else-if="open && searched && !list.length && !modelValue && q.trim()" class="cf-list cf-none">لا يوجد عميل بهذا الاسم.</div>
   </div>`,
 };
 
@@ -738,9 +738,9 @@ const BoardPanel = {
     <form v-if="mode === 'new'" class="bd-form" novalidate @submit.prevent="save">
       <div class="bd-ph"><h2>طلب جديد</h2><button type="button" class="btn ghost icon-btn" aria-label="إغلاق" @click="$emit('close')"><Icon name="x"/></button></div>
       <div class="f"><label for="qo-customer">العميل</label><CustomerField v-model="f.customer" @input="onCustomerInput"/>
-        <div v-if="!f.customer && newName" class="bd-newc"><span class="m">عميل جديد</span>
+        <div v-if="!f.customer && newName" class="bd-newc"><span class="m">سيُنشأ عميل جديد عند الحفظ</span><div class="bd-newc-row">
           <input class="input" v-model="f.phone" inputmode="tel" dir="ltr" placeholder="الهاتف (اختياري)" aria-label="هاتف العميل الجديد">
-          <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div>
+          <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div></div>
       <div v-if="credit && credit.note" class="sh-note warn">ملاحظة العميل: {{ credit.note }}</div>
       <div v-if="credit && credit.over" class="sc2-alert" role="alert">هذا العميل تجاوز سقف الدين: عليه {{ fig(credit.owes) }} من {{ fig(credit.limit) }} دج</div>
       <div class="f"><label for="qo-what">ماذا يريد؟</label><input id="qo-what" class="input" v-model="f.what" placeholder="مثلًا: بطاقات زيارة 500"></div>
@@ -750,8 +750,7 @@ const BoardPanel = {
       <div class="f"><span class="lbl">متى يستلم؟</span><div class="bd-chips">
         <button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button>
         <input type="date" class="input bd-date" v-model="f.due" :min="isoIn(0)" aria-label="تاريخ آخر"></div></div>
-      <div v-if="startColumns.length > 1" class="f"><span class="lbl">يبدأ من</span><div class="bd-chips">
-        <button v-for="c in startColumns" :key="c.id" type="button" class="bd-chip" :aria-pressed="f.column === c.id" @click="f.column = c.id">{{ c.name }}</button></div></div>
+      <div v-if="startColumns.length > 1" class="f"><label for="qo-column">يبدأ من</label><select id="qo-column" class="input" v-model="f.column"><option v-for="c in startColumns" :key="c.id" :value="c.id">{{ c.name }}</option></select></div>
       <div class="f"><span class="lbl">من يعمل عليه؟</span><div class="bd-chips">
         <button v-for="p in state.boot.team" :key="p" type="button" class="bd-person" :aria-pressed="f.assignee === p" @click="f.assignee = f.assignee === p ? '' : p"><Avatar :name="p"/>{{ p }}</button>
         <a v-if="!state.boot.team.length" href="/atelier/team" class="m" @click.prevent="go('/team')">أضف أسماء الفريق أولًا</a></div></div>
@@ -759,7 +758,7 @@ const BoardPanel = {
         <button v-for="q in QUICK_TAGS" :key="q[0]" type="button" class="qtag" :class="['tg-' + q[1], {on: f.tags.includes(q[0])}]" :aria-pressed="f.tags.includes(q[0])" @click="toggle(f.tags, q[0])">{{ f.tags.includes(q[0]) ? '✓ ' : '' }}{{ q[0] }}</button></div></div>
       <div v-if="error" class="alert error" role="alert">{{ error }}</div>
       <div class="spacer"></div>
-      <button type="submit" class="btn primary bd-save" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ الطلب' }}</button>
+      <div class="bd-savebar"><button type="submit" class="btn primary bd-save" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ الطلب' }}</button></div>
     </form>
 
     <div v-else class="bd-form">
