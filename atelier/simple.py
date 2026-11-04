@@ -204,7 +204,10 @@ COLORS = ["#F5D547", "#F59E0B", "#E5484D", "#2563EB", "#22A06B", "#D7F1A8", "#9B
 DEFAULT_CONFIG = {
 	"columns": [
 		{"id": "c-new", "name": "جديد", "color": "#9A94AC"},
-		{"id": "c-work", "name": "في العمل", "color": "#F59E0B"},
+		{"id": "c-design", "name": "تصميم", "color": "#9B87F5"},
+		{"id": "c-approve", "name": "موافقة العميل", "color": "#1597A6"},
+		{"id": "c-work", "name": "طباعة", "color": "#F59E0B"},
+		{"id": "c-finish", "name": "تشطيب", "color": "#C2410C"},
 		{"id": "c-ready", "name": "جاهز", "color": "#2563EB"},
 		{"id": "c-done", "name": "سُلّم", "color": "#22A06B", "deliver": 1},
 	],

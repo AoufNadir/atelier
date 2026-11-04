@@ -30,7 +30,7 @@ for dt, fields in {
     assert all(meta.has_field(field) for field in fields), (dt, fields)
 print("CUSTOM_FIELDS_OK")
 assert all(frappe.db.get_value("Price List", name, "currency") == "DZD" for name in api.PRICE_LISTS.values())
-assert len(simple.get_config()["columns"]) == 4
+assert len(simple.get_config()["columns"]) == 7
 assert len(simple.checklist_templates()) == 3
 assert simple.board2()["cards"] == []
 assert simple.settings()["profile"]["name_ar"] == company.name
