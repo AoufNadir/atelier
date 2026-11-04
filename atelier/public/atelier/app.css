@@ -1559,3 +1559,7 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .ol-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 6px; align-items: end; padding-bottom: 6px; }
 .ol-f { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .ol-row .ol-text { grid-column: 1 / -1; }
+.tm-docs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tm-docs .btn { justify-content: center; padding-inline: 6px; text-align: center; }
+.tm-fold { all: unset; box-sizing: border-box; display: flex; justify-content: space-between; align-items: center; width: 100%; cursor: pointer; }
+.tm-fold:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }

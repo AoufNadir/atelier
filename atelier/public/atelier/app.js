@@ -857,7 +857,7 @@ const CostSection = {
   props: ["name"], emits: ["use-price"], components: { Icon },
   setup(props, { emit }) {
     const d = ref(null), error = ref(null), busy = ref(false), open = ref(false), target = ref(30);
-    const load = async () => { try { d.value = await call("card_cost", { name: props.name }); open.value = d.value.lines.length > 0; } catch (e) { error.value = e.message; } };
+    const load = async () => { try { d.value = await call("card_cost", { name: props.name }); open.value = false; } catch (e) { error.value = e.message; } };
     const add = () => { d.value.lines.push({ cost_type: costTypes.value[0].value, description: "", qty: 1, rate: "" }); open.value = true; };
     const costTypes = computed(() => state.boot.lists.cost_types);
     const typeOptions = (l) => (costTypes.value.some((c) => c.value === l.cost_type) ? costTypes.value : [...costTypes.value, { value: l.cost_type, label: l.cost_type }]);
@@ -878,10 +878,10 @@ const CostSection = {
     return { d, error, busy, open, target, add, total, unit, missing, profit, margin, suggested, save, money, typeOptions, emit };
   },
   template: `
-  <div class="tm-money tm-cost"><h3>التكلفة <span class="m" style="display:inline;margin-inline-start:auto">للمدير</span></h3>
+  <div class="tm-money tm-cost"><button type="button" class="tm-fold" :aria-expanded="open" @click="open = !open"><b>التكلفة</b><span class="m">{{ d && d.lines.length ? money(total) : 'اختياري' }} {{ open ? '▴' : '▾' }}</span></button>
     <div v-if="error" class="alert error">{{ error }}</div>
-    <template v-if="d">
-      <template v-if="open">
+    <template v-if="d && open">
+      <template v-if="true">
         <div v-for="(l, i) in d.lines" :key="i" class="cost-line">
           <select class="input" v-model="l.cost_type" aria-label="نوع التكلفة"><option v-for="c in typeOptions(l)" :key="c.value" :value="c.value">{{ c.label }}</option></select>
           <input class="input" v-model="l.description" aria-label="البند" placeholder="البند، مثل: ورق 350غ">
@@ -970,8 +970,11 @@ const CardModal = {
     };
     const quote = async (kind) => {
       const win = window.open("about:blank", "_blank"); // opened now: browsers block it after an await
-      try { const name = await call("card_quote", { order: props.name, kind }, true); if (win) win.location = pdfUrl("Quotation", name, "الورشة — عربي"); }
-      catch (x) { if (win) win.close(); toast(x.message, "error"); }
+      try {
+        if (d.value.price_pending) { await call("update_order", { name: props.name, price: +price.value }, true); price.value = ""; await load(); emit("changed"); }
+        const name = await call("card_quote", { order: props.name, kind }, true);
+        if (win) win.location = pdfUrl("Quotation", name, "الورشة — عربي");
+      } catch (x) { if (win) win.close(); err.value = x.message; }
     };
     const pay = () => (state.sheet = { type: "payment", customer: { name: d.value.customer, customer_name: d.value.customer_name }, order: props.name });
     watch(() => state.rev, load);
@@ -1139,10 +1142,10 @@ const CardModal = {
               <div class="tm-paybar"><span :style="{width: Math.min(100, d.grand_total ? d.paid / d.grand_total * 100 : 0) + '%'}"></span></div>
               <div class="bd-line"><span class="m">الباقي</span><b class="money" :class="{'bd-late': d.grand_total - d.paid > 0.005}">{{ money(Math.max(0, d.grand_total - d.paid)) }}</b></div></template>
             <div class="row" style="gap:8px"><button v-if="state.boot.can.payment && !d.price_pending && d.grand_total - d.paid > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
-              <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, 'الورشة — عربي')">بون PDF</a></div>
+              </div>
             <button v-if="d.materials_pending" type="button" class="btn" @click="offerMaterials(d.name)">خصم مواد الطلب من المخزون</button>
-            <div class="row" style="gap:8px"><button type="button" class="btn" style="flex:1" :disabled="d.price_pending" @click="quote('devis')">Devis PDF</button><button type="button" class="btn" style="flex:1" :disabled="d.price_pending" @click="quote('proforma')">Pro forma PDF</button></div>
-            <span v-if="d.price_pending" class="m">لإصدار Devis أو Pro forma حدّد السعر أولًا</span>
+            <div class="tm-docs"><a class="btn" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, 'الورشة — عربي')">بون</a><button type="button" class="btn" :disabled="d.price_pending && !(+price > 0)" @click="quote('devis')">Devis</button><button type="button" class="btn" :disabled="d.price_pending && !(+price > 0)" @click="quote('proforma')">Pro forma</button></div>
+            <span v-if="d.price_pending && !(+price > 0)" class="m">اكتب السعر لإصدار Devis أو Pro forma</span>
           </div>
           <CostSection v-if="d.money" :name="d.name" :key="d.name + ':' + d.grand_total" @use-price="price = $event"/>
           <h3>التعليقات والنشاط</h3>
