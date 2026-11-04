@@ -77,12 +77,15 @@ def quick_order(data):
 	d = frappe.parse_json(data)
 	what = (d.get("what") or "").strip()
 	price = d.get("price")
+	mode = d.get("mode") or "Cash"
+	if flt(d.get("advance")) > 0 and mode not in [m[0] for m in api.MODES]:
+		frappe.throw(_("طريقة الدفع غير صالحة"))
 	res = api.create_order(json.dumps({
 		"customer": d.get("customer"), "new_customer": d.get("new_customer") or {},
 		"subject": what, "delivery_date": d.get("delivery_date"), "no_steps": 1,
 		"items": [{"item_code": _general_item(), "qty": 1, "description": what,
 			"rate": None if price in (None, "") else flt(price)}] if what else [],
-		"advance": {"amount": flt(d.get("advance")), "mode_of_payment": d.get("mode") or "Cash"},
+		"advance": {"amount": flt(d.get("advance")), "mode_of_payment": mode},
 	}, ensure_ascii=False))
 	so = res["sales_order"]
 	_apply_customer_note(so)

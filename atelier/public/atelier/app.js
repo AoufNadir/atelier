@@ -694,7 +694,7 @@ const CustomerField = {
 const BoardPanel = {
   props: ["mode", "order", "preset", "columns"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
   setup(props, { emit }) {
-    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", what: "", price: "", advance: "", due: isoIn(0), assignee: "", tags: [], column: null });
+    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", what: "", price: "", advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
     const startColumns = computed(() => (props.columns || []).filter((c) => !c.deliver));
     if (startColumns.value.length) f.column = startColumns.value[0].id;
     const dueChips = [["اليوم", 0], ["غدًا", 1], ["بعد 3 أيام", 3], ["بعد أسبوع", 7]];
@@ -712,7 +712,7 @@ const BoardPanel = {
       try {
         await call("quick_order", { data: JSON.stringify({
           customer: f.customer?.name || null, new_customer: f.customer ? {} : { name: newName.value, phone: f.phone, type: f.type },
-          what: f.what, price: f.price === "" ? null : +f.price, advance: +f.advance || 0, mode: "Cash", delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
+          what: f.what, price: f.price === "" ? null : +f.price, advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
         }) }, true);
         toast("حُفظ الطلب"); emit("saved");
       } catch (e) { error.value = e.message; } finally { saving.value = false; }
@@ -746,6 +746,7 @@ const BoardPanel = {
       <div class="f"><label for="qo-what">ماذا يريد؟</label><input id="qo-what" class="input" v-model="f.what" placeholder="مثلًا: بطاقات زيارة 500"></div>
       <div class="bd-two"><div class="f"><label for="qo-price">السعر</label><div class="unit-wrap"><input id="qo-price" class="input num" inputmode="decimal" v-model="f.price" placeholder="لاحقًا"><span class="u">دج</span></div></div>
         <div class="f"><label for="qo-adv">تسبيق</label><div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0"><span class="u">دج</span></div></div></div>
+      <div v-if="+f.advance > 0" class="f"><span class="lbl">طريقة دفع التسبيق</span><div class="bd-chips"><button v-for="m in state.boot.modes" :key="m.value" type="button" class="bd-chip" :aria-pressed="f.mode === m.value" @click="f.mode = m.value">{{ m.label }}</button></div></div>
       <div class="f"><span class="lbl">متى يستلم؟</span><div class="bd-chips">
         <button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button>
         <input type="date" class="input bd-date" v-model="f.due" :min="isoIn(0)" aria-label="تاريخ آخر"></div></div>
