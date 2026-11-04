@@ -7,9 +7,9 @@
 **التطبيق لا يعمل بعد على أي بيئة في متناولنا.** Ubuntu-24.04 وDocker جاهزان الآن، وأُصلح تعليق WSL بإعادة تشغيل خدمته بصلاحية مدير. المستخدم الافتراضي هو `hb` ونجح تشغيل hello-world من حسابه. بيئة ERPNext والموقع لم يُجهّزا بعد.
 
 - الفرع: `chore/multi-computer-setup` (commits محلية **غير مرفوعة**).
-- سجل Git محلي بدأ من لقطة ZIP (الوسم `zip-baseline`)، وليس سجل GitHub بعد؛ لأن المستودع خاص ويتطلب تسجيل دخول.
+- سجل Git متصل الآن بسجل GitHub الحقيقي. أُعيد تطبيق commits المحلية فوق `origin/main` بعد التحقق من تطابق محتوى ZIP، والاختلاف كان في executable bits فقط. الفرع `main` يتابع `origin/main`؛ لم يُرفع فرع العمل.
 - نسخة احتياطية لمحتوى ZIP الأصلي: `C:\Users\HB\Documents\atelier-main-backup-zip-original.zip`.
-- الجلسة السابقة غير متاحة؛ هذه الحالة مستخرجة من الملفات. سجل GitHub لم يُقرأ بعد، وقد يحتوي عملًا أحدث من ZIP.
+- الجلسة السابقة غير متاحة؛ هذه الحالة مستخرجة من الملفات. تمت قراءة سجل GitHub، ومحتوى `origin/main` وقت الربط مطابق لـZIP؛ لم توجد تغييرات محتوى أحدث.
 
 ## ما اكتمل
 
@@ -43,8 +43,8 @@
 ## الخطوة التالية المحددة
 
 1. المستخدم الافتراضي `hb` موجود بعضوية sudo وdocker. اكتمل تعيين كلمة مروره بواسطة المستخدم وتحقق `passwd -S hb` بالحالة P. نجح `docker info` وhello-world من حسابه. لا تعِد تثبيت Docker أو إنشاء الحساب أو طلب كلمة مرور جديدة.
-2. ثُبّت GitHub CLI 2.103.3 في `C:\Program Files\GitHub CLI\gh.exe`. تسجيل الدخول لم يُؤكّد بعد؛ افحص `gh auth status` وأكمل تسجيل الدخول عند الحاجة، ثم شغّل `tools/dev/Connect-GitHub.ps1`. لا ترفع أي تغييرات دون طلب المستخدم.
-3. شغّل `bootstrap_nasaq.sh` من مستخدم Ubuntu العادي، وصحّح ما يظهر حتى ينجح `verify_nasaq_site.py`. Git وPython 3.12.3 موجودان داخل Ubuntu.
+2. تسجيل GitHub ناجح بحساب AoufNadir، واكتمل `gh auth setup-git` و`Connect-GitHub.ps1`. لا تعِد الربط أو تسجيل الدخول دون فحص. لا ترفع أي تغييرات دون طلب المستخدم.
+3. بدأ Codex `setup_dev.sh` بالفعل من hb. يُنزّل صور الحاويات ويجهّز bench؛ تحقق من حالته قبل إطلاق تجهيز ثانٍ. بعد نجاحه تابع `bootstrap_nasaq.sh` وإنشاء الموقع؛ المستخدم يكتب كلمة مرور Administrator للموقع بنفسه في طرفية تفاعلية.
 4. اختبر الواجهة على `http://nasaq.localhost:8001/atelier-login`.
 5. حدّث هذا الملف، وارفع عند طلب المستخدم فقط.
 
@@ -88,3 +88,10 @@
 - أكد المستخدم إكمال كلمة المرور، وتحقق Codex من `passwd -S hb`: الحالة P، دون قراءة كلمة المرور أو تخزينها.
 - WSL يستجيب، والمستخدم الافتراضي hb، ونجح `docker info` مجددًا (Server 29.9.3).
 - GitHub ما زال غير مسجل عند آخر فحص؛ بدأت عملية device login جديدة ليكملها المستخدم. بعد اكتمالها: `gh auth setup-git` ثم قراءة origin ومراجعة اختلافات ZIP قبل ربط السجل. لم تُشغّل بيئة ERPNext بعد.
+
+## نجاح ربط GitHub وبدء تجهيز ERPNext — 2026-11-04
+
+- تحقق `gh auth status`: حساب AoufNadir نشط، والاعتماد محفوظ في keyring. شُغّل `gh auth setup-git --hostname github.com` بنجاح.
+- جُلب `origin/main` بنجاح. كان اختلاف ZIP في تسعة executable bits فقط؛ كل blob مطابق. أُصلح `Connect-GitHub.ps1` ليسمح باختلاف 100644/100755 فقط عندما يبقى blob نفسه، ويتوقف عند أي اختلاف محتوى أو نوع ملف.
+- أُنشئ فرع استرداد محلي `backup/before-github-connect-20261104` قبل إعادة تطبيق commits المحلية على `origin/main`. نجح rebase دون تعارض، وحُذفت علامة zip-baseline بواسطة السكربت بعد الربط، ولم يُنفّذ push.
+- بدأ `setup_dev.sh` من hb: استُنسخ frappe_docker في `/home/hb/erp/frappe_docker`، وجار تنزيل MariaDB وRedis وfrappe/bench. لا تعتبر bench أو ERPNext مثبتين حتى يتحقق اكتمال السكربت.
