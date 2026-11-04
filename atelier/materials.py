@@ -1,4 +1,7 @@
 """Workshop materials: one store, three moves. Each move is a standard ERPNext document."""
+import json
+import math
+
 import frappe
 from frappe import _
 from frappe.utils import cint, flt, nowdate
@@ -148,3 +151,84 @@ def stock_count(item_code, qty, rate=None):
 	doc.insert()
 	doc.submit()
 	return doc.name
+
+
+# ---------------------------------------------------------------- recipes: what one unit of a service uses
+
+
+def custom_fields():
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	create_custom_fields({
+		"Item": [{"fieldname": "atelier_recipe", "label": "وصفة المواد", "fieldtype": "Long Text", "hidden": 1, "insert_after": "atelier_steps", "module": "Atelier"}],
+		"Sales Order": [{"fieldname": "atelier_materials_done", "label": "خُصمت المواد", "fieldtype": "Check", "read_only": 1, "insert_after": "atelier_due_time", "module": "Atelier"}],
+	})
+
+
+def _recipe(item_code):
+	try:
+		return json.loads(frappe.db.get_value("Item", item_code, "atelier_recipe") or "[]")
+	except ValueError:
+		return []
+
+
+@frappe.whitelist()
+def recipes():
+	api._require("Bin")
+	services = frappe.get_all("Item", filters={"disabled": 0, "is_sales_item": 1, "is_stock_item": 0, "name": ["!=", "SRV-GENERAL"]},
+		fields=["item_code", "item_name", "stock_uom", "atelier_recipe"], order_by="item_name asc", limit=500)
+	materials = frappe.get_all("Item", filters={"disabled": 0, "is_stock_item": 1}, fields=["item_code", "item_name", "stock_uom"], order_by="item_name asc", limit=500)
+	for s in services:
+		s.recipe = json.loads(s.pop("atelier_recipe") or "[]")
+	return {"services": services, "materials": materials}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_recipe(item_code, rows):
+	_need("Item")
+	if not frappe.db.exists("Item", item_code):
+		frappe.throw(_("خدمة غير صالحة"))
+	clean = []
+	for row in frappe.parse_json(rows) or []:
+		if row.get("item_code") and flt(row.get("qty")) > 0:
+			_material(row["item_code"])
+			clean.append({"item_code": row["item_code"], "qty": flt(row["qty"])})
+	frappe.db.set_value("Item", item_code, "atelier_recipe", json.dumps(clean, ensure_ascii=False))
+	return clean
+
+
+def _needed(so):
+	totals = {}
+	for line in so.items:
+		for row in _recipe(line.item_code):
+			totals[row["item_code"]] = totals.get(row["item_code"], 0) + flt(line.qty) * flt(row["qty"])
+	return totals
+
+
+@frappe.whitelist()
+def order_materials(order):
+	"""What the order's services use. A quantity in a whole-number unit rounds up."""
+	so = frappe.get_doc("Sales Order", order)
+	so.check_permission("read")
+	store, rows = store_for(so.company), []
+	for code, qty in _needed(so).items():
+		item = frappe.db.get_value("Item", code, ["item_name", "stock_uom", "disabled"], as_dict=True)
+		if not item or item.disabled:
+			continue
+		if frappe.db.get_value("UOM", item.stock_uom, "must_be_whole_number"):
+			qty = math.ceil(round(qty, 6))
+		rows.append({"item_code": code, "item_name": item.item_name, "uom": item.stock_uom, "need": round(qty, 3), "on_hand": _on_hand(code, store)})
+	return {"rows": rows, "done": cint(so.get("atelier_materials_done")), "delivered": flt(so.per_delivered) >= 100}
+
+
+@frappe.whitelist(methods=["POST"])
+def issue_order_materials(order, rows):
+	"""One confirmation per order. All lines succeed together, or none is issued."""
+	_need("Stock Entry")
+	so = frappe.get_doc("Sales Order", order)
+	so.check_permission("write")
+	if cint(so.get("atelier_materials_done")):
+		frappe.throw(_("خُصمت مواد هذا الطلب من قبل"))
+	issued = [stock_issue(r["item_code"], r["qty"], order, _("مواد طلب {0}").format(order)) for r in frappe.parse_json(rows) or [] if flt(r.get("qty")) > 0]
+	so.db_set("atelier_materials_done", 1)
+	return issued

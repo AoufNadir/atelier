@@ -4,7 +4,7 @@ import json
 
 import frappe
 
-from atelier import api, dev_build, production, quotes, simple
+from atelier import api, dev_build, materials, production, quotes, simple
 
 
 def after_install():
@@ -33,6 +33,7 @@ def setup():
 	simple.supplier_fields()
 	simple.payment_order_field()
 	quotes.custom_fields()
+	materials.custom_fields()
 	api.setup_print_formats(commit=False)
 	for key, value in {
 		"atelier_board": simple.DEFAULT_CONFIG,
@@ -60,7 +61,7 @@ def setup_company():
 			}).insert(ignore_permissions=True)
 	if not company:
 		return
-	from atelier import accounts_ar, materials
+	from atelier import accounts_ar
 
 	if accounts_ar.matches_chart(company):
 		if not frappe.db.get_default("atelier_accounts_ar_initialized"):

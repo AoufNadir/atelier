@@ -926,7 +926,7 @@ const CardModal = {
     const toggle = (key, v) => { const l = [...d.value[key]]; const i = l.indexOf(v); if (i >= 0) l.splice(i, 1); else l.push(v); save({ [key]: l }); };
     const moveTo = async (col) => {
       busy.value = true; err.value = null;
-      try { await call("move_card", { name: props.name, column: col }, true); await load(); emit("changed"); }
+      try { await call("move_card", { name: props.name, column: col }, true); await load(); emit("changed"); if (props.config.columns.find((c) => c.id === col)?.deliver) offerMaterials(props.name); }
       catch (e) { err.value = e.message; await load(); } finally { busy.value = false; }
     };
     // description
@@ -1017,7 +1017,7 @@ const CardModal = {
     const dueTone = computed(() => { if (!d.value?.due || d.value.per_delivered >= 100) return ""; const n = daysFromToday(d.value.due); return n < 0 ? "late" : n <= 1 ? "soon" : ""; });
     watch(customer, () => (pickClient.value = false));
     return { tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
-      uploading, onFiles, delFile, comment, addComment, price, setPrice, pay, quote, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
+      uploading, onFiles, delFile, comment, addComment, price, setPrice, pay, quote, offerMaterials, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
   <div class="overlay tm-overlay" @click.self="$emit('close')">
@@ -1141,6 +1141,7 @@ const CardModal = {
               <div class="bd-line"><span class="m">الباقي</span><b class="money" :class="{'bd-late': d.grand_total - d.paid > 0.005}">{{ money(Math.max(0, d.grand_total - d.paid)) }}</b></div></template>
             <div class="row" style="gap:8px"><button v-if="state.boot.can.payment && !d.price_pending && d.grand_total - d.paid > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
               <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, 'الورشة — عربي')">بون PDF</a></div>
+            <button v-if="d.materials_pending" type="button" class="btn" @click="offerMaterials(d.name)">خصم مواد الطلب من المخزون</button>
             <div v-if="!d.price_pending" class="row" style="gap:8px"><button type="button" class="btn" style="flex:1" @click="quote('devis')">Devis PDF</button><button type="button" class="btn" style="flex:1" @click="quote('proforma')">Pro forma PDF</button></div>
           </div>
           <CostSection v-if="d.money" :name="d.name" :key="d.name + ':' + d.grand_total" @use-price="price = $event"/>
@@ -1182,7 +1183,7 @@ const Board = {
     async function moveTo(c, col, beforeName) {
       busy.value = c.name;
       try {
-        if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
+        if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); if (cfg.value.columns.find((x) => x.id === col)?.deliver) offerMaterials(c.name); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
         if (beforeName !== undefined) {
           const list = cols.value.find((x) => x.id === col).items.map((x) => x.name).filter((n) => n !== c.name);
           const i = beforeName ? list.indexOf(beforeName) : -1;
@@ -2648,8 +2649,62 @@ const SECTION_NAV = [
   { key: "team", path: "/team", icon: "users", label: "nav_team", match: ["team"], need: "prices" },
 ];
 
+// Delivery never waits for this: the sheet opens after it, and can be left for later from the card.
+async function offerMaterials(order) {
+  try {
+    const m = await call("order_materials", { order });
+    if (m.rows.length && !m.done) state.sheet = { type: "materials", order, rows: m.rows.map((r) => ({ ...r, qty: Math.min(r.need, r.on_hand) })) };
+  } catch { /* the delivery itself already succeeded */ }
+}
+const MaterialsSheet = {
+  props: ["opts"],
+  setup(props) {
+    const busy = ref(false), err = ref(null), rows = ref(props.opts.rows);
+    const close = () => (state.sheet = null);
+    const short = (r) => r.need > r.on_hand;
+    const submit = async () => {
+      busy.value = true; err.value = null;
+      try { await call("issue_order_materials", { order: props.opts.order, rows: JSON.stringify(rows.value) }, true); toast("خُصمت المواد من المخزون"); state.rev++; close(); }
+      catch (e) { err.value = e.message; } finally { busy.value = false; }
+    };
+    return { rows, busy, err, close, short, submit, uom };
+  },
+  template: `
+  <div class="overlay" @click.self="close"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><div><h2>مواد هذا الطلب</h2><span class="muted">راجع الكميات الفعلية قبل الخصم</span></div></div>
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <div v-for="r in rows" :key="r.item_code" class="field"><label :for="'mt-' + r.item_code">{{ r.item_name }} ({{ uom(r.uom) }})</label><input :id="'mt-' + r.item_code" class="input num" inputmode="decimal" v-model="r.qty">
+      <span class="muted" :class="{'bd-late': short(r)}">المتوقع {{ r.need }} · المتوفر {{ r.on_hand }}</span></div>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy">خصم من المخزون</button></div>
+  </form></div>`,
+};
+const RecipesCard = {
+  setup() {
+    const d = ref(null), code = ref(""), rows = ref([]), busy = ref(false), err = ref(null);
+    const load = async () => { try { d.value = await call("recipes"); } catch (e) { err.value = e.message; } };
+    const service = computed(() => d.value?.services.find((s) => s.item_code === code.value));
+    watch(code, () => { rows.value = (service.value?.recipe || []).map((r) => ({ ...r })); });
+    const add = () => rows.value.push({ item_code: "", qty: "" });
+    const save = async () => {
+      busy.value = true; err.value = null;
+      try { const out = await call("save_recipe", { item_code: code.value, rows: JSON.stringify(rows.value) }, true); service.value.recipe = out; rows.value = out.map((r) => ({ ...r })); toast("حُفظت الوصفة"); }
+      catch (e) { err.value = e.message; } finally { busy.value = false; }
+    };
+    load();
+    return { d, code, rows, busy, err, service, add, save, uom };
+  },
+  template: `
+  <section v-if="d" class="mn-card"><div class="mn-card-h"><b>وصفات الخدمات</b><span class="muted">ما تستهلكه الوحدة الواحدة، لتُقترح الكميات عند التسليم</span></div>
+    <div style="display:flex;flex-direction:column;gap:8px;padding:12px 16px">
+      <div v-if="err" class="alert error">{{ err }}</div>
+      <p v-if="!d.services.length" class="muted" style="margin:0">أضف خدمة أولًا من الخدمات والأسعار.</p>
+      <template v-else><select class="input" v-model="code" aria-label="الخدمة"><option value="" disabled>اختر خدمة</option><option v-for="s in d.services" :key="s.item_code" :value="s.item_code">{{ s.item_name }}{{ s.recipe.length ? ' ✓' : '' }}</option></select>
+        <template v-if="service"><span class="muted">لكل 1 {{ uom(service.stock_uom) }} من «{{ service.item_name }}»:</span>
+          <div v-for="(r, i) in rows" :key="i" class="row" style="gap:6px"><select class="input" v-model="r.item_code" aria-label="المادة"><option value="" disabled>اختر مادة</option><option v-for="m in d.materials" :key="m.item_code" :value="m.item_code">{{ m.item_name }} ({{ uom(m.stock_uom) }})</option></select>
+            <input class="input num" style="max-width:110px" inputmode="decimal" v-model="r.qty" aria-label="الكمية" placeholder="الكمية"><button type="button" class="cl-btn sm" :aria-label="'حذف ' + (i + 1)" @click="rows.splice(i, 1)">×</button></div>
+          <div class="row" style="gap:8px"><button type="button" class="cl-btn sm" :disabled="!d.materials.length" @click="add">+ مادة</button><button type="button" class="cl-btn primary sm" :disabled="busy" @click="save">حفظ الوصفة</button></div></template></template></div></section>`,
+};
 const StockPage = {
-  components: { Icon },
+  components: { Icon, RecipesCard },
   setup() {
     const { s, load } = useLoad(() => call("stock"));
     onMounted(load);
@@ -2694,6 +2749,7 @@ const StockPage = {
         <tbody><tr v-for="i in items" :key="i.item_code"><td><b>{{ i.item_name }}</b></td><td class="n" :class="{'bd-late': i.low}">{{ i.qty }} {{ uom(i.uom) }}</td><td class="n">{{ i.safety_stock || '—' }}</td><td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
           <td><div class="row" style="gap:4px;flex-wrap:wrap"><button v-if="s.data.can_buy" type="button" class="cl-btn sm" @click="open('buy', i)">شراء</button><button v-if="s.data.can_issue" type="button" class="cl-btn sm" :disabled="i.qty <= 0" @click="open('issue', i)">صرف</button><button type="button" class="cl-btn sm" @click="open('count', i)">جرد</button><button type="button" class="cl-btn sm" @click="open('edit', i)">تعديل</button><button type="button" class="cl-btn sm" @click="remove(i)">حذف</button></div></td></tr>
           <tr v-if="!items.length"><td colspan="5" class="muted" style="text-align:center;padding:24px">لا مواد بعد. أضف مادة ثم سجّل رصيدها بالجرد أو الشراء.</td></tr></tbody></table></section>
+      <RecipesCard/>
       <section v-if="s.data.moves.length" class="mn-card"><div class="mn-card-h"><b>آخر الحركات</b></div><table class="cl-table mn-table"><tbody><tr v-for="m in s.data.moves" :key="m.voucher_no + m.item_code"><td>{{ m.item_name }}</td><td>{{ MOVE[m.voucher_type] || m.voucher_type }}</td><td class="n" dir="ltr">{{ m.actual_qty }}</td><td class="n">{{ date(m.posting_date) }}</td></tr></tbody></table></section>
     </div>
     <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><h2>{{ TITLES[sheet.kind] }}<template v-if="sheet.item"> · {{ sheet.item.item_name }}</template></h2></div>
@@ -2713,7 +2769,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { StockPage, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { StockPage, MaterialsSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -2798,6 +2854,7 @@ const App = {
     <ExpenseSheet v-if="state.sheet && state.sheet.type==='expense'" :opts="state.sheet"/>
     <CustomerSheet2 v-if="state.sheet && state.sheet.type==='customer'" :opts="state.sheet"/>
     <ItemSheet v-if="state.sheet && state.sheet.type==='item'" :opts="state.sheet"/>
+    <MaterialsSheet v-if="state.sheet && state.sheet.type==='materials'" :opts="state.sheet"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>
   </div>`,
 };
