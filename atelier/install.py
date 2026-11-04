@@ -66,5 +66,6 @@ def setup_company():
 			accounts_ar.run(company=company.name, commit=False)
 			frappe.db.set_default("atelier_accounts_ar_initialized", company.name)
 		accounts_ar.default_bank(company=company.name, commit=False, only_if_missing=True)
+		accounts_ar.party_accounts(company.name)
 		accounts_ar.payment_modes(company.name)
 		materials.setup(company.name)

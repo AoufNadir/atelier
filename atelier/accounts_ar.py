@@ -46,6 +46,16 @@ def run(company=None, commit=True):
 	return len(keep)
 
 
+def party_accounts(company):
+	"""The template picks unsuitable defaults for customers and suppliers. Only those exact defaults change."""
+	for field, wrong, right in (("default_receivable_account", "4172", "4111"), ("default_payable_account", "4213", "40132")):
+		current = frappe.db.get_value("Company", company, field)
+		if current and frappe.db.get_value("Account", current, "account_number") == wrong:
+			account = frappe.db.get_value("Account", {"company": company, "account_number": right, "is_group": 0})
+			if account and not frappe.db.exists("GL Entry", {"account": current}):
+				frappe.db.set_value("Company", company, field, account)
+
+
 def payment_modes(company):
 	"""Create the local payment methods and link only those with no fund yet."""
 	for mode, label in MODE_FUNDS.items():

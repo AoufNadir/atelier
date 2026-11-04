@@ -42,4 +42,6 @@ rows = [frappe._dict(customer_name=n, mobile_no=m) for n, m in [("سعيد أح�
 assert [r.customer_name for r in api._rank_customers("أحمد", rows)] == ["احمد علي", "سعيد أحمد"]
 assert [r.customer_name for r in api._rank_customers("فاطمه", rows)] == ["فاطمة"]
 assert [r.customer_name for r in api._rank_customers("279877", rows)] == ["محمد"]
+for field, number in (("default_receivable_account", "4111"), ("default_payable_account", "40132")):
+    assert frappe.db.get_value("Account", frappe.db.get_value("Company", company, field), "account_number") == number, field
 print("PAYMENT_MODES_UNITS_SEARCH_OK")
