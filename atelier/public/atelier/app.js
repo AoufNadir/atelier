@@ -692,9 +692,11 @@ const CustomerField = {
 
 // Side panel: a new order (one short form) or an existing order card.
 const BoardPanel = {
-  props: ["mode", "order", "preset"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
+  props: ["mode", "order", "preset", "columns"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
   setup(props, { emit }) {
-    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", what: "", price: "", advance: "", due: isoIn(0), assignee: "", tags: [] });
+    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", what: "", price: "", advance: "", due: isoIn(0), assignee: "", tags: [], column: null });
+    const startColumns = computed(() => (props.columns || []).filter((c) => !c.deliver));
+    if (startColumns.value.length) f.column = startColumns.value[0].id;
     const dueChips = [["اليوم", 0], ["غدًا", 1], ["بعد 3 أيام", 3], ["بعد أسبوع", 7]];
     const saving = ref(false), error = ref(null), newName = ref(""), credit = ref(null);
     watch(() => f.customer, async (c) => { credit.value = null; if (c) { try { credit.value = await call("customer_credit", { name: c.name }); } catch { /* optional */ } } }, { immediate: true });
@@ -710,7 +712,7 @@ const BoardPanel = {
       try {
         await call("quick_order", { data: JSON.stringify({
           customer: f.customer?.name || null, new_customer: f.customer ? {} : { name: newName.value, phone: f.phone, type: f.type },
-          what: f.what, price: f.price === "" ? null : +f.price, advance: +f.advance || 0, mode: "Cash", delivery_date: f.due, assignee: f.assignee, tags: f.tags,
+          what: f.what, price: f.price === "" ? null : +f.price, advance: +f.advance || 0, mode: "Cash", delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
         }) }, true);
         toast("حُفظ الطلب"); emit("saved");
       } catch (e) { error.value = e.message; } finally { saving.value = false; }
@@ -728,7 +730,7 @@ const BoardPanel = {
     const onKey = (e) => { if (e.key === "Escape" && !state.sheet) emit("close"); };
     onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.querySelector(".bd-panel input, .bd-panel button")?.focus(), 50); });
     onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
-    return { credit, fig, f, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
+    return { credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS, tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
@@ -747,6 +749,8 @@ const BoardPanel = {
       <div class="f"><span class="lbl">متى يستلم؟</span><div class="bd-chips">
         <button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button>
         <input type="date" class="input bd-date" v-model="f.due" :min="isoIn(0)" aria-label="تاريخ آخر"></div></div>
+      <div v-if="startColumns.length > 1" class="f"><span class="lbl">يبدأ من</span><div class="bd-chips">
+        <button v-for="c in startColumns" :key="c.id" type="button" class="bd-chip" :aria-pressed="f.column === c.id" @click="f.column = c.id">{{ c.name }}</button></div></div>
       <div class="f"><span class="lbl">من يعمل عليه؟</span><div class="bd-chips">
         <button v-for="p in state.boot.team" :key="p" type="button" class="bd-person" :aria-pressed="f.assignee === p" @click="f.assignee = f.assignee === p ? '' : p"><Avatar :name="p"/>{{ p }}</button>
         <a v-if="!state.boot.team.length" href="/atelier/team" class="m" @click.prevent="go('/team')">أضف أسماء الفريق أولًا</a></div></div>
@@ -1323,7 +1327,7 @@ const Board = {
       </div>
     </div>
 
-    <BoardPanel v-if="panel" :mode="panel.mode" :preset="panel.preset" @close="closePanel" @saved="saved"/>
+    <BoardPanel v-if="panel" :mode="panel.mode" :preset="panel.preset" :columns="cfg?.columns" @close="closePanel" @saved="saved"/>
     <CardModal v-if="open && s.data" :key="open" :name="open" :config="cfg" @close="open = null" @changed="load" @open="open = $event"/>
   </div>`,
 };

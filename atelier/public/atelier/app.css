@@ -1545,3 +1545,6 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .cost-line button { grid-column: 3; grid-row: 2; }
 .cost-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
 .cost-opts label { display: flex; flex-direction: column; gap: 4px; }
+.tb .bd-panel .bd-chip { background: #fff; color: #1F2430; border-color: #E4E7EC; }
+.tb .bd-panel .bd-chip[aria-pressed="true"] { background: #1F2430; color: #fff; border-color: #1F2430; }
+.bd-panel .bd-date { width: 100%; }

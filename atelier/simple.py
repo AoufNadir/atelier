@@ -86,6 +86,12 @@ def quick_order(data):
 	}, ensure_ascii=False))
 	so = res["sales_order"]
 	_apply_customer_note(so)
+	column = d.get("column")
+	if column:
+		cfg = get_config()
+		if column not in [c["id"] for c in cfg["columns"]] or column == _deliver_col(cfg):
+			frappe.throw(_("لا يمكن بدء الطلب من هذا العمود"))
+		frappe.db.set_value("Sales Order", so, "atelier_column", column)
 	if d.get("assignee"):
 		frappe.db.set_value("Sales Order", so, "atelier_assignee", d["assignee"].strip()[:80])
 	if d.get("tags"):
