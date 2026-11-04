@@ -1438,3 +1438,160 @@ def test_email(to):
 	_manager_only()
 	frappe.sendmail(recipients=[to], subject="نسق — رسالة تجريبية", message="<p dir='rtl'>البريد الصادر يعمل.</p>", now=True)
 	return True
+
+
+# ---------------------------------------------------------------- suppliers: list, profile, purchase orders, supplier invoices, payments
+SUPPLIER_FIELDS = [
+	{"fieldname": "atelier_supplies", "label": "ما نشتريه منه", "fieldtype": "Data", "insert_after": "supplier_name"},
+	{"fieldname": "atelier_phone", "label": "الهاتف", "fieldtype": "Data", "insert_after": "atelier_supplies"},
+	{"fieldname": "atelier_email", "label": "البريد", "fieldtype": "Data", "insert_after": "atelier_phone"},
+	{"fieldname": "atelier_address", "label": "العنوان", "fieldtype": "Small Text", "insert_after": "atelier_email"},
+	{"fieldname": "atelier_rc", "label": "السجل التجاري RC", "fieldtype": "Data", "insert_after": "tax_id"},
+	{"fieldname": "atelier_note", "label": "ملاحظة", "fieldtype": "Small Text", "insert_after": "atelier_address"},
+]
+
+
+def supplier_fields():
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	create_custom_fields({"Supplier": [{**f, "module": "Atelier"} for f in SUPPLIER_FIELDS]})
+	frappe.db.commit()
+
+
+def _need_buying():
+	if not api._can("Purchase Invoice"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+
+
+@frappe.whitelist()
+def suppliers2():
+	_need_buying()
+	company = api._company()
+	month = get_first_day(nowdate())
+	rows = frappe.get_all("Supplier", fields=["name", "supplier_name", "disabled", "atelier_supplies", "atelier_phone", "creation"], order_by="supplier_name asc", limit=1000)
+	owe = {r.supplier: r for r in frappe.db.sql("""select supplier, sum(outstanding_amount) amount, count(*) n,
+		max(case when due_date < curdate() then datediff(curdate(), due_date) else 0 end) late,
+		sum(case when due_date < curdate() then outstanding_amount else 0 end) late_amount
+		from `tabPurchase Invoice` where docstatus=1 and company=%s and outstanding_amount > 0.005 group by supplier""", company, as_dict=True)}
+	last = dict(frappe.db.sql("""select supplier, max(posting_date) from `tabPurchase Invoice` where docstatus=1 and company=%s group by supplier""", company))
+	last_po = dict(frappe.db.sql("""select supplier, max(transaction_date) from `tabPurchase Order` where docstatus=1 and company=%s group by supplier""", company))
+	bought = dict(frappe.db.sql("""select supplier, sum(base_net_total) from `tabPurchase Invoice` where docstatus=1 and company=%s and posting_date >= %s group by supplier""", (company, month)))
+	for r in rows:
+		o = owe.get(r.name) or {}
+		r.owe, r.open_invoices, r.late, r.late_amount = flt(o.get("amount")), cint(o.get("n")), cint(o.get("late")), flt(o.get("late_amount"))
+		dates = [str(d) for d in (last.get(r.name), last_po.get(r.name)) if d]
+		r.last = max(dates) if dates else None
+		r.month = flt(bought.get(r.name))
+	pmonth = get_first_day(add_days(month, -1))
+	prev = flt(frappe.db.sql("""select sum(base_net_total) from `tabPurchase Invoice` where docstatus=1 and company=%s and posting_date between %s and %s""",
+		(company, pmonth, add_days(month, -1)))[0][0])
+	return {"rows": rows, "prev_month": prev}
+
+
+@frappe.whitelist()
+def supplier2(name):
+	_need_buying()
+	s = frappe.get_doc("Supplier", name)
+	s.check_permission("read")
+	invoices = frappe.db.sql("""select pi.name, pi.posting_date, pi.due_date, pi.grand_total, pi.outstanding_amount, pi.bill_no,
+		(select pii.description from `tabPurchase Invoice Item` pii where pii.parent=pi.name limit 1) what
+		from `tabPurchase Invoice` pi where pi.supplier=%s and pi.docstatus=1 order by pi.posting_date desc limit 100""", name, as_dict=True)
+	orders = frappe.db.sql("""select po.name, po.transaction_date, po.schedule_date, po.grand_total, po.per_billed, po.per_received, po.status,
+		(select poi.description from `tabPurchase Order Item` poi where poi.parent=po.name limit 1) what
+		from `tabPurchase Order` po where po.supplier=%s and po.docstatus=1 order by po.transaction_date desc limit 100""", name, as_dict=True)
+	items = frappe.db.sql("""select pii.item_name, coalesce(pii.description, pii.item_name) what, sum(pii.qty) qty, sum(pii.base_net_amount) amount, max(pi.posting_date) last
+		from `tabPurchase Invoice Item` pii join `tabPurchase Invoice` pi on pi.name=pii.parent where pi.supplier=%s and pi.docstatus=1
+		group by what order by amount desc limit 30""", name, as_dict=True)
+	for i in invoices:
+		i.late = max(0, (frappe.utils.getdate(nowdate()) - frappe.utils.getdate(i.due_date)).days) if i.due_date and flt(i.outstanding_amount) > 0.005 else 0
+	return {"name": s.name, "supplier_name": s.supplier_name, "supplies": s.get("atelier_supplies") or "", "phone": s.get("atelier_phone") or "",
+		"email": s.get("atelier_email") or "", "address": s.get("atelier_address") or "", "tax_id": s.tax_id or "", "rc": s.get("atelier_rc") or "",
+		"note": s.get("atelier_note") or "", "disabled": cint(s.disabled), "since": str(s.creation)[:10],
+		"owe": sum(flt(i.outstanding_amount) for i in invoices), "invoices": invoices, "orders": orders, "items": items,
+		"can_edit": bool(frappe.has_permission("Supplier", "write", s)), "accounts": api.expense_options()["accounts"] if api._can("Journal Entry", "create") else [],
+		"open_orders": frappe.get_list("Sales Order", filters={"docstatus": ["<", 2], "project": ["is", "set"], "status": ["not in", ["Closed", "Completed"]]},
+			fields=["name", "atelier_subject", "customer_name"], order_by="creation desc", limit=80)}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_supplier(data):
+	d = frappe.parse_json(data)
+	name = (d.get("supplier_name") or "").strip()
+	if not name:
+		frappe.throw(_("اكتب اسم المورد"))
+	if d.get("name"):
+		s = frappe.get_doc("Supplier", d["name"])
+		s.check_permission("write")
+	else:
+		if not frappe.has_permission("Supplier", "create"):
+			frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+		s = frappe.new_doc("Supplier")
+		s.supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}) or "All Supplier Groups"
+	s.supplier_name = name[:140]
+	s.tax_id = (d.get("tax_id") or "").strip() or None
+	for k in ("supplies", "phone", "email", "address", "rc", "note"):
+		s.set("atelier_" + k, (d.get(k) or "").strip() or None)
+	s.save()
+	return s.name
+
+
+@frappe.whitelist(methods=["POST"])
+def set_supplier_disabled(name, disabled=1):
+	s = frappe.get_doc("Supplier", name)
+	s.check_permission("write")
+	s.db_set("disabled", cint(disabled))
+	return cint(disabled)
+
+
+def _external_line(description, amount, order=None, account=None):
+	item = production._external_item()
+	row = {"item_code": item, "qty": 1, "rate": flt(amount), "description": (description or "").strip()[:300] or None}
+	if order:
+		row["project"] = frappe.db.get_value("Sales Order", order, "project")
+	if account:
+		row["expense_account"] = account
+	return row
+
+
+@frappe.whitelist(methods=["POST"])
+def create_purchase_order(supplier, description, amount, order=None, schedule_date=None):
+	"""A purchase order to a supplier (outside work, paper…). Charged to an order's project when one is given."""
+	if not frappe.has_permission("Purchase Order", "create"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	if flt(amount) <= 0 or not (description or "").strip():
+		frappe.throw(_("اكتب ما نطلبه والمبلغ"))
+	day = max(str(schedule_date or nowdate()), nowdate())
+	line = {**_external_line(description, amount, order), "schedule_date": day}
+	po = frappe.get_doc({"doctype": "Purchase Order", "supplier": supplier, "company": api._company(), "transaction_date": nowdate(), "schedule_date": day,
+		"project": line.get("project"), "items": [line]})
+	po.insert()
+	po.submit()
+	return po.name
+
+
+@frappe.whitelist(methods=["POST"])
+def create_supplier_invoice(supplier, description, amount, account=None, order=None, bill_no=None, due_date=None, purchase_order=None):
+	"""A supplier invoice: from one of its purchase orders, or direct with an expense type."""
+	_need_buying()
+	if not frappe.has_permission("Purchase Invoice", "create"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	if purchase_order:
+		from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_invoice
+		pi = make_purchase_invoice(purchase_order)
+	else:
+		if flt(amount) <= 0 or not (description or "").strip():
+			frappe.throw(_("اكتب البيان والمبلغ"))
+		line = _external_line(description, amount, order, account)
+		pi = frappe.get_doc({"doctype": "Purchase Invoice", "supplier": supplier, "company": api._company(), "posting_date": nowdate(),
+			"project": line.get("project"), "items": [line]})
+	pi.bill_no = (bill_no or "").strip() or None
+	if due_date:
+		pi.due_date = due_date
+	pi.insert()
+	pi.submit()
+	return pi.name
+
+
+def demo_suppliers():
+	frappe.set_user("Administrator")
+	supplier_fields()

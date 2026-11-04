@@ -1533,3 +1533,5 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .tm-cover[style*="url"] { min-height: 58px; height: 58px; background-size: cover; background-position: center; position: relative; }
 .tm-cover[style*="url"]::before { content: ""; position: absolute; inset: 0; background: linear-gradient(to left, rgba(255,255,255,.96) 0%, rgba(255,255,255,.9) 55%, rgba(255,255,255,.55) 100%); }
 .tm-cover > * { position: relative; }
+
+.cl-bal.warn-b { color: var(--c-warn); } .cl-bal.warn-b i { background: #F79009; }

@@ -133,6 +133,8 @@ const route = computed(() => {
   if (p === "/orders") return { name: "orders" };
   if ((m = p.match(/^\/orders\/(.+)$/))) return { name: "order", id: decodeURIComponent(m[1]) };
   if (p === "/customers") return { name: "customers" };
+  if (p === "/suppliers") return { name: "suppliers" };
+  if ((m = p.match(/^\/suppliers\/(.+)$/))) return { name: "supplier", id: decodeURIComponent(m[1]) };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
   if (["/money", "/reports", "/prices", "/team", "/board-settings", "/settings"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
@@ -177,6 +179,7 @@ const ICONS = {
   printer: "M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z",
   bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4",
   edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z",
+  factory: "M3 21V10l6 3V10l6 3V6l6 3v12Z",
   filter: "M4 5h16l-6 8v5l-4 2v-7L4 5Z",
   msg: "M21 12a8 8 0 0 1-11.6 7.2L4 21l1.8-5.4A8 8 0 1 1 21 12Z",
   pin: "M12 17v5M5 17h14l-2-4V6h1V3H6v3h1v7Z",
@@ -1755,6 +1758,188 @@ const SimpleMoney = {
     </div>
   </div>`,
 };
+// ------------------------------------------------------------------ suppliers, classic
+const SuppliersPage = {
+  props: ["openId"], components: { Icon },
+  setup(props) {
+    const { s, load } = useLoad(() => call("suppliers2"));
+    onMounted(load);
+    const sel = ref(props.openId || state.query.get("s") || null), d = ref(null), err = ref(null), tab = ref("invoices"), busy = ref(null);
+    watch(() => state.rev, () => { load(); if (sel.value) open(sel.value, true); });
+    const q = ref(""), filter = ref("all"), more = ref(false), pmenu = ref(false);
+    const FILTERS = [["all", "الكل"], ["owe", "علينا لهم"], ["late", "متأخر"], ["off", "موقوفون"]];
+    const all = computed(() => (s.data?.rows || []));
+    const rows = computed(() => all.value.filter((x) => (filter.value === "off" ? x.disabled : !x.disabled))
+      .filter((x) => filter.value !== "owe" || x.owe > 0.005).filter((x) => filter.value !== "late" || x.late > 0)
+      .filter((x) => !q.value || (x.supplier_name + " " + (x.atelier_phone || "") + " " + (x.atelier_supplies || "")).toLowerCase().includes(q.value.trim().toLowerCase()))
+      .sort((a, b) => b.late - a.late || b.owe - a.owe || a.supplier_name.localeCompare(b.supplier_name, "ar")));
+    const active = computed(() => all.value.filter((x) => !x.disabled));
+    const kpi = computed(() => ({ total: active.value.length, busy: active.value.filter((x) => x.month > 0).length,
+      owe: active.value.reduce((a, x) => a + x.owe, 0), invoices: active.value.reduce((a, x) => a + x.open_invoices, 0),
+      late: active.value.reduce((a, x) => a + x.late_amount, 0), lateN: active.value.filter((x) => x.late > 0).length,
+      month: active.value.reduce((a, x) => a + x.month, 0) }));
+    const change = (now, prev) => { if (!(prev > 0.005)) return "لا مشتريات الشهر الماضي"; const p = Math.round(((now - prev) / prev) * 100); return p === 0 ? "مثل الشهر الماضي" : `${p > 0 ? "أكثر" : "أقل"} بـ ${Math.abs(p)}% من الشهر الماضي`; };
+    async function open(name, keep) { sel.value = name; err.value = null; if (!keep) { tab.value = "invoices"; d.value = null; form.value = null; }
+      try { d.value = await call("supplier2", { name }); } catch (e) { err.value = e.message; } }
+    if (sel.value) open(sel.value);
+    const lastWord = (iso) => { if (!iso) return "—"; const n = -daysFromToday(iso); return n <= 0 ? "اليوم" : n === 1 ? "أمس" : n === 2 ? "منذ يومين" : n < 30 ? `منذ ${n} أيام` : date(iso); };
+    const closeMenus = () => { more.value = false; pmenu.value = false; };
+    onMounted(() => window.addEventListener("click", closeMenus));
+    onBeforeUnmount(() => window.removeEventListener("click", closeMenus));
+    const exportList = () => { more.value = false;
+      const text = "﻿" + [["المورد", "ما نشتريه", "الهاتف", "آخر شراء", "علينا"], ...rows.value.map((x) => [x.supplier_name, x.atelier_supplies || "", x.atelier_phone || "", x.last || "", x.owe.toFixed(2)])]
+        .map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\n");
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" })); a.download = "الموردون.csv"; a.click(); };
+    // forms in the profile: edit / new supplier, purchase order, supplier invoice, payment
+    const form = ref(null), mode = ref("Cash");
+    const run = async (key, fn, msg) => { busy.value = key; err.value = null; try { const r = await fn(); if (msg) toast(msg); return r; } catch (e) { err.value = e.message; } finally { busy.value = null; } };
+    const newSupplier = () => { sel.value = "__new"; d.value = { name: null, supplier_name: "", supplies: "", phone: "", email: "", address: "", tax_id: "", rc: "", note: "", invoices: [], orders: [], items: [], accounts: [], open_orders: [], can_edit: true }; form.value = { kind: "edit", ...d.value }; };
+    const edit = () => { pmenu.value = false; form.value = { kind: "edit", name: d.value.name, supplier_name: d.value.supplier_name, supplies: d.value.supplies, phone: d.value.phone, email: d.value.email, address: d.value.address, tax_id: d.value.tax_id, rc: d.value.rc, note: d.value.note }; };
+    const saveSupplier = () => run("save", async () => { const n = await call("save_supplier", { data: JSON.stringify(form.value) }, true); form.value = null; await load(); await open(n); }, "حُفظ المورد");
+    const newPO = () => { form.value = { kind: "po", description: "", amount: "", order: "", schedule_date: "" }; };
+    const savePO = () => run("po", async () => { await call("create_purchase_order", { supplier: d.value.name, description: form.value.description, amount: +form.value.amount, order: form.value.order || null, schedule_date: form.value.schedule_date || null }, true); form.value = null; tab.value = "orders"; await open(d.value.name, true); load(); }, "أُرسل طلب الشراء");
+    const newInvoice = (po) => { form.value = { kind: "inv", description: po ? po.what : "", amount: po ? po.grand_total : "", account: d.value.accounts[0]?.name || "", order: "", bill_no: "", due_date: "", purchase_order: po ? po.name : null }; };
+    const saveInvoice = () => run("inv", async () => { const f = form.value;
+      await call("create_supplier_invoice", { supplier: d.value.name, description: f.description, amount: +f.amount, account: f.account || null, order: f.order || null, bill_no: f.bill_no, due_date: f.due_date || null, purchase_order: f.purchase_order }, true);
+      form.value = null; tab.value = "invoices"; await open(d.value.name, true); load(); }, "سُجّلت فاتورة المورد");
+    const payInvoice = (inv) => { if (!confirm(`دفع ${fig(inv.outstanding_amount)} دج لـ ${d.value.supplier_name} عن ${inv.bill_no || inv.name}؟`)) return;
+      return run("pay", async () => { await call("pay_supplier", { invoice: inv.name, mode_of_payment: mode.value }, true); await open(d.value.name, true); load(); }, "سُجّل الدفع"); };
+    const oldest = computed(() => (d.value?.invoices || []).filter((i) => i.outstanding_amount > 0.005).sort((a, b) => String(a.due_date || "").localeCompare(String(b.due_date || "")))[0]);
+    const toggleDisabled = () => { pmenu.value = false; return run("off", async () => { await call("set_supplier_disabled", { name: d.value.name, disabled: d.value.disabled ? 0 : 1 }, true); await open(d.value.name, true); load(); }, d.value.disabled ? "أُعيد تفعيل المورد" : "أُوقف المورد"); };
+    const invState = (i) => (i.outstanding_amount <= 0.005 ? ["مدفوعة", "#12B76A"] : i.late ? [`متأخرة ${i.late} يومًا`, "#D92D20"] : ["مفتوحة", "#F79009"]);
+    const poState = (o) => (o.per_billed >= 100 ? ["مفوتر", "#12B76A"] : o.per_billed > 0 ? ["مفوتر جزئيًا", "#F79009"] : ["بانتظار الفاتورة", "#2E90FA"]);
+    const TABS = [["invoices", "الفواتير"], ["orders", "طلبات الشراء"], ["items", "المشتريات"], ["data", "البيانات"]];
+    return { s, load, sel, d, err, tab, busy, q, filter, more, pmenu, FILTERS, rows, kpi, change, open, lastWord, exportList, form, mode, newSupplier, edit, saveSupplier,
+      newPO, savePO, newInvoice, saveInvoice, payInvoice, oldest, toggleDisabled, invState, poState, TABS, waLink, money, fig, date, dueWord, state, go };
+  },
+  template: `
+  <div class="cl" :class="{'with-panel': sel}">
+    <div class="cl-main">
+      <header class="cl-head"><div class="cl-head-row">
+        <h1>الموردون</h1><span class="cl-count" v-if="s.data">{{ rows.length }} {{ rows.length === 1 ? 'مورد' : 'موردين' }}</span><span class="spacer"></span>
+        <label class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث</span><input type="search" v-model="q" placeholder="ابحث بالاسم أو الهاتف"></label>
+        <span class="cl-seg"><button v-for="f in FILTERS" :key="f[0]" type="button" :aria-pressed="filter === f[0]" @click="filter = f[0]">{{ f[1] }}</button></span>
+        <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="المزيد" :aria-expanded="more" @click.stop="more = !more"><Icon name="more" :size="18"/></button>
+          <div v-if="more" class="cl-pop cl-menu" @click.stop><button type="button" @click="exportList"><Icon name="file" :size="16"/>تصدير القائمة (Excel)</button></div></div>
+        <button type="button" class="cl-btn primary" @click="newSupplier"><Icon name="plus" :size="16"/>مورد جديد</button></div></header>
+      <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
+      <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
+      <template v-else-if="s.data">
+        <div class="cl-stats">
+          <button type="button" @click="filter = 'all'"><span>الموردون</span><b>{{ kpi.total }}</b><small>{{ kpi.busy }} نشطون هذا الشهر</small></button>
+          <button type="button" @click="filter = 'owe'"><span>علينا للموردين</span><b class="money" style="color:var(--c-warn)">{{ money(kpi.owe) }}</b><small>{{ kpi.invoices }} فواتير مفتوحة</small></button>
+          <button type="button" @click="filter = 'late'"><span>متأخرة</span><b class="money bad">{{ money(kpi.late) }}</b><small>{{ kpi.lateN }} {{ kpi.lateN === 1 ? 'مورد' : 'موردين' }}</small></button>
+          <button type="button" style="cursor:default"><span>مشتريات الشهر</span><b class="money">{{ money(kpi.month) }}</b><small>{{ change(kpi.month, s.data.prev_month) }}</small></button>
+        </div>
+        <div class="cl-table-wrap"><table class="cl-table">
+          <thead><tr><th>المورد</th><th class="desktop-only wide-only">ما نشتريه</th><th class="desktop-only wide-only">الهاتف</th><th class="desktop-only">آخر شراء</th><th class="n">علينا</th></tr></thead>
+          <tbody>
+            <tr v-if="!rows.length"><td colspan="5" class="cl-empty">{{ (s.data.rows || []).length ? 'لا موردين يطابقون البحث أو التصفية.' : 'لا موردين بعد. أضف أول مورد.' }}</td></tr>
+            <tr v-for="x in rows" :key="x.name" :class="{sel: sel === x.name, off: x.disabled}" tabindex="0" @click="open(x.name)" @keydown.enter="open(x.name)">
+              <td><span class="cl-name">{{ x.supplier_name }}</span></td>
+              <td class="desktop-only wide-only muted">{{ x.atelier_supplies || '—' }}</td>
+              <td class="desktop-only wide-only muted" dir="ltr" style="text-align:right">{{ x.atelier_phone || '—' }}</td>
+              <td class="desktop-only muted">{{ lastWord(x.last) }}</td>
+              <td class="n"><span v-if="x.owe > 0.005" class="cl-bal" :class="x.late ? 'bad' : 'warn-b'"><i></i>{{ money(x.owe) }}</span><span v-else class="cl-bal">لا شيء</span>
+                <span v-if="x.late" class="cl-late">متأخر {{ x.late }} {{ x.late === 1 ? 'يوم' : 'أيام' }}</span></td>
+            </tr></tbody></table></div>
+      </template>
+    </div>
+
+    <aside v-if="sel" class="cl-panel" aria-label="ملف المورد">
+      <div v-if="!d" class="ws-loading">{{ err || 'جارٍ التحميل…' }}</div>
+      <template v-else>
+        <div class="cl-p-head">
+          <div class="cl-p-title"><div style="min-width:0"><h2>{{ d.supplier_name || 'مورد جديد' }}</h2><span v-if="d.name" class="muted">{{ d.supplies || 'مورد' }} · منذ {{ date(d.since) }}</span></div>
+            <button type="button" class="cl-btn icon ghost" aria-label="إغلاق" @click="sel = null; form = null"><Icon name="x" :size="18"/></button></div>
+          <div v-if="d.name" class="cl-p-acts">
+            <a v-if="d.phone" class="cl-btn" :href="'tel:' + d.phone"><Icon name="phone" :size="15"/>اتصال</a>
+            <a v-if="waLink(d.phone)" class="cl-btn" target="_blank" rel="noopener" :href="waLink(d.phone)"><Icon name="msg" :size="15"/>واتساب</a>
+            <button v-if="d.can_edit" type="button" class="cl-btn" @click="edit"><Icon name="edit" :size="15"/>تعديل</button>
+            <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="خيارات المورد" :aria-expanded="pmenu" @click.stop="pmenu = !pmenu"><Icon name="more" :size="18"/></button>
+              <div v-if="pmenu" class="cl-pop cl-menu end" @click.stop><button v-if="d.can_edit" type="button" @click="toggleDisabled">{{ d.disabled ? 'إعادة تفعيل المورد' : 'إيقاف المورد' }}</button></div></div>
+          </div>
+        </div>
+        <div v-if="err" class="alert error" style="margin:12px 22px 0">{{ err }}</div>
+
+        <form v-if="form && form.kind === 'edit'" class="cl-p-sec" @submit.prevent="saveSupplier">
+          <b>{{ form.name ? 'تعديل المورد' : 'مورد جديد' }}</b>
+          <label class="cl-fgroup"><span>الاسم *</span><input class="input" v-model="form.supplier_name" required></label>
+          <label class="cl-fgroup"><span>ما نشتريه منه</span><input class="input" v-model="form.supplies" placeholder="ورق، حبر، طباعة أوفست، نقل…"></label>
+          <div class="st2-row"><label class="cl-fgroup"><span>الهاتف</span><input class="input" v-model="form.phone" dir="ltr" inputmode="tel"></label><label class="cl-fgroup"><span>البريد</span><input class="input" v-model="form.email" dir="ltr" type="email"></label></div>
+          <label class="cl-fgroup"><span>العنوان</span><input class="input" v-model="form.address"></label>
+          <div class="st2-row"><label class="cl-fgroup"><span>الرقم الجبائي NIF</span><input class="input" v-model="form.tax_id" dir="ltr"></label><label class="cl-fgroup"><span>السجل التجاري RC</span><input class="input" v-model="form.rc" dir="ltr"></label></div>
+          <label class="cl-fgroup"><span>ملاحظة</span><input class="input" v-model="form.note"></label>
+          <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'save' || !form.supplier_name.trim()">حفظ المورد</button><button type="button" class="cl-btn" @click="form = null; if (!d.name) sel = null">إلغاء</button></div>
+        </form>
+
+        <template v-if="d.name">
+          <div class="cl-p-sec cl-balance">
+            <div><span class="muted">علينا له</span><b :class="{bad: oldest && oldest.late}" :style="!(oldest && oldest.late) && d.owe > 0.005 ? 'color:var(--c-warn)' : ''">{{ d.owe > 0.005 ? money(d.owe) : 'لا شيء' }}</b>
+              <span class="muted" v-if="oldest">{{ d.invoices.filter(i => i.outstanding_amount > 0.005).length }} فواتير · الأقرب {{ oldest.late ? 'متأخرة ' + oldest.late + ' يومًا' : 'تستحق ' + dueWord(oldest.due_date) }}</span></div>
+            <div class="cl-balance-acts"><button v-if="oldest && state.boot.can.payment" type="button" class="cl-btn primary" :disabled="busy === 'pay'" @click="payInvoice(oldest)">تسجيل دفع</button>
+              <label v-if="oldest && state.boot.modes.length > 1" class="muted row" style="gap:6px">من <select class="input" style="width:auto;min-height:30px" v-model="mode"><option v-for="m in state.boot.modes" :key="m.value" :value="m.value">{{ m.label }}</option></select></label></div>
+          </div>
+
+          <form v-if="form && form.kind === 'po'" class="cl-p-sec" @submit.prevent="savePO">
+            <b>طلب شراء جديد</b>
+            <label class="cl-fgroup"><span>ما نطلبه *</span><input class="input" v-model="form.description" placeholder="مثلًا: طباعة أوفست 5000 مطوية"></label>
+            <div class="st2-row"><label class="cl-fgroup"><span>المبلغ *</span><div class="unit-wrap"><input class="input num" v-model="form.amount" inputmode="decimal"><span class="u">دج</span></div></label>
+              <label class="cl-fgroup"><span>موعد الاستلام</span><input class="input" type="date" v-model="form.schedule_date"></label></div>
+            <label class="cl-fgroup"><span>لأي طلب (تُحسب في ربحه)</span><select class="input" v-model="form.order"><option value="">بدون طلب</option><option v-for="o in d.open_orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + o.customer_name }}</option></select></label>
+            <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'po' || !form.description.trim() || !(+form.amount > 0)">إرسال الطلب</button><button type="button" class="cl-btn" @click="form = null">إلغاء</button></div>
+          </form>
+          <form v-if="form && form.kind === 'inv'" class="cl-p-sec" @submit.prevent="saveInvoice">
+            <b>فاتورة مورد{{ form.purchase_order ? ' — من ' + form.purchase_order : '' }}</b>
+            <template v-if="!form.purchase_order">
+              <label class="cl-fgroup"><span>البيان *</span><input class="input" v-model="form.description"></label>
+              <div class="st2-row"><label class="cl-fgroup"><span>المبلغ *</span><div class="unit-wrap"><input class="input num" v-model="form.amount" inputmode="decimal"><span class="u">دج</span></div></label>
+                <label class="cl-fgroup"><span>النوع</span><select class="input" v-model="form.account"><option v-for="a in d.accounts" :key="a.name" :value="a.name">{{ a.account_name }}</option></select></label></div>
+              <label class="cl-fgroup"><span>لأي طلب (اختياري)</span><select class="input" v-model="form.order"><option value="">بدون طلب</option><option v-for="o in d.open_orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + o.customer_name }}</option></select></label>
+            </template>
+            <span v-else class="muted">{{ form.description }} · {{ money(form.amount) }}</span>
+            <div class="st2-row"><label class="cl-fgroup"><span>رقم فاتورة المورد</span><input class="input" v-model="form.bill_no" dir="ltr"></label><label class="cl-fgroup"><span>تاريخ الاستحقاق</span><input class="input" type="date" v-model="form.due_date"></label></div>
+            <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'inv' || (!form.purchase_order && (!form.description.trim() || !(+form.amount > 0)))">تسجيل الفاتورة</button><button type="button" class="cl-btn" @click="form = null">إلغاء</button></div>
+          </form>
+
+          <nav class="cl-tabs" role="tablist"><button v-for="x in TABS" :key="x[0]" type="button" role="tab" :aria-selected="tab === x[0]" @click="tab = x[0]">{{ x[1] }}<span v-if="x[0] === 'invoices'" class="muted"> {{ d.invoices.length }}</span><span v-if="x[0] === 'orders'" class="muted"> {{ d.orders.length }}</span></button></nav>
+          <div class="cl-p-body">
+            <template v-if="tab === 'invoices'">
+              <div v-if="!d.invoices.length" class="muted">لا فواتير بعد.</div>
+              <div v-for="i in d.invoices" :key="i.name" class="cl-line">
+                <div style="flex:1;min-width:0"><span class="cl-line-t">{{ i.bill_no ? 'فاتورة ' + i.bill_no : i.name }}</span><span class="muted">{{ i.what || '—' }} · {{ i.outstanding_amount > 0.005 ? 'تستحق ' + date(i.due_date) : date(i.posting_date) }}</span></div>
+                <div class="rp-val"><b>{{ fig(i.grand_total) }}</b><span class="cl-state"><i :style="{background: invState(i)[1]}"></i>{{ invState(i)[0] }}</span></div>
+                <button v-if="i.outstanding_amount > 0.005 && state.boot.can.payment" type="button" class="cl-btn sm" :disabled="busy === 'pay'" @click="payInvoice(i)">دفعت</button></div>
+            </template>
+            <template v-else-if="tab === 'orders'">
+              <div v-if="!d.orders.length" class="muted">لا طلبات شراء بعد.</div>
+              <div v-for="o in d.orders" :key="o.name" class="cl-line">
+                <div style="flex:1;min-width:0"><span class="cl-line-t">{{ o.what || o.name }}</span><span class="muted">{{ o.name }} · {{ date(o.transaction_date) }}</span></div>
+                <div class="rp-val"><b>{{ fig(o.grand_total) }}</b><span class="cl-state"><i :style="{background: poState(o)[1]}"></i>{{ poState(o)[0] }}</span></div>
+                <button v-if="o.per_billed < 100" type="button" class="cl-btn sm" @click="newInvoice(o)">فاتورته</button></div>
+            </template>
+            <template v-else-if="tab === 'items'">
+              <div v-if="!d.items.length" class="muted">لا مشتريات مفوترة بعد.</div>
+              <div v-for="x in d.items" :key="x.what" class="cl-kv"><span class="ellipsis">{{ x.what }}</span><span><b>{{ fig(x.amount) }}</b> <span class="muted">· آخرها {{ date(x.last) }}</span></span></div>
+            </template>
+            <template v-else>
+              <div class="cl-kv"><span>الهاتف</span><span dir="ltr">{{ d.phone || '—' }}</span></div>
+              <div class="cl-kv"><span>البريد</span><span dir="ltr">{{ d.email || '—' }}</span></div>
+              <div class="cl-kv"><span>العنوان</span><span>{{ d.address || '—' }}</span></div>
+              <div class="cl-kv"><span>الرقم الجبائي NIF</span><span dir="ltr">{{ d.tax_id || '—' }}</span></div>
+              <div class="cl-kv"><span>السجل التجاري RC</span><span dir="ltr">{{ d.rc || '—' }}</span></div>
+              <div class="cl-kv"><span>ملاحظة</span><span>{{ d.note || '—' }}</span></div>
+            </template>
+          </div>
+          <div class="cl-p-foot row" style="gap:8px">
+            <button v-if="state.boot.can.expense" type="button" class="cl-btn primary" style="flex:1" @click="newPO"><Icon name="plus" :size="16"/>طلب شراء جديد</button>
+            <button type="button" class="cl-btn" @click="newInvoice(null)"><Icon name="file" :size="16"/>فاتورة مورد</button></div>
+        </template>
+      </template>
+    </aside>
+  </div>`,
+};
+
 // ------------------------------------------------------------------ team (/atelier/team)
 const TeamPage = {
   props: ["embedded"], components: { Icon },
@@ -2290,6 +2475,7 @@ const ExpenseSheet = {
 const NAV = [
   { key: "orders", path: "/", icon: "orders", label: "nav_orders", match: ["home", "order", "order-new", "orders"] },
   { key: "customers", path: "/customers", icon: "users", label: "nav_customers", match: ["customer", "customers"] },
+  { key: "suppliers", path: "/suppliers", icon: "factory", label: "nav_suppliers", match: ["suppliers", "supplier"], need: "finance" },
   { key: "money", path: "/money", icon: "wallet", label: "nav_money_simple", match: ["money"], need: "finance" },
 ];
 const SECTION_NAV = [
@@ -2300,7 +2486,7 @@ const SECTION_NAV = [
 ];
 
 const App = {
-  components: { Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2 },
+  components: { Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -2316,7 +2502,7 @@ const App = {
     });
     const isActive = (n) => n.match.includes(route.value.name);
     const titles = { ds: "ds_title", "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
-      money: "nav_money", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings", settings: "nav_settings" };
+      money: "nav_money", suppliers: "nav_suppliers", supplier: "nav_suppliers", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings", settings: "nav_settings" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
     const initials = (n) => String(n || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join(" ");
     const logout = async () => {
@@ -2351,7 +2537,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
+      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'suppliers', 'supplier', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
@@ -2364,6 +2550,7 @@ const App = {
         <Board v-else-if="route.name==='order'" :key="'order-' + route.id" :open-card="route.id"/>
         <SimpleCustomers v-else-if="route.name==='customers' || route.name==='customer'" :key="state.path + state.query" :open-id="route.id"/>
         <SimpleMoney v-else-if="route.name==='money'"/>
+        <SuppliersPage v-else-if="route.name==='suppliers' || route.name==='supplier'" :key="state.path" :open-id="route.id"/>
         <ReportsPage2 v-else-if="route.name==='reports'"/>
         <SettingsPage v-else-if="route.name==='prices'" key="prices" start="prices"/>
         <SettingsPage v-else-if="route.name==='team'" key="team" start="team"/>
