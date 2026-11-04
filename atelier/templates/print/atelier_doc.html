@@ -18,6 +18,10 @@
   .atl .totals td { padding: 4px 8px; }
   .atl .totals .grand td { font-size: 14px; font-weight: 600; border-top: 2px solid #17202A; }
   .atl .pending { color: #8A5100; font-weight: 600; }
+  .atl .band { margin: 10px 0 0; padding: 8px 12px; border-radius: 6px; color: #fff; font-weight: 700; font-size: 14px; background: #0F4C81; }
+  .atl .band.proforma { background: #8A4B08; }
+  .atl .band small { display: block; font-weight: 400; font-size: 11px; }
+  .atl .valid { font-weight: 600; color: #17202A; }
   .atl .demo { background: #FFF2D9; color: #8A5100; text-align: center; padding: 4px; margin-bottom: 10px; font-size: 11px; }
   .atl .sign td { height: 70px; vertical-align: top; border: 1px dashed #C4C9CF; padding: 6px 8px; width: 50%; }
 </style>
@@ -41,6 +45,11 @@
       {%- if dt == "Sales Invoice" and doc.due_date %}<div style="text-align:left" class="muted">تاريخ الاستحقاق: <span class="num">{{ frappe.utils.formatdate(doc.due_date, "dd/MM/yyyy") }}</span></div>{% endif %}
     </td>
   </tr></table>
+  {%- if dt == "Quotation" %}
+  {%- set proforma = doc.get("atelier_kind") == "proforma" %}
+  <div class="band{{ ' proforma' if proforma else '' }}">{{ "فاتورة شكلية — PRO FORMA" if proforma else "عرض سعر — DEVIS" }}
+    <small>{{ "وثيقة لتحضير الدفع فقط، ليست فاتورة نهائية ولا إثبات دفع" if proforma else "عرض مقترح للعميل، وليس فاتورة ولا إثبات دفع" }}</small></div>
+  {%- endif %}
 
   <div class="box" style="margin:12px 0">
     <div class="muted">{{ "استلمنا من" if dt == "Payment Entry" else "العميل" }}</div>
@@ -50,7 +59,7 @@
     {%- if c.customer.tax_id or c.customer.rc %}<div class="muted"><span class="num">{% if c.customer.rc %}RC: {{ c.customer.rc }} · {% endif %}{% if c.customer.tax_id %}NIF: {{ c.customer.tax_id }}{% endif %}{% if c.customer.nis %} · NIS: {{ c.customer.nis }}{% endif %}{% if c.customer.ai %} · AI: {{ c.customer.ai }}{% endif %}</span></div>{% endif %}
     {%- if doc.get("atelier_subject") %}<div style="margin-top:4px">الموضوع: {{ doc.atelier_subject }}</div>{% endif %}
     {%- if c.show_description and doc.get("atelier_description") %}<div class="muted" style="margin-top:4px;white-space:pre-line">{{ doc.atelier_description }}</div>{% endif %}
-    {%- if dt == "Quotation" and doc.get("valid_till") %}<div class="muted" style="margin-top:4px">صالح حتى: <span class="num">{{ frappe.utils.formatdate(doc.valid_till, "dd/MM/yyyy") }}</span></div>{% endif %}
+    {%- if dt == "Quotation" and doc.get("valid_till") %}<div class="valid" style="margin-top:4px">صالح حتى: <span class="num">{{ frappe.utils.formatdate(doc.valid_till, "dd/MM/yyyy") }}</span></div>{% endif %}
   </div>
 
   {%- if dt == "Payment Entry" %}
@@ -96,9 +105,12 @@
     {%- endif %}
   {%- endif %}
 
-  {%- if dt in ("Delivery Note", "Payment Entry", "Sales Order") %}
+  {%- if dt == "Quotation" and doc.get("atelier_kind") == "proforma" and c.company.rib %}
+    <div class="box" style="margin-top:14px"><b>معلومات الدفع:</b> RIB <span class="num">{{ c.company.rib }}</span></div>
+  {%- endif %}
+  {%- if dt in ("Delivery Note", "Payment Entry", "Sales Order", "Quotation") %}
     <table class="sign" style="margin-top:24px"><tr>
-      <td>{{ "توقيع المستلم" if dt == "Delivery Note" else "توقيع العميل" }}</td><td>الختم والتوقيع</td></tr></table>
+      <td>{{ "توقيع المستلم" if dt == "Delivery Note" else ("موافقة العميل وتوقيعه" if dt == "Quotation" else "توقيع العميل") }}</td><td>الختم والتوقيع</td></tr></table>
   {%- endif %}
   {%- if c.footer or c.company.rib %}<div class="muted" style="margin-top:14px;border-top:1px solid #D9DDE2;padding-top:6px;text-align:center">{{ c.footer or "" }}{% if c.company.rib %} · <span class="num">RIB: {{ c.company.rib }}</span>{% endif %}</div>{% endif %}
 </div>

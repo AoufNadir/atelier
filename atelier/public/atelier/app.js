@@ -1141,7 +1141,8 @@ const CardModal = {
             <div class="row" style="gap:8px"><button v-if="state.boot.can.payment && !d.price_pending && d.grand_total - d.paid > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
               <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, 'الورشة — عربي')">بون PDF</a></div>
             <button v-if="d.materials_pending" type="button" class="btn" @click="offerMaterials(d.name)">خصم مواد الطلب من المخزون</button>
-            <div v-if="!d.price_pending" class="row" style="gap:8px"><button type="button" class="btn" style="flex:1" @click="quote('devis')">Devis PDF</button><button type="button" class="btn" style="flex:1" @click="quote('proforma')">Pro forma PDF</button></div>
+            <div class="row" style="gap:8px"><button type="button" class="btn" style="flex:1" :disabled="d.price_pending" @click="quote('devis')">Devis PDF</button><button type="button" class="btn" style="flex:1" :disabled="d.price_pending" @click="quote('proforma')">Pro forma PDF</button></div>
+            <span v-if="d.price_pending" class="m">لإصدار Devis أو Pro forma حدّد السعر أولًا</span>
           </div>
           <CostSection v-if="d.money" :name="d.name" :key="d.name + ':' + d.grand_total" @use-price="price = $event"/>
           <h3>التعليقات والنشاط</h3>
