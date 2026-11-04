@@ -1538,3 +1538,10 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .cf-none { padding: 10px 14px; color: var(--muted, #6b6880); font-size: 13px; }
 /* The board page is not a flex row: the new-order panel slides over it instead of falling below. */
 .bd-panel { position: fixed; top: 0; bottom: 0; inset-inline-end: 0; width: min(420px, 100vw); height: 100dvh; overflow-y: auto; z-index: 60; box-shadow: 0 0 40px rgba(16, 24, 40, .22); }
+.tm-cost { margin-top: 12px; }
+.cost-line { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.cost-line input:nth-of-type(1) { grid-column: 2 / 4; grid-row: 1; }
+.cost-line select { grid-column: 1; grid-row: 1; }
+.cost-line button { grid-column: 3; grid-row: 2; }
+.cost-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
+.cost-opts label { display: flex; flex-direction: column; gap: 4px; }

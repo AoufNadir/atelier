@@ -827,8 +827,61 @@ const cardActions = {
 const WEEK = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+const CARD_COST_TYPES = [["Matière", "مواد"], ["Machine", "آلة"], ["Main d'œuvre", "يد عاملة"], ["Sous-traitance", "عند مورد"], ["Finition", "تشطيب"], ["Autre", "أخرى"]];
+const CostSection = {
+  props: ["name"], emits: ["use-price"], components: { Icon },
+  setup(props, { emit }) {
+    const d = ref(null), error = ref(null), busy = ref(false), open = ref(false), target = ref(30);
+    const load = async () => { try { d.value = await call("card_cost", { name: props.name }); open.value = d.value.lines.length > 0; } catch (e) { error.value = e.message; } };
+    const add = () => { d.value.lines.push({ cost_type: "Matière", description: "", qty: 1, rate: "" }); open.value = true; };
+    const amount = (l) => (+l.qty || 0) * (+l.rate || 0) * (l.cost_type === "Matière" ? 1 + (+d.value.waste_percent || 0) / 100 : 0) + (l.cost_type === "Matière" ? 0 : (+l.qty || 0) * (+l.rate || 0));
+    const total = computed(() => d.value.lines.reduce((sum, l) => sum + amount(l), 0));
+    const unit = computed(() => (+d.value.qty ? total.value / +d.value.qty : 0));
+    const missing = computed(() => d.value.lines.filter((l) => l.description.trim() && (l.rate === "" || l.rate === null)).length);
+    const profit = computed(() => (d.value.selling_price === null ? null : d.value.selling_price - total.value));
+    const margin = computed(() => (d.value.selling_price ? Math.round(profit.value / d.value.selling_price * 100) : null));
+    const suggested = computed(() => { const m = +target.value; return m >= 0 && m < 100 && total.value ? Math.ceil(total.value / (1 - m / 100)) : null; });
+    const save = async () => {
+      busy.value = true; error.value = null;
+      try { d.value = await call("save_card_cost", { name: props.name, data: JSON.stringify({ qty: d.value.qty, waste_percent: d.value.waste_percent, lines: d.value.lines }) }, true); toast("حُفظت التكلفة"); }
+      catch (e) { error.value = e.message; } finally { busy.value = false; }
+    };
+    load();
+    return { d, error, busy, open, target, add, total, unit, missing, profit, margin, suggested, save, money, COST_TYPES: CARD_COST_TYPES, emit };
+  },
+  template: `
+  <div class="tm-money tm-cost"><h3>التكلفة <span class="m" style="display:inline;margin-inline-start:auto">للمدير</span></h3>
+    <div v-if="error" class="alert error">{{ error }}</div>
+    <template v-if="d">
+      <template v-if="open">
+        <div v-for="(l, i) in d.lines" :key="i" class="cost-line">
+          <select class="input" v-model="l.cost_type" aria-label="نوع التكلفة"><option v-for="c in COST_TYPES" :key="c[0]" :value="c[0]">{{ c[1] }}</option></select>
+          <input class="input" v-model="l.description" aria-label="البند" placeholder="البند، مثل: ورق 350غ">
+          <input class="input num" inputmode="decimal" v-model="l.qty" aria-label="الكمية" placeholder="الكمية">
+          <input class="input num" inputmode="decimal" v-model="l.rate" aria-label="سعر الوحدة" placeholder="السعر">
+          <button type="button" class="btn ghost icon-btn" :aria-label="'حذف ' + (l.description || 'البند')" @click="d.lines.splice(i, 1)">×</button>
+        </div>
+        <div class="cost-opts"><label><span class="m">الكمية المنتجة</span><input class="input num" inputmode="decimal" v-model="d.qty"></label>
+          <label><span class="m">تلف المواد %</span><input class="input num" inputmode="decimal" v-model="d.waste_percent"></label></div>
+      </template>
+      <button type="button" class="btn sm" @click="add">+ إضافة بند</button>
+      <template v-if="d.lines.length">
+        <div v-if="missing" class="m bd-late">{{ missing }} بند بلا سعر: الحساب غير مكتمل</div>
+        <div class="bd-line"><span class="m">التكلفة الكلية</span><b class="money">{{ money(total) }}</b></div>
+        <div class="bd-line"><span class="m">تكلفة الوحدة</span><span class="money">{{ money(unit) }}</span></div>
+        <template v-if="profit !== null"><div class="bd-line"><span class="m">الربح المتوقع</span><b class="money" :class="{'bd-late': profit < 0}">{{ money(profit) }}</b></div>
+          <div v-if="margin !== null" class="bd-line"><span class="m">الهامش</span><span class="money">{{ margin }}%</span></div></template>
+        <div class="cost-opts"><label><span class="m">الهامش المستهدف %</span><input class="input num" inputmode="decimal" v-model="target"></label>
+          <div><span class="m">السعر المقترح</span><b class="money" style="display:block">{{ suggested ? money(suggested) : '—' }}</b></div></div>
+        <button v-if="suggested && d.selling_price === null" type="button" class="btn sm" @click="emit('use-price', suggested)">ضع المقترح في خانة السعر</button>
+        <button type="button" class="btn primary" :disabled="busy" @click="save">حفظ التكلفة</button>
+      </template>
+    </template>
+  </div>`,
+};
+
 const CardModal = {
-  props: ["name", "config"], emits: ["close", "changed", "open"], components: { Icon, Avatar, CustomerField },
+  props: ["name", "config"], emits: ["close", "changed", "open"], components: { Icon, Avatar, CustomerField, CostSection },
   setup(props, { emit }) {
     const d = ref(null), err = ref(null), busy = ref(false), fileInput = ref(null);
     const labels = computed(() => Object.fromEntries(props.config.labels.map((l) => [l.id, l])));
@@ -1055,6 +1108,7 @@ const CardModal = {
             <div class="row" style="gap:8px"><button v-if="state.boot.can.payment && !d.price_pending && d.grand_total - d.paid > 0.005" type="button" class="btn" style="flex:1" @click="pay">استلمت دفعة</button>
               <a class="btn" style="flex:1" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', d.name, 'الورشة — عربي')">بون PDF</a></div>
           </div>
+          <CostSection v-if="d.money" :name="d.name" :key="d.name + ':' + d.grand_total" @use-price="price = $event"/>
           <h3>التعليقات والنشاط</h3>
           <form class="tm-comment" @submit.prevent="addComment"><textarea class="input" v-model="comment" rows="2" placeholder="اكتب تعليقًا…" aria-label="تعليق" @keydown.ctrl.enter="addComment"></textarea>
             <button v-if="comment.trim()" type="submit" class="btn primary sm">حفظ</button></form>

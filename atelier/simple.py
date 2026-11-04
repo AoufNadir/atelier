@@ -1443,6 +1443,67 @@ def test_email(to):
 
 
 # ---------------------------------------------------------------- suppliers: list, profile, purchase orders, supplier invoices, payments
+COST_TYPES = ["Matière", "Machine", "Main d'œuvre", "Sous-traitance", "Finition", "Autre"]
+
+
+def _cost_manager():
+	"""Cost and margin are manager-only, whatever else a role may read."""
+	_manager_only()
+	api._require("GL Entry")
+
+
+def _cost_view(name):
+	estimate = frappe.db.get_value("Cost Estimate", {"sales_order": name})
+	so = frappe.get_doc("Sales Order", name)
+	base = {"selling_price": None if any(i.atelier_price_pending for i in so.items) else flt(so.net_total),
+		"default_qty": sum(flt(i.qty) for i in so.items) or 1}
+	if not estimate:
+		return {**base, "name": None, "qty": base["default_qty"], "waste_percent": 0, "lines": []}
+	doc = frappe.get_doc("Cost Estimate", estimate)
+	return {**base, "name": doc.name, "qty": doc.qty, "waste_percent": flt(doc.waste_percent), "total_cost": doc.total_cost,
+		"unit_cost": doc.unit_cost, "estimated_margin": doc.estimated_margin, "margin_percent": doc.margin_percent,
+		"missing_count": doc.missing_count,
+		"lines": [{"cost_type": l.cost_type, "description": l.description, "qty": l.qty, "rate": l.rate if l.rate or l.zero_confirmed else None,
+			"amount": l.amount} for l in doc.lines]}
+
+
+@frappe.whitelist()
+def card_cost(name):
+	_cost_manager()
+	return _cost_view(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def save_card_cost(name, data):
+	_cost_manager()
+	d = frappe.parse_json(data) or {}
+	so = frappe.get_doc("Sales Order", name)
+	if so.docstatus == 2:
+		frappe.throw(_("هذا الطلب ملغى"))
+	lines = []
+	for row in d.get("lines") or []:
+		text = (row.get("description") or "").strip()[:140]
+		if not text:
+			continue
+		if row.get("cost_type") not in COST_TYPES:
+			frappe.throw(_("نوع التكلفة غير صالح"))
+		known = row.get("rate") not in (None, "")
+		lines.append({"cost_type": row["cost_type"], "description": text, "qty": flt(row.get("qty")) or 1,
+			"rate": flt(row["rate"]) if known else None, "zero_confirmed": 1 if known and not flt(row["rate"]) else 0,
+			"rate_source": "Saisie manuelle" if known else None})
+	estimate = frappe.db.get_value("Cost Estimate", {"sales_order": name})
+	doc = frappe.get_doc("Cost Estimate", estimate) if estimate else frappe.new_doc("Cost Estimate")
+	pending = any(i.atelier_price_pending for i in so.items)
+	doc.update({"customer": so.customer, "company": so.company, "project": so.project, "sales_order": so.name,
+		"title": so.get("atelier_subject") or so.name, "qty": flt(d.get("qty")) or 1,
+		"waste_percent": max(0, min(100, flt(d.get("waste_percent")))),
+		"selling_price": None if pending else so.net_total})
+	doc.set("lines", lines)
+	doc.flags.ignore_permissions = True
+	doc.save()
+	return _cost_view(name)
+
+
 OPENING_ACCOUNT_NUMBER = "11"  # Report à Nouveau: starting money is neither income nor a sale
 
 
