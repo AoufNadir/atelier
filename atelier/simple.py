@@ -511,7 +511,12 @@ def update_card(name, changes):
 			so.save()
 		_log(name, _("غيّر الموعد إلى {0}").format(ch["due"]))
 	if ch.get("customer") and so.docstatus == 0 and ch["customer"] != so.customer:
+		if frappe.db.exists("Payment Entry", {"atelier_order": name, "docstatus": 1}):
+			frappe.throw(_("لهذا الطلب تسبيق باسم العميل الحالي، فلا يمكن تغيير العميل"))
 		so.customer = ch["customer"]
+		so.selling_price_list = api._price_list(frappe.db.get_value("Customer", so.customer, "customer_type"))
+		if so.project:  # ERPNext requires the order and its project to share a customer
+			frappe.db.set_value("Project", so.project, "customer", so.customer)
 		so.save()
 		_log(name, _("غيّر العميل إلى {0}").format(so.customer_name))
 	return card(name)
