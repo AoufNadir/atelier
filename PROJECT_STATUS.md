@@ -4,7 +4,7 @@
 
 ## الحالة الآن
 
-**التطبيق لا يعمل بعد على أي بيئة في متناولنا.** بعد إعادة تشغيل Windows، اكتمل تثبيت Ubuntu-24.04 وDocker Engine وCompose داخل WSL، ونجح تشغيل حاوية hello-world. بيئة ERPNext والموقع لم يُجهّزا بعد.
+**التطبيق لا يعمل بعد على أي بيئة في متناولنا.** Ubuntu-24.04 وDocker جاهزان الآن، وأُصلح تعليق WSL بإعادة تشغيل خدمته بصلاحية مدير. المستخدم الافتراضي هو `hb` ونجح تشغيل hello-world من حسابه. بيئة ERPNext والموقع لم يُجهّزا بعد.
 
 - الفرع: `chore/multi-computer-setup` (commits محلية **غير مرفوعة**).
 - سجل Git محلي بدأ من لقطة ZIP (الوسم `zip-baseline`)، وليس سجل GitHub بعد؛ لأن المستودع خاص ويتطلب تسجيل دخول.
@@ -32,17 +32,17 @@
 
 ## لم يُختبر
 
-تشغيل أي سكربت فعليًا، وتركيب المجلد في الحاوية، و`install_nasaq_apps.sh` و`bootstrap_nasaq.sh`، والتثبيت الحقيقي على ERPNext، والواجهة، وPDF، و`Connect-GitHub.ps1`، و`atelier/tests`.
+تركيب المجلد في حاوية المشروع، و`install_nasaq_apps.sh` و`bootstrap_nasaq.sh`، والتثبيت الحقيقي على ERPNext، والواجهة، وPDF، و`Connect-GitHub.ps1`، و`atelier/tests`. أما `install_docker.sh` فقد شُغّل ونجح بالفعل.
 
 ## مشكلات معروفة
 
-- `install_docker.sh` يحتاج systemd داخل WSL، وهو المتوقع افتراضيًا في Ubuntu-24.04 (لم يُتحقق منه هنا).
+- systemd داخل Ubuntu مُفعّل وتحقق تشغيل خدمة Docker بالفعل. التعليق السابق لخدمة WSL أُصلح؛ اختبر أمرًا قصيرًا قبل أي تجهيز طويل إن تكرر.
 - `reset_nasaq_administrator.py` و`get_pdfs.sh` و`reset_site.sh` تفترض مواقع التطوير الافتراضية.
 - `hooks.py` و`pyproject.toml` ما زالا يذكران `Demo Atelier` كناشر (معلومة شكلية، لم تُغيَّر).
 
 ## الخطوة التالية المحددة
 
-1. أكمل إنشاء مستخدم Ubuntu في النافذة التي فتحها Codex إن لم يكتمل. افحص المستخدم الافتراضي وعضويته في مجموعة docker، ثم تحقق من `docker info` من حسابه. Docker ثُبّت واختُبر باستخدام root؛ لا تعِد تثبيته.
+1. المستخدم الافتراضي `hb` موجود بعضوية sudo وdocker، ونجح `docker info` وhello-world من حسابه. عُيّنت كلمة المرور كخطوة تفاعلية للمستخدم في نافذة `passwd hb`؛ عند آخر فحص لم يكن قد أكملها بعد (`passwd -S hb`: L). لا تحفظ كلمة مرور في الملفات. لا تعِد تثبيت Docker أو إنشاء الحساب.
 2. ثُبّت GitHub CLI 2.103.3 في `C:\Program Files\GitHub CLI\gh.exe`. تسجيل الدخول لم يُؤكّد بعد؛ افحص `gh auth status` وأكمل تسجيل الدخول عند الحاجة، ثم شغّل `tools/dev/Connect-GitHub.ps1`. لا ترفع أي تغييرات دون طلب المستخدم.
 3. شغّل `bootstrap_nasaq.sh` من مستخدم Ubuntu العادي، وصحّح ما يظهر حتى ينجح `verify_nasaq_site.py`. Git وPython 3.12.3 موجودان داخل Ubuntu.
 4. اختبر الواجهة على `http://nasaq.localhost:8001/atelier-login`.
@@ -73,3 +73,12 @@
 - توقفت خدمة WSL عن الاستجابة: `wsl -- echo` و`wsl --shutdown` لا ينتهيان، بينما `wsl -l -v` يعرض Ubuntu كـ Running. يلزم إعادة تشغيل الخدمة بصلاحية مدير أو إعادة تشغيل Windows.
 - `gh auth status`: لا يوجد حساب مسجّل، و`git ls-remote origin` يفشل بطلب بيانات الدخول.
 - لم يُتحقق من مستخدم UID 1000. لم يُشغّل bootstrap، ولم يُنفّذ أي ربط أو push.
+
+## إصلاح WSL وإكمال الحساب — 2026-11-04
+
+- محاولة Restart-Service WslService بصلاحية مدير علقت عند StopPending. أُوقف فقط process الخدمة بعد التحقق من مساره `C:\Program Files\WSL\wslservice.exe`، ثم أُعيد تشغيل الخدمة. لم تُحذف توزيعات أو ملفات.
+- نجح اختبار `/bin/echo WSL_READY` بخروج 0، ثم نجحت أوامر Docker. لا حاجة لإعادة تشغيل Windows بناءً على العائق القديم ما دامت الأوامر تستجيب.
+- أُنشئ `hb` (UID 1000، home `/home/hb`) بعضوية sudo وdocker، وضُبط كمستخدم افتراضي عبر `wsl --manage Ubuntu-24.04 --set-default-user hb`.
+- التحقق من جلسة WSL الافتراضية أظهر `whoami=hb` و`HOME=/home/hb`، ونجح `docker info` و`docker run --rm hello-world` من حسابه.
+- فُتحت نافذة مستقلة لتعيين كلمة مرور hb بواسطة المستخدم نفسه. لم تُختر أو تُخزّن كلمة مرور تلقائيًا؛ يلزم التحقق من اكتمالها عند الحاجة إلى sudo.
+- بُدئ تسجيل GitHub بطريقة device login؛ عند آخر فحص ما زالت موافقة المستخدم مطلوبة. لا تسجل رموز الدخول في المستودع. بعد نجاح الدخول نفّذ `gh auth setup-git` وافحص المستودع قبل ربط السجل المحلي. لم يُنفّذ push أو bootstrap بعد.
