@@ -4,7 +4,7 @@
 
 ## الحالة الآن
 
-**التطبيق لا يعمل بعد على أي بيئة في متناولنا.** ثُبّت WSL 2.7.14 بنجاح وفُعّل VirtualMachinePlatform، لكن Windows يطلب إعادة تشغيل قبل المتابعة. Ubuntu وDocker لم يُثبّتا بعد.
+**التطبيق لا يعمل بعد على أي بيئة في متناولنا.** بعد إعادة تشغيل Windows، اكتمل تثبيت Ubuntu-24.04 وDocker Engine وCompose داخل WSL، ونجح تشغيل حاوية hello-world. بيئة ERPNext والموقع لم يُجهّزا بعد.
 
 - الفرع: `chore/multi-computer-setup` (commits محلية **غير مرفوعة**).
 - سجل Git محلي بدأ من لقطة ZIP (الوسم `zip-baseline`)، وليس سجل GitHub بعد؛ لأن المستودع خاص ويتطلب تسجيل دخول.
@@ -42,9 +42,9 @@
 
 ## الخطوة التالية المحددة
 
-1. المستخدم: احفظ عملك وأعد تشغيل Windows. بعد العودة افحص `wsl --status` و`wsl --list --verbose`، ثم أكمل `wsl --install -d Ubuntu-24.04` وأنشئ مستخدم Ubuntu إذا لزم.
+1. أكمل إنشاء مستخدم Ubuntu في النافذة التي فتحها Codex إن لم يكتمل. افحص المستخدم الافتراضي وعضويته في مجموعة docker، ثم تحقق من `docker info` من حسابه. Docker ثُبّت واختُبر باستخدام root؛ لا تعِد تثبيته.
 2. ثُبّت GitHub CLI 2.103.3 في `C:\Program Files\GitHub CLI\gh.exe`. تسجيل الدخول لم يُؤكّد بعد؛ افحص `gh auth status` وأكمل تسجيل الدخول عند الحاجة، ثم شغّل `tools/dev/Connect-GitHub.ps1`. لا ترفع أي تغييرات دون طلب المستخدم.
-3. ثبّت Docker، وشغّل `bootstrap_nasaq.sh`، وصحّح ما يظهر حتى ينجح `verify_nasaq_site.py`.
+3. شغّل `bootstrap_nasaq.sh` من مستخدم Ubuntu العادي، وصحّح ما يظهر حتى ينجح `verify_nasaq_site.py`. Git وPython 3.12.3 موجودان داخل Ubuntu.
 4. اختبر الواجهة على `http://nasaq.localhost:8001/atelier-login`.
 5. حدّث هذا الملف، وارفع عند طلب المستخدم فقط.
 
@@ -57,3 +57,13 @@
 - فحص العتاد أظهر `VirtualizationFirmwareEnabled=True`؛ أعد فحص WSL بعد إعادة التشغيل قبل افتراض الحاجة لتغيير BIOS.
 - نجح تثبيت GitHub CLI 2.103.3. لم يُتحقق بعد من اكتمال تسجيل الدخول، ولم يُربط السجل المحلي بسجل GitHub ولم يُرفع شيء.
 - Docker وERPNext واختبارات التطبيق لم تُشغّل بعد. لا تضغط «تم، أكمل التشغيل» على أساس أن البيئة جاهزة بالكامل.
+
+## بعد إعادة التشغيل — 2026-11-04
+
+- ثُبّت Ubuntu-24.04 بنجاح. `/etc/os-release` يعرض Ubuntu 24.04.5 LTS، وPID 1 هو systemd.
+- شُغّل `tools/dev/install_docker.sh` داخل Ubuntu باستخدام root، وانتهى بالعلامة `DOCKER_INSTALL_OK`.
+- Docker Engine 29.9.3 وCompose v5.7.0 مثبتان، وخدمة docker حالتها active. سُحبت صورة hello-world وشُغّلت الحاوية بنجاح.
+- Git وPython 3.12.3 موجودان داخل Ubuntu.
+- فُتحت نافذة Ubuntu تفاعلية للمستخدم لإكمال إنشاء حسابه وكلمة مروره. عند آخر فحص لم يوجد مستخدم UID 1000؛ يلزم التحقق من اكتمال إنشائه وعضوية docker قبل تجهيز بيئة المشروع.
+- GitHub CLI مثبت، لكن آخر `gh auth status` لم يجد حسابًا مسجّلًا. لم يُنفّذ ربط سجل Git ولا أي push.
+- لم يُشغّل bootstrap أو ERPNext أو موقع nasaq أو اختبارات التطبيق؛ لا تخلط بين نجاح تجهيز Docker ونجاح تشغيل التطبيق.
