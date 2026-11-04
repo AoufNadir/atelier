@@ -1,52 +1,48 @@
 # حالة المشروع — Atelier · نَسَق
 
-آخر تحديث: 2026-11-04، على حاسوب Windows الجديد (مجلد `atelier-main` من ZIP).
+آخر تحديث: 2026-11-04، على حاسوب Windows الجديد.
 
 ## الحالة الآن
 
-**موقع نسق لم يعمل بعد.** Ubuntu وDocker جاهزان، وثُبّت Frappe 16.55.1 وERPNext 16.53.0 بنجاح. مجلد Atelier مُركّب داخل الحاوية. توجد عملية bootstrap تفاعلية مفتوحة تنتظر من المستخدم اختيار كلمة مرور Administrator للموقع الجديد؛ لا تبدأ عملية ثانية قبل فحص الحالة.
+**التطبيق يعمل محليًا على هذا الحاسوب:** <http://nasaq.localhost:8001/atelier-login> (بعد `tools/dev/Start-Nasaq.ps1`).
 
-- الفرع: `chore/multi-computer-setup` (commits محلية **غير مرفوعة**).
-- سجل Git متصل الآن بسجل GitHub الحقيقي. أُعيد تطبيق commits المحلية فوق `origin/main` بعد التحقق من تطابق محتوى ZIP، والاختلاف كان في executable bits فقط. الفرع `main` يتابع `origin/main`؛ لم يُرفع فرع العمل.
-- نسخة احتياطية لمحتوى ZIP الأصلي: `C:\Users\HB\Documents\atelier-main-backup-zip-original.zip`.
-- الجلسة السابقة غير متاحة؛ هذه الحالة مستخرجة من الملفات. تمت قراءة سجل GitHub، ومحتوى `origin/main` وقت الربط مطابق لـZIP؛ لم توجد تغييرات محتوى أحدث.
-
-## ما اكتمل
-
-موجود في الكود (لم يُشغَّل هنا): واجهة `/atelier` وتسجيل الدخول، ولوحة الطلبات، وقوالب المهام، والفريق، والعملاء، والأسعار، والطباعة العربية، والحسابات العربية، وتثبيت قابل للتكرار.
-
-تم في هذه الجلسة:
-
-- إزالة مسارات الحاسوب القديم من `tools/dev` (`F:\App\ERP`، و`C:\Users\User\.codex`)، ووضع الإعدادات في `lib.sh` و`Nasaq-Common.ps1`.
-- `setup_dev.sh` ينسخ frappe_docker عند غيابه، وأضيف `bootstrap_nasaq.sh` و`install_nasaq_apps.sh` و`Start-Nasaq.ps1` و`Connect-GitHub.ps1`.
-- تركيب المستودع داخل الـbench، لتبقى نسخة واحدة من الكود.
-- التثبيت يهيئ `atelier_team` بقائمة فارغة دون استبدال الموجود.
-- `verify_nasaq_site.py` لم يعد يفرض الاختصار NSQ، ويفحص الفريق والحسابات العربية.
-- `finish_nasaq_setup.sh`: اسم الشركة والسنة المالية قابلان للتغيير.
-- `.gitattributes` و`.gitignore` ووثائق المزامنة والقرارات.
+- الموقع `nasaq.localhost` نظيف: Frappe 16.55.1 وERPNext 16.53.0 وAtelier، وشركة «نَسَق للطباعة»، ولا سجلات أعمال.
+- الفرع: `chore/multi-computer-setup` مبني على `origin/main`. commits محلية **غير مرفوعة**؛ لن تظهر على حاسوب آخر قبل الرفع.
+- فرع استرداد محلي: `backup/before-github-connect-20261104`. نسخة ZIP: `C:\Users\HB\Documents\atelier-main-backup-zip-original.zip`.
 
 ## التحقق الذي تم فعلًا
 
-- `bash -n` لكل سكربتات `.sh`، وتحليل PowerShell لكل `.ps1`، و`compileall` لكل Python (Python 3.14): ناجحة.
-- اختبار لمنطق `install.py` مع frappe وهمي: ناجح (الافتراضيات، وحفظ الموجود والفارغ، والحسابات مرة واحدة بعد المعالج).
+- `run_nasaq_verification.sh` نجح كاملًا (خروج 0): لا بيانات أعمال، والحقول المخصصة 30، وقوالب الطباعة 5، و4 أعمدة، و3 قوالب مهام، والحسابات العربية مهيأة، والفريق فارغ، والتهيئة المتكررة لا تكرر شيئًا ولا تستبدل الموجود حتى الفارغ.
+- داخل معاملة أُلغيت: إنشاء عميل وصنف وطلب وطلب سريع وPDF. روجع PDF بالعين: العربية والمحاذاة سليمتان، وخط Cairo مضمَّن.
+- `atelier.tests.test_production` نجح.
+- في المتصفح: `/atelier-login` تعرض صفحة الدخول العربية بلا أخطاء console، و`/atelier` يحوّل غير المسجّل إلى الدخول. `/assets/atelier/atelier/icon.svg` يعيد 200.
 
 ## لم يُختبر
 
-اكتمال `install_nasaq_apps.sh` و`bootstrap_nasaq.sh`، وتثبيت Atelier على موقع nasaq، والواجهة، وPDF، و`atelier/tests`. نجح تشغيل `install_docker.sh` و`setup_dev.sh` و`Connect-GitHub.ps1` فعليًا، وتحقق تركيب مجلد التطبيق داخل الحاوية.
+- **الواجهة بعد تسجيل الدخول** (`/atelier` واللوحة والعملاء): تحتاج كلمة مرور Administrator التي يملكها المستخدم.
+- `Start-Nasaq.ps1` بعد إعادة تشغيل كاملة لـWindows، وتجهيز حاسوب ثانٍ من الصفر.
+- `test_cost_estimate.py`.
 
 ## مشكلات معروفة
 
-- systemd داخل Ubuntu مُفعّل وتحقق تشغيل خدمة Docker بالفعل. التعليق السابق لخدمة WSL أُصلح؛ اختبر أمرًا قصيرًا قبل أي تجهيز طويل إن تكرر.
-- `reset_nasaq_administrator.py` و`get_pdfs.sh` و`reset_site.sh` تفترض مواقع التطوير الافتراضية.
-- `hooks.py` و`pyproject.toml` ما زالا يذكران `Demo Atelier` كناشر (معلومة شكلية، لم تُغيَّر).
+- الحاويات تتوقف عندما يخمل WSL بلا جلسة؛ `Start-Nasaq.ps1` يبقي جلسة مفتوحة، وبعد أي توقف أعد تشغيله.
+- PowerShell لا يترجم `nasaq.localhost` بخلاف المتصفح؛ في السكربتات استخدم `127.0.0.1:8001` مع ترويسة Host.
+- اسم الشركة بالتشكيل يبدو متقطعًا قليلًا في PDF (ملاحظة شكلية).
+- `hooks.py` و`pyproject.toml` يذكران `Demo Atelier` كناشر. `get_pdfs.sh` و`reset_site.sh` يخصان موقع التطوير.
 
 ## الخطوة التالية المحددة
 
-1. المستخدم الافتراضي `hb` موجود بعضوية sudo وdocker. اكتمل تعيين كلمة مروره بواسطة المستخدم وتحقق `passwd -S hb` بالحالة P. نجح `docker info` وhello-world من حسابه. لا تعِد تثبيت Docker أو إنشاء الحساب أو طلب كلمة مرور جديدة.
-2. تسجيل GitHub ناجح بحساب AoufNadir، واكتمل `gh auth setup-git` و`Connect-GitHub.ps1`. لا تعِد الربط أو تسجيل الدخول دون فحص. لا ترفع أي تغييرات دون طلب المستخدم.
-3. اكتمل `setup_dev.sh` وتحقق `bench version`. توجد نافذة PowerShell تفاعلية تشغّل `bootstrap_nasaq.sh` وتنتظر اختيار كلمة مرور Administrator. الحالة في `/home/hb/.local/state/nasaq/site-creation.status`: `waiting-for-new-administrator-password` عند آخر فحص. بعد إدخال المستخدم كلمة المرور مرتين يواصل السكربت تثبيت التطبيقات والإعداد والتحقق تلقائيًا. لا تطلق bootstrap موازيًا.
-4. اختبر الواجهة على `http://nasaq.localhost:8001/atelier-login`.
-5. حدّث هذا الملف، وارفع عند طلب المستخدم فقط.
+1. المستخدم: ادخل بحساب Administrator وافتح `/atelier`، وجرّب إنشاء عميل وطلب.
+2. أصلح ما يظهر في الواجهة، وأضف أفراد الفريق من الإعدادات.
+3. عند طلب المستخدم فقط: ارفع الفرع `chore/multi-computer-setup` إلى GitHub، ثم ادمجه في `main`.
+
+## الإصلاحات أثناء أول تشغيل
+
+- `install_nasaq_apps.sh`: `apps.txt` بلا سطر أخير كان يلصق `erpnextatelier`؛ وأضيف رابط `sites/assets/atelier` لأن التطبيق مركّب لا منسوخ.
+- `bootstrap_nasaq.sh` يكمل موقعًا بلا شركة بدل تخطي الإعداد.
+- أضيف `install_pdf_deps.sh` (مكتبات Chromium وخطوط عربية)، ويُستدعى من `configure_nasaq_pdf_host.sh` لأن تغييرات الحاوية تضيع عند إعادة إنشائها.
+
+## السجل
 
 ## تجهيز المتطلبات — متابعة 2026-11-04
 
