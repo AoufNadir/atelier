@@ -13,19 +13,25 @@ class CostEstimate(Document):
 
 	def fill_material_rates(self):
 		"""Material lines without a cost take the item's current stock valuation, if known."""
+		from atelier.simple import material_cost_types
+
+		materials = material_cost_types()
 		for line in self.lines:
-			if line.cost_type == "Matière" and line.item and not flt(line.rate) and not line.zero_confirmed:
+			if line.cost_type in materials and line.item and not flt(line.rate) and not line.zero_confirmed:
 				rate = get_valuation_rate(line.item)
 				if rate:
 					line.rate = rate
 					line.rate_source = "Valorisation stock"
 
 	def calculate(self):
+		from atelier.simple import material_cost_types
+
+		materials = material_cost_types()
 		total = missing = 0
 		for line in self.lines:
 			# An empty or 0 cost is missing data unless explicitly confirmed as zero.
 			line.is_missing = 0 if (flt(line.rate) or line.zero_confirmed) else 1
-			waste = flt(self.waste_percent) / 100 if line.cost_type == "Matière" else 0
+			waste = flt(self.waste_percent) / 100 if line.cost_type in materials else 0
 			line.amount = flt(line.qty) * flt(line.rate) * (1 + waste)
 			total += line.amount
 			missing += line.is_missing

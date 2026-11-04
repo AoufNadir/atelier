@@ -341,9 +341,10 @@ const dueText = (o) => {
 const stepWho = (o) => (o.step ? (o.step.mode === "خارجي" ? (o.step.supplier_name || o.step.supplier || "مورد") : (o.step.owner || "—")) : "—");
 const stepLabel = (o) => (o.step ? o.step.kind : o.atelier_stage);
 // The three quick tags have fixed colours; any other tag is neutral.
-const QUICK_TAGS = [["عاجل", "urgent"], ["مهم", "important"], ["في انتظار موافقة العميل", "wait"]];
-const tagTone = (tg) => (QUICK_TAGS.find((q) => q[0] === tg) || [])[1] || "";
-const tagRank = (o) => ((o.tags || []).includes("عاجل") ? 0 : (o.tags || []).includes("مهم") ? 1 : 2);
+const quickTags = () => (state.boot?.lists?.tags || []).map((q) => [q.name, q.tone || ""]);
+const tagTone = (tg) => (quickTags().find((q) => q[0] === tg) || [])[1] || "";
+// the list's order is its priority: the first tag sorts first
+const tagRank = (o) => { const order = quickTags().map((q) => q[0]); const hits = (o.tags || []).map((x) => order.indexOf(x)).filter((i) => i >= 0); return hits.length ? Math.min(...hits) : order.length; };
 // Where the order is, whatever its steps are called: at the workshop, at a supplier, or ready.
 const phaseOf = (o) => (["جاهز للتسليم", "سُلّم"].includes(o.atelier_stage) ? "ready" : o.step && o.step.mode === "خارجي" ? "ext" : "work");
 const PHASE_TABS = [["work", "قيد التنفيذ", (o) => phaseOf(o) === "work"], ["ext", "عند مورد", (o) => phaseOf(o) === "ext"], ["ready", "جاهز للتسليم", (o) => phaseOf(o) === "ready"]];
@@ -697,7 +698,7 @@ const BoardPanel = {
     const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", what: "", price: "", advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
     const startColumns = computed(() => (props.columns || []).filter((c) => !c.deliver));
     if (startColumns.value.length) f.column = startColumns.value[0].id;
-    const dueChips = [["اليوم", 0], ["غدًا", 1], ["بعد 3 أيام", 3], ["بعد أسبوع", 7]];
+    const dueChips = computed(() => (state.boot?.lists?.due || []).map((c) => [c.label, c.days]));
     const saving = ref(false), error = ref(null), newName = ref(""), credit = ref(null);
     watch(() => f.customer, async (c) => { credit.value = null; if (c) { try { credit.value = await call("customer_credit", { name: c.name }); } catch { /* optional */ } } }, { immediate: true });
     const toggle = (l, v) => { const i = l.indexOf(v); if (i >= 0) l.splice(i, 1); else l.push(v); };
@@ -731,7 +732,7 @@ const BoardPanel = {
     onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.querySelector(".bd-panel input, .bd-panel button")?.focus(), 50); });
     onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     return { credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
-      QUICK_TAGS, tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
+      QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
   <aside class="bd-panel" :aria-label="mode === 'new' ? 'طلب جديد' : 'الطلب'">
@@ -831,14 +832,16 @@ const cardActions = {
 const WEEK = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-const CARD_COST_TYPES = [["Matière", "مواد"], ["Machine", "آلة"], ["Main d'œuvre", "يد عاملة"], ["Sous-traitance", "عند مورد"], ["Finition", "تشطيب"], ["Autre", "أخرى"]];
 const CostSection = {
   props: ["name"], emits: ["use-price"], components: { Icon },
   setup(props, { emit }) {
     const d = ref(null), error = ref(null), busy = ref(false), open = ref(false), target = ref(30);
     const load = async () => { try { d.value = await call("card_cost", { name: props.name }); open.value = d.value.lines.length > 0; } catch (e) { error.value = e.message; } };
-    const add = () => { d.value.lines.push({ cost_type: "Matière", description: "", qty: 1, rate: "" }); open.value = true; };
-    const amount = (l) => (+l.qty || 0) * (+l.rate || 0) * (l.cost_type === "Matière" ? 1 + (+d.value.waste_percent || 0) / 100 : 0) + (l.cost_type === "Matière" ? 0 : (+l.qty || 0) * (+l.rate || 0));
+    const add = () => { d.value.lines.push({ cost_type: costTypes.value[0].value, description: "", qty: 1, rate: "" }); open.value = true; };
+    const costTypes = computed(() => state.boot.lists.cost_types);
+    const typeOptions = (l) => (costTypes.value.some((c) => c.value === l.cost_type) ? costTypes.value : [...costTypes.value, { value: l.cost_type, label: l.cost_type }]);
+    const isMaterial = (l) => l.cost_type === "Matière" || costTypes.value.some((c) => c.value === l.cost_type && c.material);
+    const amount = (l) => (+l.qty || 0) * (+l.rate || 0) * (isMaterial(l) ? 1 + (+d.value.waste_percent || 0) / 100 : 1);
     const total = computed(() => d.value.lines.reduce((sum, l) => sum + amount(l), 0));
     const unit = computed(() => (+d.value.qty ? total.value / +d.value.qty : 0));
     const missing = computed(() => d.value.lines.filter((l) => l.description.trim() && (l.rate === "" || l.rate === null)).length);
@@ -851,7 +854,7 @@ const CostSection = {
       catch (e) { error.value = e.message; } finally { busy.value = false; }
     };
     load();
-    return { d, error, busy, open, target, add, total, unit, missing, profit, margin, suggested, save, money, COST_TYPES: CARD_COST_TYPES, emit };
+    return { d, error, busy, open, target, add, total, unit, missing, profit, margin, suggested, save, money, typeOptions, emit };
   },
   template: `
   <div class="tm-money tm-cost"><h3>التكلفة <span class="m" style="display:inline;margin-inline-start:auto">للمدير</span></h3>
@@ -859,7 +862,7 @@ const CostSection = {
     <template v-if="d">
       <template v-if="open">
         <div v-for="(l, i) in d.lines" :key="i" class="cost-line">
-          <select class="input" v-model="l.cost_type" aria-label="نوع التكلفة"><option v-for="c in COST_TYPES" :key="c[0]" :value="c[0]">{{ c[1] }}</option></select>
+          <select class="input" v-model="l.cost_type" aria-label="نوع التكلفة"><option v-for="c in typeOptions(l)" :key="c.value" :value="c.value">{{ c.label }}</option></select>
           <input class="input" v-model="l.description" aria-label="البند" placeholder="البند، مثل: ورق 350غ">
           <input class="input num" inputmode="decimal" v-model="l.qty" aria-label="الكمية" placeholder="الكمية">
           <input class="input num" inputmode="decimal" v-model="l.rate" aria-label="سعر الوحدة" placeholder="السعر">
@@ -2001,8 +2004,12 @@ const SuppliersPage = {
 };
 
 // ------------------------------------------------------------------ team (/atelier/team)
+const RoleOptions = {
+  setup() { return { state }; },
+  template: `<datalist id="role-list"><option v-for="r in state.boot.lists.roles" :key="r.name" :value="r.name"></option></datalist>`,
+};
 const TeamPage = {
-  props: ["embedded"], components: { Icon },
+  props: ["embedded"], components: { Icon, RoleOptions },
   setup() {
     const rows = ref((state.boot.team_members || []).map((m) => ({ ...m })));
     const saving = ref(false), err = ref(null);
@@ -2027,7 +2034,7 @@ const TeamPage = {
         <input class="input" v-model="r.user" dir="ltr" type="email" :aria-label="'حساب الدخول ' + (i+1)" placeholder="بريد حساب الدخول">
         <button type="button" class="btn sm ghost icon-btn danger" :aria-label="'حذف ' + (r.name || 'السطر')" @click="rows.splice(i, 1)"><Icon name="trash" :size="16"/></button>
       </div>
-      <datalist id="role-list"><option value="مصمم"></option><option value="طابع"></option><option value="تشطيب"></option><option value="تركيب"></option><option value="استقبال"></option></datalist>
+      <RoleOptions/>
       <div v-if="err" class="alert error" role="alert">{{ err }}</div>
       <div class="row" style="gap:8px"><button type="button" class="btn chip dashed" @click="rows.push({name:'', role:'', user:''})">+ إضافة شخص</button><span class="spacer"></span>
         <button type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? t('of_saving') : 'حفظ' }}</button></div>
@@ -2099,7 +2106,7 @@ const BoardSettings = {
 // ------------------------------------------------------------------ settings (/atelier/settings), manager only
 const SETTINGS_GROUPS = [
   ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"]]],
-  ["العمل", [["team", "users", "الفريق والحسابات"], ["board", "grid", "لوحة الطلبات"], ["prices", "tag", "الخدمات والأسعار"]]],
+  ["العمل", [["team", "users", "الفريق والحسابات"], ["board", "grid", "لوحة الطلبات"], ["prices", "tag", "الخدمات والأسعار"], ["lists", "grid", "القوائم"]]],
   ["المال والنظام", [["funds", "wallet", "الدفع والصناديق"], ["alerts", "bell", "التنبيهات"], ["mail", "invoice", "البريد"], ["backup", "box", "النسخ الاحتياطي"]]],
 ];
 const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "الوثائق والضريبة"], ["team", "👥", "الفريق والحسابات"], ["board", "▦", "تخصيص اللوحة"],
@@ -2125,27 +2132,43 @@ const OpeningGroup = {
         <span class="muted">يُسجَّل مقابل حساب «{{ d.counter }}» (11).</span></template></div></div>`,
 };
 
-const UnitsCard = {
-  setup() {
-    const rows = ref((state.boot.units || []).map((u) => ({ ...u }))), name = ref(""), busy = ref(false);
-    const persist = async () => {
+const LIST_DEFS = [
+  { key: "units", title: "وحدات البيع", hint: "تظهر عند إضافة خدمة أو منتج. الخدمات الموجودة تبقى على وحدتها.", cols: [["name", "الوحدة"], ["group", "المجموعة"], ["whole", "عدد صحيح", "check"]], blank: { name: "", group: "أخرى", whole: 0 } },
+  { key: "tags", title: "الأوسام السريعة", hint: "الترتيب يحدد الأولوية على اللوحة. الطلبات السابقة تحتفظ بوسمها.", cols: [["name", "الوسم"]], blank: { name: "", tone: "" } },
+  { key: "due", title: "أزرار موعد التسليم", hint: "تظهر في الطلب الجديد.", cols: [["label", "النص"], ["days", "بعد كم يوم", "number"]], blank: { label: "", days: 1 } },
+  { key: "cost_types", title: "أنواع التكلفة", hint: "«مادة» يعني أن تلف المواد يُضاف إلى هذا النوع.", cols: [["label", "النوع"], ["material", "مادة", "check"]], blank: { label: "", material: 0 } },
+  { key: "roles", title: "أدوار الفريق", hint: "اقتراحات عند إضافة شخص إلى الفريق.", cols: [["name", "الدور"]], blank: { name: "" } },
+];
+const ListEditor = {
+  props: ["def"],
+  setup(props) {
+    const current = () => (props.def.key === "units" ? state.boot.units : state.boot.lists[props.def.key]);
+    const rows = ref(current().map((r) => ({ ...r }))), busy = ref(false);
+    const add = () => rows.value.push({ ...props.def.blank });
+    const shift = (i, by) => { const r = rows.value, j = i + by; if (j >= 0 && j < r.length) [r[i], r[j]] = [r[j], r[i]]; };
+    const save = async () => {
       busy.value = true;
-      try { state.boot.units = await call("save_units", { rows: JSON.stringify(rows.value) }, true); rows.value = state.boot.units.map((u) => ({ ...u })); toast("حُفظت الوحدات"); }
-      catch (e) { toast(e.message); rows.value = state.boot.units.map((u) => ({ ...u })); }
-      finally { busy.value = false; }
+      try {
+        const out = await call("save_list", { key: props.def.key, rows: JSON.stringify(rows.value) }, true);
+        if (props.def.key === "units") state.boot.units = out; else state.boot.lists[props.def.key] = out;
+        rows.value = out.map((r) => ({ ...r })); toast("حُفظت القائمة");
+      } catch (e) { toast(e.message, "error"); } finally { busy.value = false; }
     };
-    const add = () => { const v = name.value.trim(); if (!v || rows.value.some((u) => u.name === v)) return; rows.value.push({ name: v, group: "أخرى", whole: 0 }); name.value = ""; persist(); };
-    const drop = (i) => { rows.value.splice(i, 1); persist(); };
-    return { rows, name, busy, add, drop };
+    return { rows, busy, add, shift, save };
   },
   template: `
-  <div class="st2-card"><div class="st2-grp"><div class="st2-lbl"><b>وحدات البيع</b><span>تظهر عند إضافة خدمة أو منتج. الخدمات الموجودة تبقى على وحدتها.</span></div>
-    <div class="st2-fields"><div class="bd-chips"><span v-for="(u, i) in rows" :key="u.name" class="chip">{{ u.name }} <button type="button" :disabled="busy" :aria-label="'حذف ' + u.name" style="all:unset;cursor:pointer;margin-inline-start:6px" @click="drop(i)">×</button></span></div>
-      <div class="st2-line"><input class="input" v-model="name" aria-label="وحدة جديدة" placeholder="وحدة جديدة، مثل: كغ" @keyup.enter="add"><button type="button" class="cl-btn sm" :disabled="busy || !name.trim()" @click="add">إضافة</button></div></div></div></div>`,
+  <div class="st2-grp"><div class="st2-lbl"><b>{{ def.title }}</b><span>{{ def.hint }}</span></div>
+    <div class="st2-fields"><div v-for="(r, i) in rows" :key="i" class="st2-line">
+        <template v-for="c in def.cols" :key="c[0]">
+          <label v-if="c[2] === 'check'" class="row" style="gap:4px;white-space:nowrap"><input type="checkbox" :checked="!!r[c[0]]" @change="r[c[0]] = $event.target.checked ? 1 : 0">{{ c[1] }}</label>
+          <input v-else class="input" :type="c[2] === 'number' ? 'number' : 'text'" :min="c[2] === 'number' ? 0 : null" v-model="r[c[0]]" :aria-label="c[1]" :placeholder="c[1]"></template>
+        <button type="button" class="cl-btn sm" :disabled="i === 0" :aria-label="'رفع ' + (i + 1)" @click="shift(i, -1)">↑</button>
+        <button type="button" class="cl-btn sm" :aria-label="'حذف ' + (i + 1)" @click="rows.splice(i, 1)">×</button></div>
+      <div class="row" style="gap:8px"><button type="button" class="cl-btn sm" @click="add">+ إضافة</button><button type="button" class="cl-btn primary sm" :disabled="busy" @click="save">حفظ</button></div></div></div>`,
 };
 
 const SettingsPage = {
-  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, UnitsCard, OpeningGroup },
+  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, ListEditor, OpeningGroup },
   setup(props) {
     const { s, load } = useLoad(() => call("settings"));
     onMounted(load);
@@ -2194,11 +2217,11 @@ const SettingsPage = {
     const testMail = () => run("mailtest", () => call("test_email", { to: mailTo.value || mail.email_id }, true), "أُرسلت رسالة تجريبية — تحقق من صندوق الوارد");
     const META = { profile: ["بيانات المطبعة", "تظهر في رأس كل بون وفاتورة وكشف حساب", saveProfile], docs: ["الوثائق والضريبة", "الضريبة ونص أسفل الوثائق ومهلة الدفع", saveDocs],
       team: ["الفريق والحسابات", "من يدخل إلى البرنامج وبأي صلاحية"], board: ["لوحة الطلبات", "الأعمدة والحالات التي يراها الفريق"], prices: ["الخدمات والأسعار", "سعر الأفراد وسعر المؤسسات لكل خدمة"],
-      funds: ["الدفع والصناديق", "أسماء الصناديق وطرق الدفع"], alerts: ["التنبيهات", "ما يصل إلى جرس كل عضو", saveAlerts],
+      lists: ["القوائم", "وحدات البيع والأوسام ومواعيد التسليم وأنواع التكلفة والأدوار"], funds: ["الدفع والصناديق", "أسماء الصناديق وطرق الدفع"], alerts: ["التنبيهات", "ما يصل إلى جرس كل عضو", saveAlerts],
       mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"] };
     const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
     return { mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
-      renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
+      LIST_DEFS, renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
   },
   template: `
   <div class="cl st2">
@@ -2271,7 +2294,8 @@ const SettingsPage = {
         </template>
 
         <div v-else-if="tab === 'board'" class="st2-card st2-embed"><BoardSettings :embedded="true"/></div>
-        <template v-else-if="tab === 'prices'"><UnitsCard/><div class="st2-card st2-embed"><PricesPage :embedded="true"/></div></template>
+        <div v-else-if="tab === 'prices'" class="st2-card st2-embed"><PricesPage :embedded="true"/></div>
+        <div v-else-if="tab === 'lists'" class="st2-card"><ListEditor v-for="l in LIST_DEFS" :key="l.key" :def="l"/></div>
 
         <div v-else-if="tab === 'funds'" class="st2-card">
           <div class="st2-grp"><div class="st2-lbl"><b>الصناديق</b><span>الأسماء التي تظهر في صفحة المال وفي تسجيل الدفعات.</span></div>

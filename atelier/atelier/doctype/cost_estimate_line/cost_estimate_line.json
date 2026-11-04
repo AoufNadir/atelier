@@ -22,10 +22,9 @@
   {
    "columns": 2,
    "fieldname": "cost_type",
-   "fieldtype": "Select",
+   "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Type de co\u00fbt",
-   "options": "Mati\u00e8re\nMachine\nMain d'\u0153uvre\nSous-traitance\nFinition\nAutre",
+   "label": "Type de coût",
    "reqd": 1
   },
   {
@@ -49,12 +48,12 @@
    "fieldname": "qty",
    "fieldtype": "Float",
    "in_list_view": 1,
-   "label": "Quantit\u00e9"
+   "label": "Quantité"
   },
   {
    "fieldname": "uom",
    "fieldtype": "Link",
-   "label": "Unit\u00e9",
+   "label": "Unité",
    "options": "UOM"
   },
   {
@@ -62,20 +61,20 @@
    "fieldname": "rate",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Co\u00fbt unitaire"
+   "label": "Coût unitaire"
   },
   {
    "default": "0",
-   "description": "Cocher seulement si le co\u00fbt est r\u00e9ellement nul. Sinon, un co\u00fbt vide ou 0 est consid\u00e9r\u00e9 comme manquant.",
+   "description": "Cocher seulement si le coût est réellement nul. Sinon, un coût vide ou 0 est considéré comme manquant.",
    "fieldname": "zero_confirmed",
    "fieldtype": "Check",
-   "label": "Co\u00fbt z\u00e9ro confirm\u00e9"
+   "label": "Coût zéro confirmé"
   },
   {
    "fieldname": "rate_source",
    "fieldtype": "Select",
-   "label": "Source du co\u00fbt",
-   "options": "\nSaisie manuelle\nValorisation stock\nTaux d\u00e9mo\nDevis fournisseur"
+   "label": "Source du coût",
+   "options": "\nSaisie manuelle\nValorisation stock\nTaux démo\nDevis fournisseur"
   },
   {
    "columns": 1,
@@ -91,7 +90,7 @@
    "fieldname": "is_missing",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Donn\u00e9e manquante",
+   "label": "Donnée manquante",
    "read_only": 1
   }
  ],
@@ -99,7 +98,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-31 09:45:58.728939",
+ "modified": "2026-11-04 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Atelier",
  "name": "Cost Estimate Line",

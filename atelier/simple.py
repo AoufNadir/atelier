@@ -1458,7 +1458,6 @@ def test_email(to):
 
 
 # ---------------------------------------------------------------- suppliers: list, profile, purchase orders, supplier invoices, payments
-COST_TYPES = ["Matière", "Machine", "Main d'œuvre", "Sous-traitance", "Finition", "Autre"]
 
 
 def _cost_manager():
@@ -1495,19 +1494,20 @@ def save_card_cost(name, data):
 	so = frappe.get_doc("Sales Order", name)
 	if so.docstatus == 2:
 		frappe.throw(_("هذا الطلب ملغى"))
+	estimate = frappe.db.get_value("Cost Estimate", {"sales_order": name})
+	doc = frappe.get_doc("Cost Estimate", estimate) if estimate else frappe.new_doc("Cost Estimate")
+	old_lines = list(doc.get("lines") or [])  # a type removed from the list stays valid on old lines
 	lines = []
 	for row in d.get("lines") or []:
 		text = (row.get("description") or "").strip()[:140]
 		if not text:
 			continue
-		if row.get("cost_type") not in COST_TYPES:
+		if row.get("cost_type") not in [c["value"] for c in custom_list("cost_types")] + [l.cost_type for l in old_lines]:
 			frappe.throw(_("نوع التكلفة غير صالح"))
 		known = row.get("rate") not in (None, "")
 		lines.append({"cost_type": row["cost_type"], "description": text, "qty": flt(row.get("qty")) or 1,
 			"rate": flt(row["rate"]) if known else None, "zero_confirmed": 1 if known and not flt(row["rate"]) else 0,
 			"rate_source": "Saisie manuelle" if known else None})
-	estimate = frappe.db.get_value("Cost Estimate", {"sales_order": name})
-	doc = frappe.get_doc("Cost Estimate", estimate) if estimate else frappe.new_doc("Cost Estimate")
 	pending = any(i.atelier_price_pending for i in so.items)
 	doc.update({"customer": so.customer, "company": so.company, "project": so.project, "sales_order": so.name,
 		"title": so.get("atelier_subject") or so.name, "qty": flt(d.get("qty")) or 1,
@@ -1666,6 +1666,60 @@ DEFAULT_UNITS = [
 	{"name": "م²", "group": "بالمقاس", "whole": 0}, {"name": "سم²", "group": "بالمقاس", "whole": 0},
 	{"name": "متر طولي", "group": "بالمقاس", "whole": 0}, {"name": "ساعة", "group": "بالوقت", "whole": 0},
 ]
+
+
+DEFAULT_LISTS = {
+	"tags": [{"name": "عاجل", "tone": "urgent"}, {"name": "مهم", "tone": "important"}, {"name": "في انتظار موافقة العميل", "tone": "wait"}],
+	"roles": [{"name": n} for n in ("مصمم", "طابع", "تشطيب", "تركيب", "استقبال")],
+	"cost_types": [{"value": "Matière", "label": "مواد", "material": 1}, {"value": "Machine", "label": "آلة", "material": 0},
+		{"value": "Main d'œuvre", "label": "يد عاملة", "material": 0}, {"value": "Sous-traitance", "label": "عند مورد", "material": 0},
+		{"value": "Finition", "label": "تشطيب", "material": 0}, {"value": "Autre", "label": "أخرى", "material": 0}],
+	"due": [{"label": "اليوم", "days": 0}, {"label": "غدًا", "days": 1}, {"label": "بعد 3 أيام", "days": 3}, {"label": "بعد أسبوع", "days": 7}],
+}
+
+
+def custom_list(key):
+	try:
+		return json.loads(frappe.db.get_default("atelier_list_" + key) or "null") or DEFAULT_LISTS[key]
+	except ValueError:
+		return DEFAULT_LISTS[key]
+
+
+def lists():
+	return {key: custom_list(key) for key in DEFAULT_LISTS}
+
+
+def material_cost_types():
+	return {"Matière"} | {c["value"] for c in custom_list("cost_types") if c.get("material")}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_list(key, rows):
+	"""Add, rename, reorder or remove the entries of one list. Past records keep what they stored."""
+	_manager_only()
+	if key == "units":
+		return save_units(rows)
+	if key not in DEFAULT_LISTS:
+		frappe.throw(_("قائمة غير معروفة"))
+	title = "label" if key in ("cost_types", "due") else "name"
+	seen, out = set(), []
+	for row in frappe.parse_json(rows) or []:
+		text = (row.get(title) or "").strip()[:60]
+		if not text or text in seen:
+			continue
+		seen.add(text)
+		clean = {title: text}
+		if key == "tags":
+			clean["tone"] = row.get("tone") or ""
+		elif key == "cost_types":
+			clean.update({"value": row.get("value") or text, "material": cint(row.get("material"))})
+		elif key == "due":
+			clean["days"] = max(0, cint(row.get("days")))
+		out.append(clean)
+	if not out:
+		frappe.throw(_("أبقِ عنصرًا واحدًا على الأقل"))
+	frappe.db.set_default("atelier_list_" + key, json.dumps(out, ensure_ascii=False))
+	return out
 
 
 def units():

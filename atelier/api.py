@@ -76,6 +76,7 @@ def boot():
 		"items": _with_prices(items),
 		"stages": STAGES,
 		"units": simple_units(),
+		"lists": simple_lists(),
 		**production.boot_info(),
 		"modes": [{"value": v, "label": l} for v, l in all_modes() if frappe.db.exists("Mode of Payment", v)],
 		"can": {
@@ -675,6 +676,12 @@ def create_order(data):
 		"price_pending": price_pending, "estimate": estimate, "payment": payment}
 
 
+def simple_lists():
+	from atelier import simple
+
+	return simple.lists()
+
+
 def simple_units():
 	from atelier import simple
 
@@ -1185,7 +1192,7 @@ from atelier.simple import reports2, save_email, test_email  # noqa: E402, F401
 from atelier.simple import create_purchase_order, create_supplier_invoice, save_supplier, set_supplier_disabled, supplier2, suppliers2  # noqa: E402, F401
 from atelier.simple import money3, pay_supplier, transfer_funds  # noqa: E402, F401
 from atelier.simple import backup_now, rename_fund, reset_link, save_alerts, save_doc_settings, save_profile, save_user, set_mode_account, settings  # noqa: E402, F401
-from atelier.simple import add_fund, add_mode, remove_fund, remove_mode, card_cost, save_card_cost, cancel_opening, opening_balances, save_opening, save_units, add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
+from atelier.simple import save_list, add_fund, add_mode, remove_fund, remove_mode, card_cost, save_card_cost, cancel_opening, opening_balances, save_opening, save_units, add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
 from atelier.simple import customer2, customers2, reorder_card, set_customer_extra  # noqa: E402, F401
 from atelier.simple import archive_card, archive_paid, archived_cards, checklist_templates, copy_card, delete_checklist_template, mark_read, notifications, reorder, save_checklist_template  # noqa: E402, F401
 from atelier.simple import add_card, add_comment, board, board2, card, delete_file, file_added, move, move_card, quick_order, save_board, update_card, update_order  # noqa: E402, F401
