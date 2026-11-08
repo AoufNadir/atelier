@@ -105,7 +105,7 @@ ACTIONS.fillOrderEnd = `${ACTIONS.fillOrder}.then(() => window.scrollTo(0, docum
 const CHECKS = `(() => {
   const r = {};
   r.overflow = document.documentElement.scrollWidth > innerWidth ||
-    [...document.querySelectorAll('body *')].some(e => { if (e.closest('.overlay, .table-wrap, .bd-cols, .tb-cols, .tabs, .st2-nav, .cl-tabs')) return false; const b = e.getBoundingClientRect(); return b.width && (b.right > innerWidth + 1 || b.left < -1); });
+    [...document.querySelectorAll('body *')].some(e => { if (e.closest('.overlay, .table-wrap, .bd-cols, .tb-cols, .tabs, .st2-nav, .cl-tabs, .stock-body > .mn-card')) return false; const b = e.getBoundingClientRect(); return b.width && (b.right > innerWidth + 1 || b.left < -1); });
 r.font = document.fonts.check('15px "Cairo"') && getComputedStyle(document.body).fontFamily.includes('Cairo');
   // Vertical clipping of Arabic glyphs in single-line ellipsis elements.
   r.clipped = [...document.querySelectorAll('.ellipsis')].filter(e => e.offsetParent && e.scrollHeight > e.clientHeight + 1).length;

@@ -1556,6 +1556,7 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .bd-savebar .bd-save { width: 100%; }
 .tb .cf-list button { color: #1F2430; }
 .stock-body { display: flex; flex-direction: column; gap: 16px; padding: 0 28px 28px; }
+.stock-body > .mn-card { overflow-x: auto; }
 .ol-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 6px; align-items: end; padding-bottom: 6px; }
 .ol-f { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .ol-row .ol-text { grid-column: 1 / -1; }
