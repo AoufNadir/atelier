@@ -4,3 +4,5 @@ services:
       - "nasaq.localhost:127.0.0.1"
     volumes:
       - "${NASAQ_APP_DIR:?run through tools/dev/lib.sh}:/workspace/development/frappe-bench/apps/atelier"
+      # Customer and card folders (Settings > Folders). D:\نسق when drive D exists.
+      - "${NASAQ_FILES_DIR:?run through tools/dev/lib.sh}:/mnt/nasaq"

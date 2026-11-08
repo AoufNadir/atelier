@@ -173,6 +173,12 @@ setup_wizard_complete = "atelier.install.after_setup"
 # ---------------
 # Hook on document methods and events
 
+doc_events = {
+	"Customer": {"on_update": "atelier.folders.on_customer"},
+	"Sales Order": {"on_update": "atelier.folders.on_card", "on_update_after_submit": "atelier.folders.on_card"},
+	"File": {"after_insert": "atelier.folders.on_file"},
+}
+
 # doc_events = {
 # 	"*": {
 # 		"on_update": "method",

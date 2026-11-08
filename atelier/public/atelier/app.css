@@ -1564,3 +1564,8 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .tm-docs .btn { justify-content: center; padding-inline: 6px; text-align: center; }
 .tm-fold { all: unset; box-sizing: border-box; display: flex; justify-content: space-between; align-items: center; width: 100%; cursor: pointer; }
 .tm-fold:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* customer / card folder on the workshop computer */
+.tm-folder { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid #E4E7EC; border-radius: 8px; background: #FAFBFC; font-size: 13px; color: #475467; }
+.tm-folder > .ellipsis { flex: 1; min-width: 0; text-align: right; }
+.st2-warn { padding: 10px 12px; border-radius: 8px; background: #FFFAEB; color: #93370D; font-size: 13px; }

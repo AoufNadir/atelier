@@ -456,7 +456,7 @@ def card(name):
 		"due": so.delivery_date, "due_time": str(so.atelier_due_time)[:5] if so.get("atelier_due_time") else None,
 		"description": so.get("atelier_description") or "", "checklist": _jl(so.get("atelier_checklist")),
 		"client": _client(so.customer),
-		"cover": so.get("atelier_cover"), "files": files, "activity": activity,
+		"cover": so.get("atelier_cover"), "files": files, "activity": activity, "folder": _folders().card_folder(name),
 		"grand_total": row.grand_total, "paid": row.paid, "price_pending": row.price_pending, "docstatus": so.docstatus,
 		"per_delivered": so.per_delivered, "can_edit": bool(frappe.has_permission("Sales Order", "write", so)),
 		"money": api._can("GL Entry"),
@@ -476,6 +476,7 @@ def update_card(name, changes):
 		if not t:
 			frappe.throw(_("العنوان لا يكون فارغًا"))
 		so.db_set("atelier_subject", t)
+		_folders().card_changed(name)
 	if "labels" in ch:
 		ids = {l["id"] for l in cfg["labels"]}
 		so.db_set("atelier_labels", json.dumps([x for x in ch["labels"] if x in ids]))
@@ -513,11 +514,13 @@ def update_card(name, changes):
 	if ch.get("customer") and so.docstatus == 0 and ch["customer"] != so.customer:
 		if frappe.db.exists("Payment Entry", {"atelier_order": name, "docstatus": 1}):
 			frappe.throw(_("لهذا الطلب تسبيق باسم العميل الحالي، فلا يمكن تغيير العميل"))
+		old_folder = _folders().current_card_path(name)
 		so.customer = ch["customer"]
 		so.selling_price_list = api._price_list(frappe.db.get_value("Customer", so.customer, "customer_type"))
 		if so.project:  # ERPNext requires the order and its project to share a customer
 			frappe.db.set_value("Project", so.project, "customer", so.customer)
 		so.save()
+		_folders().card_moved(name, old_folder)
 		_log(name, _("غيّر العميل إلى {0}").format(so.customer_name))
 	return card(name)
 
@@ -1108,7 +1111,7 @@ def customer_extras(name):
 		join `tabSales Order Item` soi on soi.parent=so.name where so.customer=%s and so.docstatus<2 group by what order by n desc limit 5""", name, as_dict=True)
 	return {"legal": {"nif": c.get("tax_id"), "rc": c.get("atelier_rc"), "nis": c.get("atelier_nis"), "ai": c.get("atelier_ai")},
 		"credit_limit": flt(c.get("atelier_credit_limit")), "tags": _jl(c.get("atelier_tags")), "contacts": _jl(c.get("atelier_contacts")),
-		"disabled": cint(c.get("disabled")), "tva_exempt": cint(frappe.db.get_value("Customer", name, "atelier_tva_exempt")), "log": log, "months": months, "top": top, "customer_tags": customer_tags()}
+		"disabled": cint(c.get("disabled")), "tva_exempt": cint(frappe.db.get_value("Customer", name, "atelier_tva_exempt")), "folder": _folders().customer_folder(name), "log": log, "months": months, "top": top, "customer_tags": customer_tags()}
 
 
 def demo_customers_2():
@@ -1173,7 +1176,7 @@ def settings():
 	return {
 		"profile": workshop_profile(), "docs": doc_settings(), "alerts": alert_settings(),
 		"users": users, "funds": [a for a in accs if a.name in used or a.name in defaults], "all_funds": accs, "modes": modes,
-		"backups": _backups(), "email": email_settings(),
+		"backups": _backups(), "email": email_settings(), "folders": _folders().settings(),
 	}
 
 
@@ -1940,3 +1943,9 @@ def create_supplier_invoice(supplier, description, amount, account=None, order=N
 def demo_suppliers():
 	frappe.set_user("Administrator")
 	supplier_fields()
+
+
+def _folders():
+	from atelier import folders
+
+	return folders

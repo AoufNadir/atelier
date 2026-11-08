@@ -15,6 +15,12 @@ export NASAQ_APP_DIR="${NASAQ_APP_DIR:-$(cd "$NASAQ_TOOLS_DIR/../.." && pwd)}"
 export FRAPPE_CONTAINER="${NASAQ_COMPOSE_PROJECT}-frappe-1"
 export MARIADB_CONTAINER="${NASAQ_COMPOSE_PROJECT}-mariadb-1"
 mkdir -p "$NASAQ_STATE_DIR"
+# Customer and card folders. Override NASAQ_FILES_DIR in nasaq.env for another drive.
+if [ -z "${NASAQ_FILES_DIR:-}" ]; then
+  if [ -d /mnt/d ]; then NASAQ_FILES_DIR="/mnt/d/نسق"; else NASAQ_FILES_DIR="$NASAQ_STATE_DIR/files"; fi
+fi
+export NASAQ_FILES_DIR
+mkdir -p "$NASAQ_FILES_DIR" 2>/dev/null || true
 
 # The app is mounted into the bench, so this checkout is the only copy of the code.
 # The mount is added only once the bench exists: a mount point would create the

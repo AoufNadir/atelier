@@ -956,6 +956,13 @@ const CardModal = {
       if (!confirm(`حذف «${f.file_name}»؟`)) return;
       try { d.value = await call("delete_file", { name: props.name, file: f.name }, true); emit("changed"); } catch (x) { err.value = x.message; }
     };
+    const copyFolder = async () => { try { await navigator.clipboard.writeText(d.value.folder); toast("نُسخ مسار المجلد — الصقه في مستكشف الملفات"); } catch { /* path stays selectable */ } };
+    const pulling = ref(false);
+    const pullFiles = async () => {
+      pulling.value = true; err.value = null;
+      try { const r = await call("pull_files", { name: props.name }, true); toast(r.added ? `أُضيف ${r.added} ملف من المجلد` : "لا ملفات جديدة في المجلد"); if (r.added) { d.value = await call("card", { name: props.name }); emit("changed"); } }
+      catch (x) { err.value = x.message; } finally { pulling.value = false; }
+    };
     // comments
     const comment = ref("");
     const addComment = async () => {
@@ -1019,7 +1026,7 @@ const CardModal = {
     const dueTone = computed(() => { if (!d.value?.due || d.value.per_delivered >= 100) return ""; const n = daysFromToday(d.value.due); return n < 0 ? "late" : n <= 1 ? "soon" : ""; });
     watch(customer, () => (pickClient.value = false));
     return { tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
-      uploading, onFiles, delFile, comment, addComment, price, setPrice, pay, quote, offerMaterials, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
+      uploading, onFiles, delFile, copyFolder, pulling, pullFiles, comment, addComment, price, setPrice, pay, quote, offerMaterials, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
   <div class="overlay tm-overlay" @click.self="$emit('close')">
@@ -1121,6 +1128,9 @@ const CardModal = {
           <section class="tm-sec"><h3><Icon name="file" :size="17"/>المرفقات <span class="spacer"></span>
             <label v-if="d.can_edit" class="btn sm"><Icon name="image" :size="15"/>تصوير<input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFiles"></label>
             <label v-if="d.can_edit" class="btn sm">{{ uploading ? 'جارٍ الرفع…' : '+ إضافة' }}<input ref="fileInput" type="file" multiple class="sr-only" @change="onFiles"></label></h3>
+            <div v-if="d.folder" class="tm-folder"><Icon name="file" :size="15"/><span class="ellipsis" :title="d.folder">{{ d.folder.split('\\\\').pop() }}</span>
+              <button type="button" class="btn ghost sm" @click="copyFolder">نسخ المسار</button>
+              <button v-if="d.can_edit" type="button" class="btn ghost sm" :disabled="pulling" @click="pullFiles">{{ pulling ? 'جارٍ…' : 'تحديث الملفات' }}</button></div>
             <div v-if="!d.files.length" class="m">اسحب الملفات إلى هنا، أو اضغط «+ إضافة».</div>
             <div v-for="f in d.files" :key="f.name" class="tm-file">
               <a class="tm-thumb" :href="f.file_url" target="_blank" rel="noopener"><img v-if="isImg(f)" :src="f.file_url" alt=""><span v-else>{{ (f.file_name.split('.').pop() || '').toUpperCase() }}</span></a>
@@ -1444,6 +1454,7 @@ const SimpleCustomers = {
       d.value.orders.map((o) => [o.atelier_subject || o.name, o.name, o.transaction_date, o.grand_total.toFixed(2), o.paid.toFixed(2)])); };
     const reorder = async (o) => { try { const n = await call("reorder_card", { name: o.name }, true); toast("أُنشئت بطاقة جديدة في اللوحة"); go("/?card=" + encodeURIComponent(n)); } catch (e) { toast(e.message, "error"); } };
     const uploading = ref(false);
+    const copyText = async (t) => { try { await navigator.clipboard.writeText(t); toast("نُسخ مسار المجلد — الصقه في مستكشف الملفات"); } catch { /* selectable */ } };
     const onFile = async (e) => { const list = [...(e.target.files || [])]; if (!list.length) return; uploading.value = true;
       try { for (const x of list) await uploadPrivate(isImg({ file_name: x.name }) ? await shrinkImage(x) : x, "Customer", d.value.name); toast("رُفع الملف"); await open(d.value.name, true); }
       catch (x) { err.value = x.message; } finally { uploading.value = false; e.target.value = ""; } };
@@ -1464,7 +1475,7 @@ const SimpleCustomers = {
     const TABS = computed(() => [["orders", "الطلبات"], ["files", "الملفات"], ["log", "التواصل"], ["stats", "الإحصاء"], ...(d.value?.balance !== undefined ? [["account", "الحساب"]] : []), ["data", "البيانات"]]);
     return { s, load, sel, d, err, tab, q, f, draft, fopen, more, openFilters, applyFilters, resetFilters, TYPES, STATUSES, SORTS, everyone, ctags, rows, active, clearOne,
       kpi, quick, open, bal, lastWord, exportList, newOrderFor, pay, pmenu, merging, editNote, note, startNote, saveExtra, remind, startRemind, sendRemind, toggleDisabled,
-      doMerge, exportOrders, reorder, uploading, onFile, LOG_KINDS, logKind, logText, addLog, months6, maxMonth, stFrom, stTo, statementUrl, sendStatement, STATE_DOT,
+      doMerge, exportOrders, reorder, uploading, onFile, copyText, LOG_KINDS, logKind, logText, addLog, months6, maxMonth, stFrom, stTo, statementUrl, sendStatement, STATE_DOT,
       owesNow, TABS, labelStyle, isImg, waLink, money, fig, date, ago, state, go, t };
   },
   template: `
@@ -1588,6 +1599,8 @@ const SimpleCustomers = {
           </template>
           <template v-else-if="tab === 'files'">
             <label v-if="d.can_edit" class="cl-btn" style="align-self:flex-start">{{ uploading ? 'جارٍ الرفع…' : 'رفع ملف' }}<input type="file" multiple class="sr-only" @change="onFile"></label>
+            <div v-if="d.folder" class="tm-folder"><Icon name="file" :size="15"/><span class="ellipsis" :title="d.folder">{{ d.folder.split('\\\\').pop() }}</span>
+              <button type="button" class="cl-btn sm" @click="copyText(d.folder)">نسخ المسار</button></div>
             <div v-for="x in d.card_files" :key="x.name" class="cl-line"><Icon name="file" :size="18"/>
               <div style="flex:1;min-width:0"><a class="cl-line-t ellipsis" style="display:block" :href="x.file_url" target="_blank" rel="noopener">{{ x.file_name }}</a><span class="muted">{{ x.atelier_subject || 'ملف العميل' }} · {{ ago(x.creation) }}</span></div></div>
             <div v-if="!d.card_files.length" class="muted">كل ما يُرفق في بطاقات هذا العميل يظهر هنا.</div>
@@ -2139,7 +2152,7 @@ const BoardSettings = {
 const SETTINGS_GROUPS = [
   ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"]]],
   ["العمل", [["team", "users", "الفريق والحسابات"], ["board", "grid", "لوحة الطلبات"], ["prices", "tag", "الخدمات والأسعار"], ["lists", "grid", "القوائم"]]],
-  ["المال والنظام", [["funds", "wallet", "الدفع والصناديق"], ["alerts", "bell", "التنبيهات"], ["mail", "invoice", "البريد"], ["backup", "box", "النسخ الاحتياطي"]]],
+  ["المال والنظام", [["funds", "wallet", "الدفع والصناديق"], ["alerts", "bell", "التنبيهات"], ["mail", "invoice", "البريد"], ["folders", "file", "المجلدات"], ["backup", "box", "النسخ الاحتياطي"]]],
 ];
 const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "الوثائق والضريبة"], ["team", "👥", "الفريق والحسابات"], ["board", "▦", "تخصيص اللوحة"],
   ["prices", "🏷", "الخدمات والأسعار"], ["funds", "💳", "الدفع والصناديق"], ["alerts", "🔔", "التنبيهات"], ["backup", "💾", "النسخ الاحتياطي"]];
@@ -2246,13 +2259,18 @@ const SettingsPage = {
     watch(() => s.data, (v) => { if (v && v.email) Object.assign(mail, { ...v.email, password: "" }); }, { immediate: true });
     const MAIL_PRESETS = [["Gmail", "smtp.gmail.com", 587, "tls"], ["Outlook", "smtp.office365.com", 587, "tls"], ["Yahoo", "smtp.mail.yahoo.com", 465, "ssl"]];
     const saveMail = () => run("mail", async () => { Object.assign(mail, { ...(await call("save_email", { cfg: JSON.stringify(mail) }, true)), password: "" }); }, "حُفظ البريد");
+    const fold = reactive({ enabled: 0, display_root: "D:\\نسق", sub: "العملاء", order: "date_first", available: false }), foldDone = ref(null);
+    watch(() => s.data, (v) => { if (v && v.folders) Object.assign(fold, v.folders); }, { immediate: true });
+    const saveFolders = () => run("folders", async () => { Object.assign(fold, await call("save_folders", { data: JSON.stringify(fold) }, true)); }, "حُفظت إعدادات المجلدات");
+    const syncFolders = () => run("foldsync", async () => { foldDone.value = await call("sync_folders", {}, true); });
+    const foldSample = computed(() => { const d = "2026-11-08", t = "لافتة واجهة"; return (fold.order === "title_first" ? `${t} — ${d}` : `${d} — ${t}`) + " (00012)"; });
     const testMail = () => run("mailtest", () => call("test_email", { to: mailTo.value || mail.email_id }, true), "أُرسلت رسالة تجريبية — تحقق من صندوق الوارد");
     const META = { profile: ["بيانات المطبعة", "تظهر في رأس كل بون وفاتورة وكشف حساب", saveProfile], docs: ["الوثائق والضريبة", "الضريبة ونص أسفل الوثائق ومهلة الدفع", saveDocs],
       team: ["الفريق والحسابات", "من يدخل إلى البرنامج وبأي صلاحية"], board: ["لوحة الطلبات", "الأعمدة والحالات التي يراها الفريق"], prices: ["الخدمات والأسعار", "سعر الأفراد وسعر المؤسسات لكل خدمة"],
       lists: ["القوائم", "وحدات البيع والأوسام ومواعيد التسليم وأنواع التكلفة والأدوار"], funds: ["الدفع والصناديق", "أسماء الصناديق وطرق الدفع"], alerts: ["التنبيهات", "ما يصل إلى جرس كل عضو", saveAlerts],
-      mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"] };
+      mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], folders: ["المجلدات", "مجلد لكل عميل ولكل بطاقة على هذا الحاسوب", saveFolders], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"] };
     const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
-    return { mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
+    return { fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
       LIST_DEFS, renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
   },
   template: `
@@ -2367,6 +2385,24 @@ const SettingsPage = {
             <div class="st2-fields"><div class="st2-row"><label class="cl-fgroup grow2"><span>إلى</span><input class="input" v-model="mailTo" type="email" dir="ltr" :placeholder="mail.email_id"></label>
               <button type="button" class="cl-btn" style="align-self:flex-end" :disabled="!s.data.email.configured || !!busy" @click="testMail">إرسال رسالة تجريبية</button></div>
               <span v-if="!s.data.email.configured" class="muted">البريد غير مضبوط بعد.</span></div></div>
+        </div>
+
+        <div v-else-if="tab === 'folders'" class="st2-card">
+          <div class="st2-grp"><div class="st2-lbl"><b>مجلدات العملاء</b><span>عند إنشاء عميل يُنشأ له مجلد باسمه، وداخله مجلد لكل بطاقة. الملفات المرفوعة على البطاقة تُنسخ إليه. لا يُحذف أي مجلد أبدًا.</span></div>
+            <div class="st2-fields">
+              <label class="st2-check"><input type="checkbox" :checked="!!fold.enabled" @change="fold.enabled = $event.target.checked ? 1 : 0"><span>تفعيل المجلدات</span></label>
+              <div v-if="!fold.available" class="st2-warn">القرص غير متصل بالبرنامج على هذا الحاسوب، فلن تُنشأ المجلدات حتى يتصل.</div>
+              <div class="st2-row"><label class="cl-fgroup grow2"><span>المجلد الرئيسي</span><input class="input" v-model="fold.display_root" dir="ltr"></label>
+                <label class="cl-fgroup"><span>مجلد العملاء داخله</span><input class="input" v-model="fold.sub"></label></div>
+              <span class="muted">المجلد الرئيسي يحدده تشغيل البرنامج على الحاسوب (D:\\نسق افتراضيًا). غيّر هذا الحقل فقط إذا نُقل المجلد.</span></div></div>
+          <div class="st2-grp"><div class="st2-lbl"><b>اسم مجلد البطاقة</b><span>التاريخ أولًا يرتّب المشاريع من الأقدم إلى الأحدث.</span></div>
+            <div class="st2-fields">
+              <label class="st2-check"><input type="radio" name="fold-order" value="date_first" v-model="fold.order"><span>التاريخ — المشروع</span></label>
+              <label class="st2-check"><input type="radio" name="fold-order" value="title_first" v-model="fold.order"><span>المشروع — التاريخ</span></label>
+              <span class="muted" dir="ltr" style="text-align:right">{{ fold.display_root }}\\{{ fold.sub }}\\مخبزة السعادة\\{{ foldSample }}</span></div></div>
+          <div class="st2-grp"><div class="st2-lbl"><b>العملاء والبطاقات الموجودة</b><span>احفظ الإعدادات أولًا، ثم أنشئ المجلدات لما هو موجود مع نسخ ملفاته. يمكن تكرارها بأمان.</span></div>
+            <div class="st2-fields"><button type="button" class="cl-btn" style="align-self:flex-start" :disabled="!fold.enabled || !fold.available || !!busy" @click="syncFolders">{{ busy === 'foldsync' ? 'جارٍ الإنشاء…' : 'إنشاء المجلدات الآن' }}</button>
+              <span v-if="foldDone" class="muted">تمّ: {{ foldDone.customers }} عميل، {{ foldDone.cards }} بطاقة، {{ foldDone.files }} ملف منسوخ.</span></div></div>
         </div>
 
         <div v-else-if="tab === 'backup'" class="st2-card">
