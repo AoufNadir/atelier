@@ -136,12 +136,13 @@ const route = computed(() => {
   if (p === "/suppliers") return { name: "suppliers" };
   if ((m = p.match(/^\/suppliers\/(.+)$/))) return { name: "supplier", id: decodeURIComponent(m[1]) };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
-  if (["/money", "/reports", "/prices", "/team", "/board-settings", "/settings", "/stock"].includes(p)) return { name: p.slice(1) };
+  if (["/money", "/reports", "/prices", "/team", "/board-settings", "/settings", "/stock", "/calc"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
 // ------------------------------------------------------------------ icons (inline stroke SVG)
 const ICONS = {
+  calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h2M12 12h2M8 16h2M12 16h2"/>',
   home: "M3 11 12 4l9 7M5 10v10h5v-6h4v6h5V10",
   orders: "M7 4h10l3 3v13H4V4h3Zm0 0v4h10V4M8 13h8M8 17h5",
   users: "M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6M21 19v-1a4 4 0 0 0-3-3.9M16 4.1a3 3 0 0 1 0 5.8",
@@ -2684,6 +2685,7 @@ const SECTION_NAV = [
   { key: "stock", path: "/stock", icon: "box", label: "nav_stock", match: ["stock"], need: "stock" },
   { key: "machines", path: "/machines", icon: "gear", label: "nav_machines", match: ["machines"] },
   { key: "prices", path: "/prices", icon: "tag", label: "nav_prices", match: ["prices"], need: "prices" },
+  { key: "calc", path: "/calc", icon: "calc", label: "nav_calc", match: ["calc"], need: "finance" },
   { key: "reports", path: "/reports", icon: "chart", label: "nav_reports", match: ["reports"], need: "finance" },
   { key: "team", path: "/team", icon: "users", label: "nav_team", match: ["team"], need: "prices" },
 ];
@@ -2742,6 +2744,152 @@ const RecipesCard = {
             <input class="input num" style="max-width:110px" inputmode="decimal" v-model="r.qty" aria-label="الكمية" placeholder="الكمية"><button type="button" class="cl-btn sm" :aria-label="'حذف ' + (i + 1)" @click="rows.splice(i, 1)">×</button></div>
           <div class="row" style="gap:8px"><button type="button" class="cl-btn sm" :disabled="!d.materials.length" @click="add">+ مادة</button><button type="button" class="cl-btn primary sm" :disabled="busy" @click="save">حفظ الوصفة</button></div></template></template></div></section>`,
 };
+// Cost calculator: price a job before the order exists. Same cost rules as the card's cost section.
+const CalcPage = {
+  components: { Icon },
+  setup() {
+    const { s, load } = useLoad(() => call("calc_data"));
+    const num = (v) => +v || 0;
+    const blank = () => ({ id: null, title: "", item_code: "", qty: 1, width: "", height: "", waste_percent: 5, lines: [],
+      margins: { ...(s.data?.margins || { Individual: 40, Company: 30 }) } });
+    const c = ref(blank());
+    onMounted(async () => { await load(); c.value.margins = { ...s.data.margins }; });
+    const svc = computed(() => (s.data?.services || []).find((x) => x.item_code === c.value.item_code));
+    const types = computed(() => s.data?.cost_types || []);
+    const isMat = (t) => !!types.value.find((x) => x.value === t)?.material;
+    const area = computed(() => !!(svc.value?.area && num(c.value.width) && num(c.value.height)));
+    const units = computed(() => (area.value ? num(c.value.qty) * num(c.value.width) * num(c.value.height) : num(c.value.qty)));
+    const unitName = computed(() => (svc.value ? uom(svc.value.stock_uom) : "قطعة"));
+    const recipeLines = () => (svc.value?.recipe || []).map((r) => {
+      const m = (s.data?.materials || []).find((x) => x.item_code === r.item_code) || {};
+      return { cost_type: "Matière", description: m.item_name || r.item_code, item: r.item_code, per: r.qty, qty: +(r.qty * units.value).toFixed(3), rate: m.rate ?? "", uom: m.stock_uom, source: "recipe" };
+    });
+    const pickService = () => {
+      if (svc.value && !c.value.title) c.value.title = svc.value.item_name;
+      c.value.lines = [...recipeLines(), ...c.value.lines.filter((l) => l.source !== "recipe")];
+    };
+    watch(units, (u) => { for (const l of c.value.lines) if (l.source === "recipe") l.qty = +(l.per * u).toFixed(3); });
+    const addLine = (kind) => c.value.lines.push(kind === "mat"
+      ? { cost_type: "Matière", description: "", item: "", qty: units.value || 1, rate: "", source: "stock" }
+      : { cost_type: (types.value.find((t) => !t.material) || types.value[0] || {}).value || "Autre", description: "", qty: 1, rate: "", source: "manual" });
+    const pickMaterial = (l) => { const m = (s.data?.materials || []).find((x) => x.item_code === l.item); if (m) { l.description = m.item_name; l.uom = m.stock_uom; l.rate = m.rate ?? ""; } };
+    const amount = (l) => num(l.qty) * num(l.rate) * (isMat(l.cost_type) ? 1 + num(c.value.waste_percent) / 100 : 1);
+    const missing = computed(() => c.value.lines.filter((l) => l.description && (l.rate === "" || l.rate === null)).length);
+    const matTotal = computed(() => c.value.lines.filter((l) => isMat(l.cost_type)).reduce((a, l) => a + amount(l), 0));
+    const total = computed(() => c.value.lines.reduce((a, l) => a + amount(l), 0));
+    const unitCost = computed(() => (units.value ? total.value / units.value : 0));
+    const suggest = (k) => { const m = Math.min(90, num(c.value.margins[k])); return unitCost.value ? Math.ceil(unitCost.value / (1 - m / 100) / 10) * 10 : 0; };
+    const current = (k) => (svc.value ? svc.value[k === "Individual" ? "price_individual" : "price_company"] : null);
+    const curMargin = (k) => { const p = num(current(k)); return p ? Math.round((p - unitCost.value) / p * 100) : null; };
+    const KINDS = [["Individual", "الأفراد"], ["Company", "المؤسسات"]];
+    const PRESETS = [20, 30, 40, 50, 60];
+    const busy = ref(null), err = ref(null);
+    const run = async (key, fn, msg) => { busy.value = key; err.value = null; try { const r = await fn(); if (msg) toast(msg); return r; } catch (e) { err.value = e.message; } finally { busy.value = null; } };
+    const payload = () => JSON.stringify({ ...c.value, lines: c.value.lines.filter((l) => l.description) });
+    const saveMargins = () => run("margins", async () => { s.data.margins = await call("save_margins", { data: JSON.stringify(c.value.margins) }, true); }, "حُفظت الهوامش كقيمة افتراضية");
+    const savePrice = (k) => run("price" + k, async () => {
+      const r = await call("set_price", { item_code: c.value.item_code, kind: k, rate: suggest(k) }, true);
+      svc.value[k === "Individual" ? "price_individual" : "price_company"] = r;
+    }, "حُفظ السعر للخدمة");
+    // saved calculations
+    const list = ref(false);
+    const save = () => run("save", async () => {
+      if (!c.value.title) c.value.title = svc.value?.item_name || "";
+      const r = await call("save_calc", { data: payload(), id: c.value.id }, true);
+      c.value.id = r.id; s.data.saved = [r, ...s.data.saved.filter((x) => x.id !== r.id)];
+    }, "حُفظ الحساب");
+    const open = (x) => run("open", async () => { const r = await call("get_calc", { id: x.id }); c.value = { ...blank(), ...r.data, id: r.id, margins: { ...r.data.margins } }; list.value = false; });
+    const drop = (x) => { if (confirm(`حذف «${x.title}»؟`)) run("drop", async () => { await call("delete_calc", { id: x.id }, true); s.data.saved = s.data.saved.filter((y) => y.id !== x.id); }); };
+    const fresh = () => { c.value = blank(); err.value = null; };
+    // order / devis
+    const sheet = ref(null), customers = ref([]);
+    const startOrder = async (kind) => {
+      err.value = null;
+      sheet.value = { kind, customer: "", rate: suggest("Individual") };
+      if (!customers.value.length) { try { customers.value = (await call("customers2")).rows; } catch { customers.value = []; } }
+    };
+    const pickCustomer = () => { const x = customers.value.find((y) => y.name === sheet.value.customer); sheet.value.rate = suggest(x?.customer_type === "Company" ? "Company" : "Individual"); };
+    const submitOrder = async () => {
+      const f = sheet.value, win = f.kind === "devis" ? window.open("about:blank", "_blank") : null;
+      busy.value = "order"; err.value = null;
+      try {
+        const so = await call("calc_order", { data: payload(), customer: f.customer || null, rate: f.rate }, true);
+        if (f.kind === "devis") { const q = await call("card_quote", { order: so, kind: "devis" }, true); if (win) win.location = pdfUrl("Quotation", q, "الورشة — عربي"); }
+        sheet.value = null; toast(f.kind === "devis" ? "أُنشئ الطلب وعرض السعر" : "أُنشئ الطلب"); go("/order/" + so);
+      } catch (e) { if (win) win.close(); err.value = e.message; } finally { busy.value = null; }
+    };
+    return { s, c, svc, types, isMat, area, units, unitName, pickService, addLine, pickMaterial, amount, missing, matTotal, total, unitCost, suggest, current, curMargin,
+      KINDS, PRESETS, busy, err, saveMargins, savePrice, list, save, open, drop, fresh, sheet, customers, startOrder, pickCustomer, submitOrder, money, num, uom, state };
+  },
+  template: `
+  <div class="page tb cb calc">
+    <div class="calc-head"><div><h1>حاسبة التكلفة</h1><span class="muted">احسب السعر قبل أن تعطيه للعميل</span></div><span class="spacer"></span>
+      <button type="button" class="cl-btn" @click="list = !list"><Icon name="file" :size="16"/>حسابات محفوظة<span v-if="s.data" class="muted"> {{ s.data.saved.length }}</span></button>
+      <button type="button" class="cl-btn" @click="fresh"><Icon name="plus" :size="16"/>حساب جديد</button></div>
+    <div v-if="s.error" class="alert error" style="margin:0 28px 12px">{{ s.error }}</div>
+    <div v-if="err" class="alert error" style="margin:0 28px 12px">{{ err }}</div>
+    <section v-if="list && s.data" class="mn-card calc-saved">
+      <div v-for="x in s.data.saved" :key="x.id" class="cl-line"><div style="flex:1;min-width:0"><a href="#" class="cl-line-t ellipsis" style="display:block" @click.prevent="open(x)">{{ x.title }}</a><span class="muted">{{ x.at }} · {{ x.by }}</span></div>
+        <button type="button" class="cl-btn sm ghost" :aria-label="'حذف ' + x.title" @click="drop(x)"><Icon name="x" :size="14"/></button></div>
+      <div v-if="!s.data.saved.length" class="muted">لا حسابات محفوظة بعد.</div></section>
+    <div v-if="s.data" class="calc-body">
+      <div class="calc-main">
+        <section class="mn-card"><div class="mn-card-h"><b>العمل</b><span class="muted">ماذا يريد العميل؟</span></div>
+          <div class="calc-fields">
+            <div class="calc-row"><label class="cl-fgroup grow2"><span>الخدمة</span><select class="input" v-model="c.item_code" @change="pickService"><option value="">اختر الخدمة</option><option v-for="x in s.data.services" :key="x.item_code" :value="x.item_code">{{ x.item_name }}</option></select></label>
+              <label class="cl-fgroup grow2"><span>اسم الحساب</span><input class="input" v-model="c.title" placeholder="مثال: لافتة مخبزة السعادة"></label></div>
+            <div class="calc-row"><label class="cl-fgroup"><span>الكمية</span><div class="unit-wrap"><input class="input num" v-model="c.qty" inputmode="decimal"><span class="u">قطعة</span></div></label>
+              <template v-if="svc && svc.area"><label class="cl-fgroup"><span>العرض</span><div class="unit-wrap"><input class="input num" v-model="c.width" inputmode="decimal"><span class="u">م</span></div></label>
+                <label class="cl-fgroup"><span>الارتفاع</span><div class="unit-wrap"><input class="input num" v-model="c.height" inputmode="decimal"><span class="u">م</span></div></label></template>
+              <label class="cl-fgroup"><span>نسبة التلف</span><div class="unit-wrap"><input class="input num" v-model="c.waste_percent" inputmode="decimal"><span class="u">%</span></div></label></div>
+            <span v-if="area" class="muted">المساحة: {{ +units.toFixed(2) }} م² · مع التلف {{ +(units * (1 + num(c.waste_percent) / 100)).toFixed(2) }} م²</span>
+            <span v-else-if="svc && svc.area" class="muted">هذه الخدمة تُسعَّر بالمتر المربع: أدخل العرض والارتفاع.</span>
+            <span v-if="svc && !svc.recipe.length" class="muted">لا وصفة مواد لهذه الخدمة. أضف المواد يدويًا، أو سجّل الوصفة في صفحة المخزون.</span></div></section>
+        <section class="mn-card"><div class="mn-card-h"><b>بنود التكلفة</b><span class="muted">تُقترح من وصفة الخدمة، ويمكن تعديلها</span></div>
+          <div class="calc-lines">
+            <div v-for="(l, i) in c.lines" :key="i" class="calc-line">
+              <div class="calc-l-name"><select v-if="l.source === 'stock'" class="input" v-model="l.item" @change="pickMaterial(l)" aria-label="المادة"><option value="" disabled>اختر المادة</option><option v-for="m in s.data.materials" :key="m.item_code" :value="m.item_code">{{ m.item_name }}</option></select>
+                <input v-else class="input" v-model="l.description" aria-label="البند" placeholder="مثال: تشغيل آلة الطباعة">
+                <span class="muted">{{ l.source === 'recipe' ? 'من الوصفة · ' + l.per + ' لكل ' + unitName : l.source === 'stock' ? 'من المخزون' : 'أُضيف يدويًا' }}<template v-if="l.item && l.rate !== '' && l.rate !== null"> · سعر المخزون</template></span></div>
+              <select class="input calc-l-type" v-model="l.cost_type" aria-label="النوع" :disabled="l.source !== 'manual'"><option v-for="t in types" :key="t.value" :value="t.value">{{ t.label }}</option></select>
+              <label class="unit-wrap calc-l-n"><input class="input num" v-model="l.qty" inputmode="decimal" aria-label="الكمية"><span class="u">{{ l.uom ? uom(l.uom) : '' }}</span></label>
+              <label class="unit-wrap calc-l-n"><input class="input num" v-model="l.rate" inputmode="decimal" aria-label="سعر الوحدة" :class="{'calc-miss': l.rate === '' || l.rate === null}" placeholder="السعر"><span class="u">دج</span></label>
+              <b class="money calc-l-amt">{{ money(amount(l)) }}</b>
+              <button type="button" class="cl-btn sm ghost" :aria-label="'حذف ' + (l.description || 'البند')" @click="c.lines.splice(i, 1)"><Icon name="x" :size="14"/></button></div>
+            <div v-if="!c.lines.length" class="muted">اختر خدمة لتُقترح موادها، أو أضف بنودًا.</div>
+            <div class="row" style="gap:16px;flex-wrap:wrap"><button type="button" class="cl-link" @click="addLine('manual')">+ بند (آلة، يد عاملة، مورد…)</button><button type="button" class="cl-link" @click="addLine('mat')">+ مادة من المخزون</button></div>
+            <span v-if="missing" class="calc-warn">{{ missing }} بند بلا سعر: النتيجة أقل من الحقيقة.</span></div></section>
+      </div>
+      <aside class="calc-side">
+        <section class="mn-card calc-res"><b>النتيجة</b>
+          <div class="calc-kv"><span>المواد (مع التلف)</span><span class="money">{{ money(matTotal) }}</span></div>
+          <div class="calc-kv"><span>بنود أخرى</span><span class="money">{{ money(total - matTotal) }}</span></div>
+          <div class="calc-kv calc-strong"><span>التكلفة الكلية</span><span class="money">{{ money(total) }}</span></div>
+          <div class="calc-kv calc-strong"><span>تكلفة {{ unitName }}</span><span class="money">{{ money(unitCost) }}</span></div>
+          <div v-if="area" class="calc-kv"><span>تكلفة القطعة</span><span class="money">{{ money(num(c.qty) ? total / num(c.qty) : 0) }}</span></div>
+          <div v-for="k in KINDS" :key="k[0]" class="calc-price">
+            <div class="row" style="gap:8px"><span class="muted" style="flex:1">هامش ربح {{ k[1] }}</span>
+              <div class="unit-wrap" style="width:96px"><input class="input num" v-model="c.margins[k[0]]" inputmode="decimal" :aria-label="'هامش ' + k[1]"><span class="u">%</span></div></div>
+            <div class="calc-chips"><button v-for="p in PRESETS" :key="p" type="button" :class="{on: num(c.margins[k[0]]) === p}" @click="c.margins[k[0]] = p">{{ p }}%</button></div>
+            <div class="calc-sug"><span class="money">{{ money(suggest(k[0])) }}</span><span class="muted"> لكل {{ unitName }}</span></div>
+            <span v-if="svc" class="muted">السعر المسجّل: {{ current(k[0]) ? money(current(k[0])) : 'غير محدد' }}<template v-if="curMargin(k[0]) !== null"> · <b :class="curMargin(k[0]) < num(c.margins[k[0]]) ? 'bad' : 'good'">ربحه {{ curMargin(k[0]) }}%</b></template></span>
+            <button v-if="svc && s.data.can_price" type="button" class="cl-btn sm" :disabled="!suggest(k[0]) || !!busy" @click="savePrice(k[0])">حفظ كسعر {{ k[1] }}</button></div>
+          <button type="button" class="cl-link" :disabled="!!busy" @click="saveMargins">اجعل هذه الهوامش افتراضية</button></section>
+        <div class="calc-actions"><button type="button" class="cl-btn primary" :disabled="!total || !!busy" @click="startOrder('devis')"><Icon name="file" :size="16"/>إنشاء عرض سعر</button>
+          <div class="row" style="gap:8px"><button type="button" class="cl-btn" style="flex:1" :disabled="!total || !!busy" @click="startOrder('order')"><Icon name="plus" :size="16"/>إنشاء طلب</button>
+            <button type="button" class="cl-btn" style="flex:1" :disabled="!c.lines.length || !!busy" @click="save">{{ busy === 'save' ? 'جارٍ…' : 'حفظ الحساب' }}</button></div></div>
+      </aside>
+    </div>
+    <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submitOrder"><div class="sh-head"><h2>{{ sheet.kind === 'devis' ? 'إنشاء عرض سعر' : 'إنشاء طلب' }}</h2></div>
+      <div v-if="err" class="alert error">{{ err }}</div>
+      <div class="field"><label for="calc-cust">العميل</label><select id="calc-cust" class="input" v-model="sheet.customer" @change="pickCustomer"><option value="">زبون نقدي</option><option v-for="x in customers" :key="x.name" :value="x.name">{{ x.customer_name }}</option></select></div>
+      <div class="field"><label for="calc-rate">السعر لكل {{ unitName }} (دج)</label><input id="calc-rate" class="input num" v-model="sheet.rate" inputmode="decimal"><span class="muted">مقترح حسب نوع العميل. المجموع: {{ money(num(sheet.rate) * units) }}</span></div>
+      <span class="muted">يُنشأ الطلب في اللوحة، وتُحفظ بنود التكلفة في قسم التكلفة في البطاقة.{{ sheet.kind === 'devis' ? ' ويُفتح عرض السعر للطباعة.' : '' }}</span>
+      <div class="sh-foot"><button type="button" class="cl-btn" @click="sheet = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="busy === 'order' || !(num(sheet.rate) > 0)">{{ busy === 'order' ? 'جارٍ…' : 'إنشاء' }}</button></div>
+    </form></div>
+  </div>`,
+};
+
 const StockPage = {
   components: { Icon, RecipesCard },
   setup() {
@@ -2808,7 +2956,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { StockPage, MaterialsSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { StockPage, CalcPage, MaterialsSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -2824,7 +2972,7 @@ const App = {
     });
     const isActive = (n) => n.match.includes(route.value.name);
     const titles = { ds: "ds_title", "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
-      money: "nav_money", suppliers: "nav_suppliers", supplier: "nav_suppliers", stock: "nav_stock", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings", settings: "nav_settings" };
+      money: "nav_money", suppliers: "nav_suppliers", supplier: "nav_suppliers", stock: "nav_stock", calc: "nav_calc", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings", settings: "nav_settings" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
     const initials = (n) => String(n || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join(" ");
     const logout = async () => {
@@ -2859,7 +3007,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'suppliers', 'supplier', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
+      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'suppliers', 'supplier', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports', 'calc'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
@@ -2874,6 +3022,7 @@ const App = {
         <SimpleMoney v-else-if="route.name==='money'"/>
         <SuppliersPage v-else-if="route.name==='suppliers' || route.name==='supplier'" :key="state.path" :open-id="route.id"/>
         <StockPage v-else-if="route.name==='stock'"/>
+        <CalcPage v-else-if="route.name==='calc'"/>
         <ReportsPage2 v-else-if="route.name==='reports'"/>
         <SettingsPage v-else-if="route.name==='prices'" key="prices" start="prices"/>
         <SettingsPage v-else-if="route.name==='team'" key="team" start="team"/>

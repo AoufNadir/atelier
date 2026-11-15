@@ -3,7 +3,7 @@ export default {
   app_name: "نَسَق", app_tagline: "مساحة عمل المطبعة", currency: "دج",
   demo_banner: "بيانات تجريبية — الأسماء والأرقام وهمية",
   skip: "تخطَّ إلى المحتوى",
-  nav_home: "الرئيسية", nav_orders: "الطلبات", nav_customers: "العملاء", nav_money: "المال", nav_stock: "المخزون",
+  nav_home: "الرئيسية", nav_orders: "الطلبات", nav_customers: "العملاء", nav_money: "المال", nav_stock: "المخزون", nav_calc: "حاسبة التكلفة",
   nav_machines: "الماكينات", nav_reports: "التقارير", nav_more: "المزيد", nav_erpnext: "النظام الكامل",
   nav_group_daily: "العمل اليومي", nav_group_erp: "في ERPNext", ext: "ERPNext",
   collapse: "طيّ القائمة", expand: "توسيع القائمة",
