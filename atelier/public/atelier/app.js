@@ -696,7 +696,7 @@ const CustomerField = {
 const BoardPanel = {
   props: ["mode", "order", "preset", "columns"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
   setup(props, { emit }) {
-    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", lines: [{ text: "", item_code: null, uom: "", qty: 1, rate: "", auto: false }], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
+    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", subject: "", lines: [{ text: "", item_code: null, uom: "", qty: 1, rate: "", auto: false }], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
     const startColumns = computed(() => (props.columns || []).filter((c) => !c.deliver));
     if (startColumns.value.length) f.column = startColumns.value[0].id;
     const dueChips = computed(() => (state.boot?.lists?.due || []).map((c) => [c.label, c.days]));
@@ -729,7 +729,7 @@ const BoardPanel = {
       saving.value = true;
       try {
         await call("quick_order", { data: JSON.stringify({
-          customer: f.customer?.name || null, new_customer: f.customer ? {} : { name: newName.value, phone: f.phone, type: f.type },
+          customer: f.customer?.name || null, subject: f.subject.trim(), new_customer: f.customer ? {} : { name: newName.value, phone: f.phone, type: f.type },
           lines: filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty, rate: l.rate === "" ? null : +l.rate })), advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
         }) }, true);
         toast("حُفظ الطلب"); emit("saved");
@@ -761,6 +761,9 @@ const BoardPanel = {
           <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div></div>
       <div v-if="credit && credit.note" class="sh-note warn">ملاحظة العميل: {{ credit.note }}</div>
       <div v-if="credit && credit.over" class="sc2-alert" role="alert">هذا العميل تجاوز سقف الدين: عليه {{ fig(credit.owes) }} من {{ fig(credit.limit) }} دج</div>
+      <div class="f"><label for="qo-subject">اسم المشروع <span class="m" style="display:inline">(اختياري)</span></label>
+        <input id="qo-subject" class="input" v-model="f.subject" maxlength="120" placeholder="مثال: هوية مطعم الواحة">
+        <span class="m">إن تُرك فارغًا يُسمّى الطلب باسم أول خدمة</span></div>
       <div class="f"><span class="lbl">ماذا يريد؟</span>
         <div v-for="(l, i) in f.lines" :key="i" class="ol-row">
           <input class="input ol-text" list="svc-list" v-model="l.text" @input="lineInput(l)" aria-label="الخدمة" placeholder="اختر خدمة أو اكتب وصفًا">
@@ -830,7 +833,7 @@ const BoardCard = {
       <div class="tc-cust">{{ c.customer_name }}<template v-if="c.price_pending"> · <span class="bd-warn">بلا سعر</span></template></div>
       <div class="tc-foot">
         <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: daysFromToday(c.due) < 0, soon: daysFromToday(c.due) >= 0 && daysFromToday(c.due) <= 1}"><Icon name="clock" :size="13"/>{{ dueWord(c.due) }}<template v-if="c.due_time"> {{ c.due_time }}</template></span>
-        <span v-else-if="c.per_delivered >= 100" :class="c.grand_total - c.paid > 0.005 ? 'bd-late' : 'bd-ok'">{{ c.grand_total - c.paid > 0.005 ? 'باقي ' + money(c.grand_total - c.paid) : 'مدفوع' }}</span>
+        <span v-else-if="c.per_delivered >= 100 && c.grand_total != null" :class="c.grand_total - c.paid > 0.005 ? 'bd-late' : 'bd-ok'">{{ c.grand_total - c.paid > 0.005 ? 'باقي ' + money(c.grand_total - c.paid) : 'مدفوع' }}</span>
         <span v-if="c.comments" class="tc-m" title="تعليقات"><Icon name="msg" :size="13"/>{{ c.comments }}</span>
         <span v-if="c.files" class="tc-m" title="مرفقات"><Icon name="file" :size="13"/>{{ c.files }}</span>
         <span v-if="c.check[1]" class="tc-check" :class="{full: c.check[0] === c.check[1]}" title="قائمة المهام"><Icon name="check" :size="13"/>{{ c.check[0] }}/{{ c.check[1] }}</span>
@@ -1144,7 +1147,7 @@ const CardModal = {
         </div>
 
         <aside class="tm-side">
-          <div v-if="d.money" class="tm-money"><h3>المال <span class="m" style="display:inline;margin-inline-start:auto">للمدير</span></h3>
+          <div v-if="d.money" class="tm-money"><h3>المال</h3>
             <template v-if="d.price_pending"><span class="m">لم يُحدَّد السعر بعد</span>
               <div class="row" style="gap:8px"><div class="unit-wrap" style="flex:1"><input class="input num" inputmode="decimal" v-model="price" placeholder="0" aria-label="السعر"><span class="u">دج</span></div><button type="button" class="btn primary" @click="setPrice">حفظ</button></div></template>
             <template v-else>
@@ -1307,7 +1310,7 @@ const Board = {
       <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="المزيد" :aria-expanded="more" @click.stop="more = !more; fopen = false; bell = false"><Icon name="more" :size="18"/></button>
         <div v-if="more" class="cl-pop cl-menu" @click.stop><button type="button" @click="more = false; showArchive()"><Icon name="box" :size="16"/>الأرشيف</button>
           <button v-if="s.data && s.data.manager" type="button" @click="go('/settings?tab=board')"><Icon name="gear" :size="16"/>تخصيص اللوحة</button></div></div>
-      <button type="button" class="cl-btn primary" @click="panel = {mode: 'new'}"><Icon name="plus" :size="16"/>طلب جديد</button>
+      <button v-if="state.boot.can.order" type="button" class="cl-btn primary" @click="panel = {mode: 'new'}"><Icon name="plus" :size="16"/>طلب جديد</button>
     </div>
     <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
     <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
@@ -1342,7 +1345,7 @@ const Board = {
           <form v-if="adding === c.id" class="tb-add" @submit.prevent="addCard(c.id)">
             <textarea :id="'add-' + c.id" class="input" v-model="newTitle" rows="2" placeholder="عنوان البطاقة…" aria-label="عنوان البطاقة" @keydown.enter.prevent="addCard(c.id)" @keydown.esc="adding = null"></textarea>
             <div class="row" style="gap:6px"><button type="submit" class="btn primary sm">إضافة</button><button type="button" class="btn ghost sm" @click="adding = null">إلغاء</button></div></form>
-          <button v-else type="button" class="tb-addbtn" @click="startAdd(c.id)">+ إضافة بطاقة</button>
+          <button v-else-if="state.boot.can.order" type="button" class="tb-addbtn" @click="startAdd(c.id)">+ إضافة بطاقة</button>
         </template>
       </section>
       <div v-if="s.data && s.data.manager" class="tb-newcol">
@@ -2235,7 +2238,7 @@ const SettingsPage = {
     const saveDocs = () => run("docs", async () => Object.assign(docs, await call("save_doc_settings", { docs: JSON.stringify(docs) }, true)), "حُفظت إعدادات الوثائق");
     const saveAlerts = () => run("alerts", async () => Object.assign(alerts, await call("save_alerts", { alerts: JSON.stringify(alerts) }, true)), "حُفظت التنبيهات");
     // accounts
-    const nu = reactive({ email: "", full_name: "", role: "staff" }), link = ref(null);
+    const nu = reactive({ email: "", full_name: "", role: "sales" }), link = ref(null);
     const saveUser = (u) => run("user", async () => {
       const r = await call("save_user", u ? { email: u.name, full_name: u.full_name, role: u.role, enabled: u.enabled } : { ...nu }, true);
       if (!u) { link.value = { email: nu.email, url: r.link }; nu.email = ""; nu.full_name = ""; }
@@ -2325,18 +2328,18 @@ const SettingsPage = {
 
         <template v-else-if="tab === 'team'">
           <div class="st2-card">
-            <div class="st2-grp"><div class="st2-lbl"><b>حسابات الدخول</b><span>«موظف» يعمل على الطلبات والعملاء. «مدير» يرى المال والإعدادات. لا تُكتب كلمة السر هنا: يُعطى الموظف رابطًا ليختارها.</span></div>
+            <div class="st2-grp"><div class="st2-lbl"><b>حسابات الدخول</b><span>«مدير» يرى كل شيء. «بائع» يعمل على الطلبات والعملاء ويقبض الدفعات، ولا يرى التكلفة والأرباح. «مصمم» و«طباعة» يريان البطاقات المسندة إليهما فقط بلا أسعار، فاربط كلًّا منهما باسمه في الفريق. لا تُكتب كلمة السر هنا: يُعطى الموظف رابطًا ليختارها.</span></div>
               <div class="st2-fields">
                 <table class="cl-table st2-table"><thead><tr><th>الاسم</th><th>الصلاحية</th><th>الحالة</th><th></th></tr></thead><tbody>
                   <tr v-for="u in s.data.users" :key="u.name" style="cursor:default"><td><span class="cl-name">{{ u.full_name }}</span><span class="muted" style="display:block" dir="ltr">{{ u.name }}</span>
                       <span class="muted" style="display:block">{{ u.member ? 'في الفريق باسم «' + u.member + '»' : 'غير مربوط باسم في الفريق' }}<template v-if="u.last_login"> · آخر دخول {{ ago(u.last_login) }}</template></span></td>
-                    <td><select class="input" style="width:auto;min-height:34px" v-model="u.role" :aria-label="'صلاحية ' + u.full_name"><option value="staff">موظف</option><option value="manager">مدير</option></select></td>
+                    <td><select class="input" style="width:auto;min-height:34px" v-model="u.role" :aria-label="'صلاحية ' + u.full_name"><option value="manager">مدير</option><option value="sales">بائع</option><option value="designer">مصمم</option><option value="printer">طباعة</option></select></td>
                     <td><label class="st2-check"><input type="checkbox" :checked="!!u.enabled" @change="u.enabled = $event.target.checked ? 1 : 0"><span>مفعّل</span></label></td>
                     <td class="n"><button type="button" class="cl-btn sm" :disabled="!!busy" @click="saveUser(u)">حفظ</button> <button type="button" class="cl-btn sm ghost" :disabled="!!busy" @click="resetLink(u)">رابط كلمة السر</button></td></tr>
                   <tr v-if="!s.data.users.length"><td colspan="4" class="cl-empty">لا حسابات بعد.</td></tr></tbody></table>
                 <form class="st2-row st2-newu" @submit.prevent="saveUser()"><label class="cl-fgroup"><span>الاسم</span><input class="input" v-model="nu.full_name"></label>
                   <label class="cl-fgroup grow2"><span>البريد</span><input class="input" v-model="nu.email" type="email" dir="ltr"></label>
-                  <label class="cl-fgroup" style="flex:0 0 130px"><span>الصلاحية</span><select class="input" v-model="nu.role"><option value="staff">موظف</option><option value="manager">مدير</option></select></label>
+                  <label class="cl-fgroup" style="flex:0 0 130px"><span>الصلاحية</span><select class="input" v-model="nu.role"><option value="manager">مدير</option><option value="sales">بائع</option><option value="designer">مصمم</option><option value="printer">طباعة</option></select></label>
                   <button type="submit" class="cl-btn primary" style="align-self:flex-end" :disabled="!nu.email || !!busy"><Icon name="plus" :size="15"/>إنشاء حساب</button></form>
                 <div v-if="link" class="st2-link"><b>رابط اختيار كلمة السر لـ {{ link.email }}</b><span class="muted">أرسله للموظف ليختار كلمة سره بنفسه.</span>
                   <div class="row" style="gap:6px"><input class="input" :value="link.url" readonly dir="ltr" aria-label="الرابط" @focus="$event.target.select()"><button type="button" class="cl-btn" @click="copy(link.url)">نسخ</button></div></div>
@@ -2677,7 +2680,7 @@ const ExpenseSheet = {
 // ------------------------------------------------------------------ shell
 const NAV = [
   { key: "orders", path: "/", icon: "orders", label: "nav_orders", match: ["home", "order", "order-new", "orders"] },
-  { key: "customers", path: "/customers", icon: "users", label: "nav_customers", match: ["customer", "customers"] },
+  { key: "customers", path: "/customers", icon: "users", label: "nav_customers", match: ["customer", "customers"], need: "customer" },
   { key: "suppliers", path: "/suppliers", icon: "factory", label: "nav_suppliers", match: ["suppliers", "supplier"], need: "finance" },
   { key: "money", path: "/money", icon: "wallet", label: "nav_money_simple", match: ["money"], need: "finance" },
 ];

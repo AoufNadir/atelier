@@ -23,6 +23,12 @@ def _can(doctype, ptype="read"):
 	return frappe.has_permission(doctype, ptype)
 
 
+def _no_worker():
+	from atelier.simple import no_worker
+
+	no_worker()
+
+
 # Two selling price lists: individuals and companies. A customer's type picks its list (Customer.default_price_list),
 # so quotations, orders, delivery notes and invoices all carry the right list natively.
 PRICE_LISTS = {"Individual": "سعر الأفراد", "Company": "سعر المؤسسات"}
@@ -58,7 +64,11 @@ def _with_prices(items):
 
 @frappe.whitelist()
 def boot():
+	from atelier.simple import WORKERS, app_role
+
 	company = _company()
+	role = app_role()
+	worker = role in WORKERS
 	items = frappe.get_list(
 		"Item",
 		filters={"disabled": 0, "is_sales_item": 1},
@@ -80,15 +90,16 @@ def boot():
 		**production.boot_info(),
 		"modes": [{"value": v, "label": l} for v, l in all_modes() if frappe.db.exists("Mode of Payment", v)],
 		"can": {
-			"order": _can("Sales Order", "create"),
-			"customer": _can("Customer", "create"),
+			"order": _can("Sales Order", "create") and not worker,
+			"customer": _can("Customer", "create") and not worker,
 			"prices": _can("Item Price", "write"),
-			"payment": _can("Payment Entry", "create"),
+			"payment": (_can("Payment Entry", "create") or role == "sales") and not worker,
 			"expense": _can("Journal Entry", "create"),
 			"finance": _can("GL Entry", "read"),
 			"cost": _can("Cost Estimate", "read"),
-			"stock": _can("Bin", "read"),
+			"stock": _can("Bin", "read") and role != "designer",
 		},
+		"role": role, "worker": worker,
 	}
 
 
@@ -240,6 +251,7 @@ def _recent_orders():
 
 @frappe.whitelist()
 def orders(include_closed=0):
+	_no_worker()
 	"""Order list for the orders page; filtering/sorting happens client-side on this set."""
 	filters = {"docstatus": ["<", 2]}
 	if not cint(include_closed):
@@ -252,6 +264,7 @@ def orders(include_closed=0):
 
 @frappe.whitelist()
 def search(q):
+	_no_worker()
 	q = (q or "").strip()
 	if len(q) < 2:
 		return []
@@ -320,6 +333,7 @@ def _rank_customers(q, rows, limit=50):
 
 @frappe.whitelist()
 def customers(q=None, full=0, include_disabled=0):
+	_no_worker()
 	"""Picker search (q) or, with full=1, the customer list page with balances and order counts."""
 	filters = {} if cint(include_disabled) else {"disabled": 0}
 	if q and not cint(full):
@@ -460,6 +474,7 @@ def save_customer(data):
 
 @frappe.whitelist()
 def customer(name):
+	_no_worker()
 	doc = frappe.get_doc("Customer", name)
 	doc.check_permission("read")
 	company = _company()
@@ -545,6 +560,7 @@ def _files(customer, res):
 
 @frappe.whitelist()
 def order(name):
+	_no_worker()
 	so = frappe.get_doc("Sales Order", name)
 	so.check_permission("read")
 	row = _order_rows({"name": name}, limit=1)[0]
@@ -748,6 +764,27 @@ def _receive(customer, amount, mode, sales_order=None, order_name=None):
 
 @frappe.whitelist(methods=["POST"])
 def record_payment(customer, amount, mode_of_payment, sales_order=None):
+	"""Sales staff take payments without the accounting role that would also show them the books."""
+	from atelier.simple import app_role
+
+	if _can("Payment Entry", "create"):
+		return _record_payment(customer, amount, mode_of_payment, sales_order)
+	if app_role() != "sales":
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	if sales_order:
+		frappe.get_doc("Sales Order", sales_order).check_permission("read")
+	# ERPNext checks the Payment Entry role itself, so run as Administrator and keep the seller as the owner.
+	user = frappe.session.user
+	frappe.set_user("Administrator")
+	try:
+		name = _record_payment(customer, amount, mode_of_payment, sales_order)
+		frappe.db.set_value("Payment Entry", name, "owner", user, update_modified=False)
+		return name
+	finally:
+		frappe.set_user(user)
+
+
+def _record_payment(customer, amount, mode_of_payment, sales_order=None):
 	if flt(amount) <= 0:
 		frappe.throw(_("المبلغ يجب أن يكون أكبر من صفر"))
 	so = frappe.get_doc("Sales Order", sales_order) if sales_order else None

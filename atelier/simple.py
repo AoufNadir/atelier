@@ -107,7 +107,7 @@ def quick_order(data):
 		frappe.throw(_("طريقة الدفع غير صالحة"))
 	res = api.create_order(json.dumps({
 		"customer": d.get("customer"), "new_customer": d.get("new_customer") or {},
-		"subject": _order_subject(lines), "delivery_date": d.get("delivery_date"), "no_steps": 1, "items": lines,
+		"subject": (d.get("subject") or "").strip()[:120] or _order_subject(lines), "delivery_date": d.get("delivery_date"), "no_steps": 1, "items": lines,
 		"advance": {"amount": flt(d.get("advance")), "mode_of_payment": mode},
 	}, ensure_ascii=False))
 	so = res["sales_order"]
@@ -316,6 +316,7 @@ def board2():
 	cfg = get_config()
 	label_by_name = {l["name"]: l["id"] for l in cfg["labels"]}
 	rows = api._order_rows({"docstatus": ["<", 2], "status": ["not in", ["Closed"]]}, limit=500)
+	worker, me = is_worker(), _member_of(frappe.session.user)
 	names = [r.name for r in rows] or [""]
 	extra = {r.name: r for r in frappe.get_all("Sales Order", filters={"name": ["in", names]},
 		fields=["name", "atelier_column", "atelier_labels", "atelier_members", "atelier_checklist", "atelier_cover", "atelier_assignee", "atelier_due_time", "atelier_archived", "atelier_pos"])}
@@ -338,6 +339,10 @@ def board2():
 		if not e.get("atelier_labels"):  # before the board: tags become labels
 			labels = [label_by_name[t] for t in r.tags if t in label_by_name]
 		members = _jl(e.get("atelier_members")) or ([e.atelier_assignee] if e.get("atelier_assignee") else [])
+		if worker and me not in members:
+			continue
+		if worker:
+			r.grand_total = r.paid = None
 		checklist = _jl(e.get("atelier_checklist"))
 		cards.append({
 			"name": r.name, "title": r.atelier_subject or r.name, "customer": r.customer, "customer_name": r.customer_name,
@@ -346,7 +351,7 @@ def board2():
 			"per_delivered": r.per_delivered, "comments": comments.get(r.name, 0), "files": files.get(r.name, 0),
 			"check": [sum(1 for c in checklist if c.get("done")), len(checklist)],
 		})
-	return {"config": cfg, "cards": cards, "manager": _is_manager()}
+	return {"config": cfg, "cards": cards, "manager": _is_manager(), "worker": worker, "me": me}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -449,17 +454,25 @@ def card(name):
 		fields=["name", "comment_type", "content", "owner", "creation"], order_by="creation desc", limit=100)
 	for a in activity + files:
 		a.by = frappe.utils.get_fullname(a.owner)
+	members = _jl(so.get("atelier_members")) or ([so.atelier_assignee] if so.get("atelier_assignee") else [])
+	worker = is_worker()
+	if worker and _member_of(frappe.session.user) not in members:
+		frappe.throw(_("هذه البطاقة ليست مسندة إليك"), frappe.PermissionError)
+	client = _client(so.customer)
+	if worker:
+		row.grand_total = row.paid = None
+		client["owes"] = 0
 	return {
 		"name": name, "title": so.atelier_subject or name, "customer": so.customer, "customer_name": so.customer_name,
 		"column": _column_for(so, cfg), "labels": labels,
-		"members": _jl(so.get("atelier_members")) or ([so.atelier_assignee] if so.get("atelier_assignee") else []),
+		"members": members,
 		"due": so.delivery_date, "due_time": str(so.atelier_due_time)[:5] if so.get("atelier_due_time") else None,
 		"description": so.get("atelier_description") or "", "checklist": _jl(so.get("atelier_checklist")),
-		"client": _client(so.customer),
+		"client": client,
 		"cover": so.get("atelier_cover"), "files": files, "activity": activity, "folder": _folders().card_folder(name),
 		"grand_total": row.grand_total, "paid": row.paid, "price_pending": row.price_pending, "docstatus": so.docstatus,
 		"per_delivered": so.per_delivered, "can_edit": bool(frappe.has_permission("Sales Order", "write", so)),
-		"money": api._can("GL Entry"),
+		"money": not worker,
 		"materials_pending": bool(flt(so.per_delivered) >= 100 and not cint(so.get("atelier_materials_done")) and _uses_materials(so)),
 	}
 
@@ -764,6 +777,7 @@ def customer_fields():
 
 @frappe.whitelist()
 def customers2():
+	no_worker()
 	rows = api.customers(full=1, include_disabled=1)
 	names = [r.name for r in rows] or [""]
 	extra = {r.name: r for r in frappe.get_all("Customer", filters={"name": ["in", names]}, fields=["name", "atelier_vip", "creation", "atelier_tags", "disabled"])}
@@ -791,6 +805,7 @@ def customers2():
 
 @frappe.whitelist()
 def customer2(name):
+	no_worker()
 	res = api.customer(name)
 	doc = frappe.db.get_value("Customer", name, ["atelier_note", "atelier_vip", "customer_name"], as_dict=True)
 	res["note"] = doc.atelier_note or ""
@@ -1162,8 +1177,7 @@ def settings():
 	users = frappe.get_all("User", filters={"user_type": "System User", "name": ["not in", ["Administrator", "Guest"]]},
 		fields=["name", "full_name", "enabled", "last_login"], order_by="full_name asc")
 	for u in users:
-		roles = set(frappe.get_roles(u.name))
-		u.role = "manager" if "Accounts Manager" in roles else "staff"
+		u.role = app_role(u.name)
 		u.member = next((m["name"] for m in _team() if m.get("user") == u.name), None)
 	accs = frappe.get_all("Account", filters={"company": company, "account_type": ["in", ["Cash", "Bank"]], "is_group": 0, "disabled": 0},
 		fields=["name", "account_name", "account_type"])
@@ -1236,10 +1250,37 @@ def apply_tva(so):
 
 STAFF_ROLES = ["Sales User", "Projects User", "Stock User", "Purchase User"]
 MANAGER_ROLES = STAFF_ROLES + ["Sales Manager", "Accounts User", "Accounts Manager", "Item Manager", "Purchase Manager", "Projects Manager"]
+# The workshop's four roles. Manager sees everything; sales works on orders, customers and payments but never
+# cost or profit; designer and printer see only the cards they are on, without prices.
+ROLE_GRANTS = {
+	"manager": MANAGER_ROLES,
+	"sales": STAFF_ROLES,
+	"designer": ["Sales User", "Projects User"],
+	"printer": ["Sales User", "Projects User", "Stock User"],
+}
+WORKERS = ("designer", "printer")
+
+
+def app_role(user=None):
+	user = user or frappe.session.user
+	roles = frappe.get_roles(user)
+	if user == "Administrator" or "System Manager" in roles or "Accounts Manager" in roles:
+		return "manager"
+	r = frappe.db.get_default("atelier_role", parent=user)
+	return r if r in ROLE_GRANTS else "sales"
+
+
+def is_worker(user=None):
+	return app_role(user) in WORKERS
+
+
+def no_worker():
+	if is_worker():
+		frappe.throw(_("هذه الصفحة غير متاحة لدورك"), frappe.PermissionError)
 
 
 @frappe.whitelist(methods=["POST"])
-def save_user(email, full_name, role="staff", enabled=1):
+def save_user(email, full_name, role="sales", enabled=1):
 	"""Create or update a login for a team member. No password is set here: a reset link is returned for the person to choose one."""
 	_manager_only()
 	email = (email or "").strip().lower()
@@ -1255,11 +1296,12 @@ def save_user(email, full_name, role="staff", enabled=1):
 	user.first_name, user.last_name = parts[0], (parts[1] if len(parts) > 1 else None)
 	user.enabled = cint(enabled)
 	user.language = "ar"
-	want = MANAGER_ROLES if role == "manager" else STAFF_ROLES
+	role = role if role in ROLE_GRANTS else "sales"
 	user.set("roles", [r for r in user.roles if r.role not in MANAGER_ROLES])
-	for r in want:
+	for r in ROLE_GRANTS[role]:
 		user.append("roles", {"role": r})
 	user.save(ignore_permissions=True)
+	frappe.db.set_default("atelier_role", role, parent=user.name)
 	link = user._reset_password(send_email=False) if new else None
 	return {"name": user.name, "link": link}
 
