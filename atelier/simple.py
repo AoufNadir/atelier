@@ -1001,13 +1001,32 @@ def money3(offset=0):
 		max(case when si.due_date < curdate() then datediff(curdate(), si.due_date) else 0 end) late, c.mobile_no
 		from `tabSales Invoice` si left join `tabCustomer` c on c.name=si.customer
 		where si.docstatus=1 and si.company=%s and si.outstanding_amount > 0.005 group by si.customer order by late desc, amount desc""", company, as_dict=True)
+	ages = frappe.db.sql(
+		"""select sum(case when ifnull(datediff(curdate(), si.due_date), 0) <= 30 then si.outstanding_amount else 0 end) a,
+		sum(case when datediff(curdate(), si.due_date) between 31 and 60 then si.outstanding_amount else 0 end) b,
+		sum(case when datediff(curdate(), si.due_date) > 60 then si.outstanding_amount else 0 end) c
+		from `tabSales Invoice` si where si.docstatus=1 and si.company=%s and si.outstanding_amount > 0.005""", company, as_dict=True)[0]
+	cheques = frappe.db.sql(
+		"""select pe.name, pe.party_name, pe.paid_amount amount, pe.reference_no, pe.reference_date, pe.posting_date, pe.paid_to
+		from `tabPayment Entry` pe where pe.docstatus=1 and pe.company=%s and pe.payment_type='Receive' and pe.mode_of_payment='Cheque'
+		and pe.clearance_date is null order by pe.reference_date asc, pe.posting_date asc""", company, as_dict=True)
+	closings = _closings()
+	for m in moves:
+		m.kind = "transfer" if m.category in (_("تحويل"), _("تحويل بين الصناديق")) else ("in" if m.amount > 0 else "out")
+		if m.voucher_type == "Payment Entry":
+			m.ref = frappe.db.get_value("Payment Entry", m.voucher_no, "reference_no")
+			if m.ref == "—":
+				m.ref = None
 	payables = frappe.db.sql(
 		"""select pi.name, pi.supplier, pi.supplier_name, pi.outstanding_amount amount, pi.due_date,
 		(select pii.description from `tabPurchase Invoice Item` pii where pii.parent=pi.name limit 1) what
 		from `tabPurchase Invoice` pi where pi.docstatus=1 and pi.company=%s and pi.outstanding_amount > 0.005 order by pi.due_date asc""", company, as_dict=True)
 	return {
 		"month": str(start), "offset": cint(offset),
-		"funds": [{"name": a.name, "label": a.account_name, "type": a.account_type, "balance": balances[a.name]} for a in shown],
+		"funds": [{"name": a.name, "label": a.account_name, "type": a.account_type, "balance": balances[a.name],
+			"last_closing": next((c for c in closings if c["account"] == a.name), None),
+			"cheques": sum(1 for c in cheques if c.paid_to == a.name)} for a in shown],
+		"ages": {"a": flt(ages.a), "b": flt(ages.b), "c": flt(ages.c)}, "cheques": cheques, "closings": closings[:10],
 		"cash_balance": sum(balances.values()),
 		"income": income, "expenses": expenses, "profit": income - expenses, "prev_income": pin, "prev_expenses": pout,
 		"payers": cint(one("""select count(distinct party) from `tabPayment Entry` where docstatus=1 and payment_type='Receive'
@@ -1015,6 +1034,64 @@ def money3(offset=0):
 		"weeks": weeks, "moves": moves, "categories": cats, "debtors": debtors, "payables": payables,
 		"modes": [{"value": v, "label": l} for v, l in api.all_modes() if frappe.db.exists("Mode of Payment", v)],
 	}
+
+
+CLOSINGS_KEY = "atelier_cash_closings"
+
+
+def _closings():
+	try:
+		return json.loads(frappe.db.get_default(CLOSINGS_KEY) or "[]")
+	except ValueError:
+		return []
+
+
+@frappe.whitelist(methods=["POST"])
+def close_cash(account, counted, note=None):
+	"""End of day: compare the cash counted with what the books say, and book any difference.
+
+	The difference goes to the company's round-off account (gain when there is more cash, loss when less),
+	so the fund then shows what is really in the drawer. Each closing is kept with who did it."""
+	_manager_only()
+	api._require("GL Entry")
+	company = api._company()
+	if tuple(frappe.db.get_value("Account", account, ["company", "account_type"]) or ()) != (company, "Cash"):
+		frappe.throw(_("اختر صندوقًا نقديًا"))
+	counted = flt(counted)
+	if counted < 0:
+		frappe.throw(_("المبلغ المعدود غير صحيح"))
+	expected = flt(frappe.db.sql("select sum(debit - credit) from `tabGL Entry` where is_cancelled=0 and account=%s", account)[0][0])
+	diff = round(counted - expected, 2)
+	entry = None
+	if abs(diff) >= 0.01:
+		off, cc = frappe.get_cached_value("Company", company, ["round_off_account", "round_off_cost_center"])
+		if not off:
+			frappe.throw(_("لا يوجد حساب فروق التقريب في إعدادات الشركة"))
+		je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Journal Entry", "company": company, "posting_date": nowdate(),
+			"user_remark": _("فرق إغلاق الصندوق") + (" — " + note.strip()[:100] if note and note.strip() else ""),
+			"accounts": [
+				{"account": account, "debit_in_account_currency": diff if diff > 0 else 0, "credit_in_account_currency": -diff if diff < 0 else 0},
+				{"account": off, "cost_center": cc, "debit_in_account_currency": -diff if diff < 0 else 0, "credit_in_account_currency": diff if diff > 0 else 0},
+			]})
+		je.insert()
+		je.submit()
+		entry = je.name
+	row = {"account": account, "label": frappe.db.get_value("Account", account, "account_name"), "at": str(frappe.utils.now_datetime())[:16],
+		"by": frappe.utils.get_fullname(frappe.session.user), "expected": expected, "counted": counted, "diff": diff,
+		"note": (note or "").strip()[:200], "entry": entry}
+	frappe.db.set_default(CLOSINGS_KEY, json.dumps(([row] + _closings())[:200], ensure_ascii=False))
+	return row
+
+
+@frappe.whitelist(methods=["POST"])
+def clear_cheque(name, date=None):
+	"""The bank collected the cheque: mark it so it leaves the waiting list."""
+	_manager_only()
+	pe = frappe.get_doc("Payment Entry", name)
+	if pe.docstatus != 1 or pe.mode_of_payment != "Cheque":
+		frappe.throw(_("هذا ليس صكًّا مسجّلًا"))
+	frappe.db.set_value("Payment Entry", name, "clearance_date", date or nowdate(), update_modified=False)
+	return True
 
 
 def _move_meta(m):

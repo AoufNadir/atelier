@@ -763,12 +763,12 @@ def _receive(customer, amount, mode, sales_order=None, order_name=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def record_payment(customer, amount, mode_of_payment, sales_order=None):
+def record_payment(customer, amount, mode_of_payment, sales_order=None, reference_no=None, reference_date=None):
 	"""Sales staff take payments without the accounting role that would also show them the books."""
 	from atelier.simple import app_role
 
 	if _can("Payment Entry", "create"):
-		return _record_payment(customer, amount, mode_of_payment, sales_order)
+		return _with_ref(_record_payment(customer, amount, mode_of_payment, sales_order), reference_no, reference_date)
 	if app_role() != "sales":
 		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
 	if sales_order:
@@ -779,9 +779,17 @@ def record_payment(customer, amount, mode_of_payment, sales_order=None):
 	try:
 		name = _record_payment(customer, amount, mode_of_payment, sales_order)
 		frappe.db.set_value("Payment Entry", name, "owner", user, update_modified=False)
-		return name
+		return _with_ref(name, reference_no, reference_date)
 	finally:
 		frappe.set_user(user)
+
+
+def _with_ref(name, reference_no=None, reference_date=None):
+	"""A cheque keeps its number and date on the payment, so it can be followed until the bank collects it."""
+	if name and (reference_no or reference_date):
+		frappe.db.set_value("Payment Entry", name, {"reference_no": (reference_no or "—").strip()[:140], "reference_date": reference_date or nowdate()},
+			update_modified=False)
+	return name
 
 
 def _record_payment(customer, amount, mode_of_payment, sales_order=None):
@@ -1229,7 +1237,7 @@ def statement_pdf(name, from_date=None, to_date=None):
 # Simple workshop endpoints (board, quick order, money) — imported last: simple.py builds on this module.
 from atelier.simple import reports2, save_email, test_email  # noqa: E402, F401
 from atelier.simple import create_purchase_order, create_supplier_invoice, save_supplier, set_supplier_disabled, supplier2, suppliers2  # noqa: E402, F401
-from atelier.simple import money3, pay_supplier, transfer_funds  # noqa: E402, F401
+from atelier.simple import money3, pay_supplier, transfer_funds, close_cash, clear_cheque  # noqa: E402, F401
 from atelier.simple import backup_now, rename_fund, reset_link, save_alerts, save_doc_settings, save_profile, save_user, set_mode_account, settings  # noqa: E402, F401
 from atelier.materials import issue_order_materials, order_materials, recipes, save_recipe, add_material, remove_material, stock_count, stock_issue, stock_purchase, update_material
 from atelier.quotes import card_quote

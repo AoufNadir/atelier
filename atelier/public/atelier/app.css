@@ -1847,3 +1847,34 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
   .cp-kpi { padding: 12px; } .cp-kpi > b { font-size: 18px; }
   .cp-hist-head .cl-search { order: 3; flex: 1 1 100%; }
 }
+
+/* ==== money page: funds, day-grouped moves, cheques, cash closing ==== */
+.mn-funds { display: flex; gap: 10px; flex-wrap: wrap; padding: 18px 28px 0; }
+.mn-fund { all: unset; box-sizing: border-box; flex: 1 1 160px; min-width: 150px; cursor: pointer; background: #fff; border: 1px solid #E4E7EC; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.mn-fund:hover { border-color: #98A2B3; } .mn-fund:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.mn-fund[aria-pressed="true"] { border-color: #C4B8F3; background: #FBFAFF; box-shadow: 0 0 0 1px #C4B8F3; }
+.mn-fund > span { font-size: 13px; color: #475467; font-weight: 600; }
+.mn-fund > b { font-size: 20px; line-height: 1.3; }
+.mn-fund > small { font-size: 12px; color: #667085; } .mn-fund > small.warn { color: #B54708; font-weight: 600; }
+.mn-stats3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mn-day { display: flex; align-items: center; gap: 8px; padding: 7px 16px; background: #F9FAFB; border-top: 1px solid #F2F4F7; font-size: 13px; font-weight: 700; color: #475467; }
+.mn-day b.ok { color: #027A48; } .mn-day b.bad { color: #B42318; }
+.mn-mv { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid #F2F4F7; }
+.mn-ic { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.mn-ic.in { background: #ECFDF3; color: #027A48; } .mn-ic.out { background: #FEF3F2; color: #B42318; } .mn-ic.transfer { background: #F2F4F7; color: #475467; }
+.mn-sub { display: block; white-space: normal; }
+.mn-amt { font-weight: 700; white-space: nowrap; } .mn-amt.in { color: #027A48; } .mn-amt.out { color: #B42318; } .mn-amt.transfer { color: #344054; }
+.mn-ages { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 0 16px 10px; }
+.mn-ages > div { background: #F9FAFB; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; font-size: 13px; }
+.mn-ages b.warn { color: #B54708; } .mn-ages b.bad { color: #B42318; }
+.mn-close { margin: 14px 28px 0; }
+.mn-close-b { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; padding: 12px 16px; }
+.mn-close-b .cl-fgroup { min-width: 180px; } .mn-close-b .grow { flex: 1; }
+.mn-close-n { display: flex; flex-direction: column; gap: 2px; min-width: 140px; padding-bottom: 6px; }
+.mn-close-n b { font-size: 18px; } .mn-close-n b.ok { color: #027A48; } .mn-close-n b.bad { color: #B42318; }
+@media (max-width: 760px) {
+  .mn-funds { padding: 12px 12px 0; gap: 8px; } .mn-fund { flex: 1 1 calc(50% - 8px); min-width: 0; }
+  .mn-stats3 { grid-template-columns: 1fr; }
+  .mn-close { margin: 12px 12px 0; }
+  .mn-ages { grid-template-columns: 1fr 1fr 1fr; padding: 0 12px 10px; } .mn-ages > div { padding: 6px; font-size: 12px; }
+}
