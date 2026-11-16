@@ -2221,7 +2221,7 @@ const SimpleMoney = {
 };
 // ------------------------------------------------------------------ suppliers, classic
 const SuppliersPage = {
-  props: ["openId"], components: { Icon },
+  props: ["openId"], components: { Icon, Avatar },
   setup(props) {
     const { s, load } = useLoad(() => call("suppliers2"));
     onMounted(load);
@@ -2240,9 +2240,8 @@ const SuppliersPage = {
       late: active.value.reduce((a, x) => a + x.late_amount, 0), lateN: active.value.filter((x) => x.late > 0).length,
       month: active.value.reduce((a, x) => a + x.month, 0) }));
     const change = (now, prev) => { if (!(prev > 0.005)) return "لا مشتريات الشهر الماضي"; const p = Math.round(((now - prev) / prev) * 100); return p === 0 ? "مثل الشهر الماضي" : `${p > 0 ? "أكثر" : "أقل"} بـ ${Math.abs(p)}% من الشهر الماضي`; };
-    async function open(name, keep) { sel.value = name; err.value = null; if (!keep) { tab.value = "invoices"; d.value = null; form.value = null; }
+    async function open(name, keep) { sel.value = name; err.value = null; if (!keep) { tab.value = "payments"; d.value = null; form.value = null; hf.value = "all"; window.scrollTo(0, 0); }
       try { d.value = await call("supplier2", { name }); } catch (e) { err.value = e.message; } }
-    if (sel.value) open(sel.value);
     const lastWord = (iso) => { if (!iso) return "—"; const n = -daysFromToday(iso); return n <= 0 ? "اليوم" : n === 1 ? "أمس" : n === 2 ? "منذ يومين" : n < 30 ? `منذ ${n} أيام` : date(iso); };
     const closeMenus = () => { more.value = false; pmenu.value = false; };
     onMounted(() => window.addEventListener("click", closeMenus));
@@ -2254,7 +2253,7 @@ const SuppliersPage = {
     // forms in the profile: edit / new supplier, purchase order, supplier invoice, payment
     const form = ref(null), mode = ref("Cash");
     const run = async (key, fn, msg) => { busy.value = key; err.value = null; try { const r = await fn(); if (msg) toast(msg); return r; } catch (e) { err.value = e.message; } finally { busy.value = null; } };
-    const newSupplier = () => { sel.value = "__new"; d.value = { name: null, supplier_name: "", supplies: "", phone: "", email: "", address: "", tax_id: "", rc: "", note: "", invoices: [], orders: [], items: [], accounts: [], open_orders: [], can_edit: true }; form.value = { kind: "edit", ...d.value }; };
+    const newSupplier = () => { window.scrollTo(0, 0); sel.value = "__new"; d.value = { payments: [], name: null, supplier_name: "", supplies: "", phone: "", email: "", address: "", tax_id: "", rc: "", note: "", invoices: [], orders: [], items: [], accounts: [], open_orders: [], can_edit: true }; form.value = { kind: "edit", ...d.value }; };
     const edit = () => { pmenu.value = false; form.value = { kind: "edit", name: d.value.name, supplier_name: d.value.supplier_name, supplies: d.value.supplies, phone: d.value.phone, email: d.value.email, address: d.value.address, tax_id: d.value.tax_id, rc: d.value.rc, note: d.value.note }; };
     const saveSupplier = () => run("save", async () => { const n = await call("save_supplier", { data: JSON.stringify(form.value) }, true); form.value = null; await load(); await open(n); }, "حُفظ المورد");
     const newPO = () => { form.value = { kind: "po", description: "", amount: "", order: "", schedule_date: "" }; };
@@ -2269,135 +2268,191 @@ const SuppliersPage = {
     const toggleDisabled = () => { pmenu.value = false; return run("off", async () => { await call("set_supplier_disabled", { name: d.value.name, disabled: d.value.disabled ? 0 : 1 }, true); await open(d.value.name, true); load(); }, d.value.disabled ? "أُعيد تفعيل المورد" : "أُوقف المورد"); };
     const invState = (i) => (i.outstanding_amount <= 0.005 ? ["مدفوعة", "#12B76A"] : i.late ? [`متأخرة ${i.late} يومًا`, "#D92D20"] : ["مفتوحة", "#F79009"]);
     const poState = (o) => (o.per_billed >= 100 ? ["مفوتر", "#12B76A"] : o.per_billed > 0 ? ["مفوتر جزئيًا", "#F79009"] : ["بانتظار الفاتورة", "#2E90FA"]);
-    const TABS = [["invoices", "الفواتير"], ["orders", "طلبات الشراء"], ["items", "المشتريات"], ["data", "البيانات"]];
+    const TABS = [["payments", "الدفعات"], ["items", "ما اشتريناه منه"], ["data", "البيانات"]];
+    // list: one-click filters, including what we buy from them
+    const supplies = computed(() => { const c = {}; all.value.filter((x) => !x.disabled && x.atelier_supplies).forEach((x) => { const k = x.atelier_supplies.split(/[،,]/)[0].trim(); if (k) c[k] = (c[k] || 0) + 1; });
+      return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 4); });
+    const sup = ref("");
+    const shown = computed(() => rows.value.filter((x) => !sup.value || (x.atelier_supplies || "").includes(sup.value)));
+    const chips = computed(() => [
+      { k: "all", t: "الكل", n: active.value.length, on: filter.value === "all" && !sup.value, run: () => { filter.value = "all"; sup.value = ""; } },
+      { k: "owe", t: "علينا لهم", n: active.value.filter((x) => x.owe > 0.005).length, on: filter.value === "owe", run: () => { filter.value = "owe"; sup.value = ""; } },
+      { k: "late", t: "متأخر الدفع", n: active.value.filter((x) => x.late > 0).length, on: filter.value === "late", run: () => { filter.value = "late"; sup.value = ""; }, debt: 1 },
+      ...supplies.value.map(([k, n]) => ({ k: "s:" + k, t: k, n, on: sup.value === k, run: () => { filter.value = "all"; sup.value = sup.value === k ? "" : k; } })),
+    ]);
+    const week = computed(() => { const l = active.value.filter((x) => x.week > 0.005); return { amount: l.reduce((a, x) => a + x.week, 0), who: l.map((x) => x.supplier_name) }; });
+    const closeSupplier = () => { sel.value = null; d.value = null; form.value = null; nextTick(() => window.scrollTo(0, 0)); };
+    // supplier page: everything bought from them, in one table
+    const hf = ref("all");
+    const history = computed(() => {
+      if (!d.value) return [];
+      const inv = (d.value.invoices || []).map((i) => ({ key: i.name, kind: "inv", date: i.posting_date, what: i.what || (i.bill_no ? "فاتورة " + i.bill_no : i.name), ref: i.bill_no,
+        order: i.order_name, order_title: i.order_title, amount: i.grand_total, left: i.outstanding_amount, due: i.due_date, late: i.late, src: i }));
+      const po = (d.value.orders || []).filter((o) => o.per_billed < 100).map((o) => ({ key: o.name, kind: "po", date: o.transaction_date, what: o.what || o.name, ref: o.name,
+        order: o.order_name, order_title: o.order_title, amount: o.grand_total, left: null, due: o.schedule_date, src: o }));
+      return [...inv, ...po].filter((x) => hf.value === "all" || (hf.value === "open" ? x.kind === "inv" && x.left > 0.005 : x.kind === "po"))
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    });
+    const openPOs = computed(() => (d.value?.orders || []).filter((o) => o.per_billed < 100).length);
+    const openInvoices = computed(() => (d.value?.invoices || []).filter((i) => i.outstanding_amount > 0.005));
+    if (sel.value) open(sel.value);
     return { s, load, sel, d, err, tab, busy, q, filter, more, pmenu, FILTERS, rows, kpi, change, open, lastWord, exportList, form, mode, newSupplier, edit, saveSupplier,
-      newPO, savePO, newInvoice, saveInvoice, payInvoice, oldest, toggleDisabled, invState, poState, TABS, waLink, money, fig, date, dueWord, state, go };
+      newPO, savePO, newInvoice, saveInvoice, payInvoice, oldest, toggleDisabled, invState, poState, TABS, waLink, money, fig, date, dueWord, state, go,
+      active, chips, shown, sup, week, closeSupplier, hf, history, openPOs, openInvoices };
   },
   template: `
-  <div class="cl" :class="{'with-panel': sel}">
-    <div class="cl-main">
+  <div class="cl">
+    <div v-if="!sel" class="cl-main">
       <header class="cl-head"><div class="cl-head-row">
-        <h1>الموردون</h1><span class="cl-count" v-if="s.data">{{ rows.length }} {{ rows.length === 1 ? 'مورد' : 'موردين' }}</span><span class="spacer"></span>
-        <label class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث</span><input type="search" v-model="q" placeholder="ابحث بالاسم أو الهاتف"></label>
-        <span class="cl-seg"><button v-for="f in FILTERS" :key="f[0]" type="button" :aria-pressed="filter === f[0]" @click="filter = f[0]">{{ f[1] }}</button></span>
+        <h1>الموردون</h1><span class="cl-count" v-if="s.data">{{ shown.length }} {{ shown.length === 1 ? 'مورد' : 'موردين' }}</span><span class="spacer"></span>
+        <label class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث</span><input type="search" v-model="q" placeholder="ابحث بالاسم أو ما نشتريه"></label>
         <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="المزيد" :aria-expanded="more" @click.stop="more = !more"><Icon name="more" :size="18"/></button>
-          <div v-if="more" class="cl-pop cl-menu" @click.stop><button type="button" @click="exportList"><Icon name="file" :size="16"/>تصدير القائمة (Excel)</button></div></div>
-        <button type="button" class="cl-btn primary" @click="newSupplier"><Icon name="plus" :size="16"/>مورد جديد</button></div></header>
+          <div v-if="more" class="cl-pop cl-menu" @click.stop><button type="button" @click="exportList"><Icon name="file" :size="16"/>تصدير القائمة (Excel)</button>
+            <button type="button" @click="more = false; filter = 'off'; sup = ''">الموردون الموقوفون</button></div></div>
+        <button type="button" class="cl-btn primary" @click="newSupplier"><Icon name="plus" :size="16"/>مورد جديد</button></div>
+        <div v-if="s.data" class="cl-quick" role="group" aria-label="تصفية سريعة">
+          <button v-for="c in chips" :key="c.k" type="button" class="bd-chip" :class="{debt: c.debt}" :aria-pressed="c.on" @click="c.run()">{{ c.t }} <span class="cl-quick-n">{{ c.n }}</span></button>
+          <button v-if="filter === 'off'" type="button" class="bd-chip" aria-pressed="true" @click="filter = 'all'">الموقوفون ×</button></div>
+      </header>
       <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
       <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
       <template v-else-if="s.data">
-        <div class="cl-stats">
-          <button type="button" @click="filter = 'all'"><span>الموردون</span><b>{{ kpi.total }}</b><small>{{ kpi.busy }} نشطون هذا الشهر</small></button>
-          <button type="button" @click="filter = 'owe'"><span>علينا للموردين</span><b class="money" style="color:var(--c-warn)">{{ money(kpi.owe) }}</b><small>{{ kpi.invoices }} فواتير مفتوحة</small></button>
-          <button type="button" @click="filter = 'late'"><span>متأخرة</span><b class="money bad">{{ money(kpi.late) }}</b><small>{{ kpi.lateN }} {{ kpi.lateN === 1 ? 'مورد' : 'موردين' }}</small></button>
-          <button type="button" style="cursor:default"><span>مشتريات الشهر</span><b class="money">{{ money(kpi.month) }}</b><small>{{ change(kpi.month, s.data.prev_month) }}</small></button>
+        <div class="cl-stats mn-stats3">
+          <button type="button" @click="filter = 'owe'; sup = ''"><span>علينا للموردين</span><b class="money" style="color:#B54708">{{ money(kpi.owe) }}</b><small>{{ active.filter(x => x.owe > 0.005).length }} موردين<template v-if="kpi.lateN"> · {{ kpi.lateN }} متأخرون</template></small></button>
+          <button type="button" style="cursor:default"><span>يستحق هذا الأسبوع</span><b class="money">{{ money(week.amount) }}</b><small class="ellipsis">{{ week.who.length ? week.who.join('، ') : 'لا شيء يستحق' }}</small></button>
+          <button type="button" style="cursor:default"><span>اشترينا هذا الشهر</span><b class="money">{{ money(kpi.month) }}</b><small>{{ change(kpi.month, s.data.prev_month) }}</small></button>
         </div>
-        <div class="cl-table-wrap"><table class="cl-table">
-          <thead><tr><th>المورد</th><th class="desktop-only wide-only">ما نشتريه</th><th class="desktop-only wide-only">الهاتف</th><th class="desktop-only">آخر شراء</th><th class="n">علينا</th></tr></thead>
+        <div class="cl-table-wrap"><table class="cl-table cl-table2">
+          <thead><tr><th>المورد</th><th class="desktop-only">ما نشتريه منه</th><th class="desktop-only">آخر شراء</th><th class="n">علينا له</th></tr></thead>
           <tbody>
-            <tr v-if="!rows.length"><td colspan="5" class="cl-empty">{{ (s.data.rows || []).length ? 'لا موردين يطابقون البحث أو التصفية.' : 'لا موردين بعد. أضف أول مورد.' }}</td></tr>
-            <tr v-for="x in rows" :key="x.name" :class="{sel: sel === x.name, off: x.disabled}" tabindex="0" @click="open(x.name)" @keydown.enter="open(x.name)">
-              <td><span class="cl-name">{{ x.supplier_name }}</span></td>
-              <td class="desktop-only wide-only muted">{{ x.atelier_supplies || '—' }}</td>
-              <td class="desktop-only wide-only muted" dir="ltr" style="text-align:right">{{ x.atelier_phone || '—' }}</td>
+            <tr v-if="!shown.length"><td colspan="4" class="cl-empty">{{ (s.data.rows || []).length ? 'لا موردين يطابقون البحث أو التصفية.' : 'لا موردين بعد. أضف أول مورد.' }}</td></tr>
+            <tr v-for="x in shown" :key="x.name" :class="{off: x.disabled}" tabindex="0" @click="open(x.name)" @keydown.enter="open(x.name)">
+              <td><div class="cl-who"><Avatar :name="x.supplier_name" :size="36"/><div style="min-width:0"><span class="cl-name">{{ x.supplier_name }}</span>
+                <span class="cl-sub"><span v-if="x.atelier_phone" dir="ltr">{{ x.atelier_phone }}</span><template v-else>—</template></span></div></div></td>
+              <td class="desktop-only"><span v-if="x.atelier_supplies" class="cp-stage">{{ x.atelier_supplies }}</span><span v-else class="muted">—</span></td>
               <td class="desktop-only muted">{{ lastWord(x.last) }}</td>
-              <td class="n"><span v-if="x.owe > 0.005" class="cl-bal" :class="x.late ? 'bad' : 'warn-b'"><i></i>{{ money(x.owe) }}</span><span v-else class="cl-bal">لا شيء</span>
+              <td class="n"><span v-if="x.owe > 0.005" class="cl-bal" :class="x.late ? 'bad' : 'warn-b'"><i></i>{{ money(x.owe) }}</span><span v-else class="cl-bal">خالص</span>
                 <span v-if="x.late" class="cl-late">متأخر {{ x.late }} {{ x.late === 1 ? 'يوم' : 'أيام' }}</span></td>
             </tr></tbody></table></div>
       </template>
     </div>
 
-    <aside v-if="sel" class="cl-panel" aria-label="ملف المورد">
+    <div v-else class="cp">
+      <div class="cp-top"><button type="button" class="cl-btn" @click="closeSupplier"><Icon name="back" :size="16"/>الموردون</button></div>
       <div v-if="!d" class="ws-loading">{{ err || 'جارٍ التحميل…' }}</div>
       <template v-else>
-        <div class="cl-p-head">
-          <div class="cl-p-title"><div style="min-width:0"><h2>{{ d.supplier_name || 'مورد جديد' }}</h2><span v-if="d.name" class="muted">{{ d.supplies || 'مورد' }} · منذ {{ date(d.since) }}</span></div>
-            <button type="button" class="cl-btn icon ghost" aria-label="إغلاق" @click="sel = null; form = null"><Icon name="x" :size="18"/></button></div>
-          <div v-if="d.name" class="cl-p-acts">
-            <a v-if="d.phone" class="cl-btn" :href="'tel:' + d.phone"><Icon name="phone" :size="15"/>اتصال</a>
-            <a v-if="waLink(d.phone)" class="cl-btn" target="_blank" rel="noopener" :href="waLink(d.phone)"><Icon name="msg" :size="15"/>واتساب</a>
-            <button v-if="d.can_edit" type="button" class="cl-btn" @click="edit"><Icon name="edit" :size="15"/>تعديل</button>
-            <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="خيارات المورد" :aria-expanded="pmenu" @click.stop="pmenu = !pmenu"><Icon name="more" :size="18"/></button>
-              <div v-if="pmenu" class="cl-pop cl-menu end" @click.stop><button v-if="d.can_edit" type="button" @click="toggleDisabled">{{ d.disabled ? 'إعادة تفعيل المورد' : 'إيقاف المورد' }}</button></div></div>
+        <header v-if="d.name" class="cp-card cp-head">
+          <div class="cp-id">
+            <h1>{{ d.supplier_name }}<span v-if="d.disabled" class="cp-type">موقوف</span></h1>
+            <span class="muted">{{ [d.supplies, d.phone, d.tax_id ? 'NIF ' + d.tax_id : ''].filter(Boolean).join(' · ') || 'مورد' }}</span>
           </div>
-        </div>
-        <div v-if="err" class="alert error" style="margin:12px 22px 0">{{ err }}</div>
+          <div class="cp-acts">
+            <a v-if="d.phone" class="cl-btn" :href="'tel:' + d.phone"><Icon name="phone" :size="15"/>اتصال</a>
+            <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="المزيد" :aria-expanded="pmenu" @click.stop="pmenu = !pmenu"><Icon name="more" :size="18"/></button>
+              <div v-if="pmenu" class="cl-pop cl-menu" @click.stop>
+                <a v-if="waLink(d.phone)" class="cp-menu-a" target="_blank" rel="noopener" :href="waLink(d.phone)" @click="pmenu = false"><Icon name="msg" :size="16"/>واتساب</a>
+                <button v-if="d.can_edit" type="button" @click="edit"><Icon name="edit" :size="16"/>تعديل بيانات المورد</button>
+                <button v-if="d.can_edit" type="button" @click="toggleDisabled">{{ d.disabled ? 'إعادة تفعيل المورد' : 'إيقاف المورد' }}</button></div></div>
+            <button v-if="state.boot.can.expense" type="button" class="cl-btn" @click="newPO"><Icon name="plus" :size="15"/>أمر شراء</button>
+            <button type="button" class="cl-btn" @click="newInvoice(null)"><Icon name="file" :size="15"/>فاتورة مورد</button>
+            <button v-if="oldest && state.boot.can.payment" type="button" class="cl-btn primary" :disabled="busy === 'pay'" @click="payInvoice(oldest)">دفعت له</button>
+          </div>
+        </header>
+        <div v-if="err" class="alert error">{{ err }}</div>
 
-        <form v-if="form && form.kind === 'edit'" class="cl-p-sec" @submit.prevent="saveSupplier">
+        <form v-if="form && form.kind === 'edit'" class="cp-card cp-pad cp-form" @submit.prevent="saveSupplier">
           <b>{{ form.name ? 'تعديل المورد' : 'مورد جديد' }}</b>
-          <label class="cl-fgroup"><span>الاسم *</span><input class="input" v-model="form.supplier_name" required></label>
-          <label class="cl-fgroup"><span>ما نشتريه منه</span><input class="input" v-model="form.supplies" placeholder="ورق، حبر، طباعة أوفست، نقل…"></label>
-          <div class="st2-row"><label class="cl-fgroup"><span>الهاتف</span><input class="input" v-model="form.phone" dir="ltr" inputmode="tel"></label><label class="cl-fgroup"><span>البريد</span><input class="input" v-model="form.email" dir="ltr" type="email"></label></div>
-          <label class="cl-fgroup"><span>العنوان</span><input class="input" v-model="form.address"></label>
-          <div class="st2-row"><label class="cl-fgroup"><span>الرقم الجبائي NIF</span><input class="input" v-model="form.tax_id" dir="ltr"></label><label class="cl-fgroup"><span>السجل التجاري RC</span><input class="input" v-model="form.rc" dir="ltr"></label></div>
-          <label class="cl-fgroup"><span>ملاحظة</span><input class="input" v-model="form.note"></label>
-          <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'save' || !form.supplier_name.trim()">حفظ المورد</button><button type="button" class="cl-btn" @click="form = null; if (!d.name) sel = null">إلغاء</button></div>
+          <div class="cp-form-grid">
+            <label class="cl-fgroup"><span>الاسم *</span><input class="input" v-model="form.supplier_name" required></label>
+            <label class="cl-fgroup"><span>ما نشتريه منه</span><input class="input" v-model="form.supplies" placeholder="ورق، حبر، طباعة أوفست، نقل…"></label>
+            <label class="cl-fgroup"><span>الهاتف</span><input class="input" v-model="form.phone" dir="ltr" inputmode="tel"></label>
+            <label class="cl-fgroup"><span>البريد</span><input class="input" v-model="form.email" dir="ltr" type="email"></label>
+            <label class="cl-fgroup"><span>العنوان</span><input class="input" v-model="form.address"></label>
+            <label class="cl-fgroup"><span>الرقم الجبائي NIF</span><input class="input" v-model="form.tax_id" dir="ltr"></label>
+            <label class="cl-fgroup"><span>السجل التجاري RC</span><input class="input" v-model="form.rc" dir="ltr"></label>
+            <label class="cl-fgroup"><span>ملاحظة</span><input class="input" v-model="form.note"></label></div>
+          <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'save' || !form.supplier_name.trim()">حفظ المورد</button><button type="button" class="cl-btn" @click="form = null; if (!d.name) closeSupplier()">إلغاء</button></div>
         </form>
 
         <template v-if="d.name">
-          <div class="cl-p-sec cl-balance">
-            <div><span class="muted">علينا له</span><b :class="{bad: oldest && oldest.late}" :style="!(oldest && oldest.late) && d.owe > 0.005 ? 'color:var(--c-warn)' : ''">{{ d.owe > 0.005 ? money(d.owe) : 'لا شيء' }}</b>
-              <span class="muted" v-if="oldest">{{ d.invoices.filter(i => i.outstanding_amount > 0.005).length }} فواتير · الأقرب {{ oldest.late ? 'متأخرة ' + oldest.late + ' يومًا' : 'تستحق ' + dueWord(oldest.due_date) }}</span></div>
-            <div class="cl-balance-acts"><button v-if="oldest && state.boot.can.payment" type="button" class="cl-btn primary" :disabled="busy === 'pay'" @click="payInvoice(oldest)">تسجيل دفع</button>
-              <label v-if="oldest && state.boot.modes.length > 1" class="muted row" style="gap:6px">من <select class="input" style="width:auto;min-height:30px" v-model="mode"><option v-for="m in state.boot.modes" :key="m.value" :value="m.value">{{ m.label }}</option></select></label></div>
-          </div>
-
-          <form v-if="form && form.kind === 'po'" class="cl-p-sec" @submit.prevent="savePO">
-            <b>طلب شراء جديد</b>
-            <label class="cl-fgroup"><span>ما نطلبه *</span><input class="input" v-model="form.description" placeholder="مثلًا: طباعة أوفست 5000 مطوية"></label>
-            <div class="st2-row"><label class="cl-fgroup"><span>المبلغ *</span><div class="unit-wrap"><input class="input num" v-model="form.amount" inputmode="decimal"><span class="u">دج</span></div></label>
-              <label class="cl-fgroup"><span>موعد الاستلام</span><input class="input" type="date" v-model="form.schedule_date"></label></div>
-            <label class="cl-fgroup"><span>لأي طلب (تُحسب في ربحه)</span><select class="input" v-model="form.order"><option value="">بدون طلب</option><option v-for="o in d.open_orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + o.customer_name }}</option></select></label>
-            <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'po' || !form.description.trim() || !(+form.amount > 0)">إرسال الطلب</button><button type="button" class="cl-btn" @click="form = null">إلغاء</button></div>
+          <form v-if="form && form.kind === 'po'" class="cp-card cp-pad cp-form" @submit.prevent="savePO">
+            <b>أمر شراء جديد</b>
+            <div class="cp-form-grid">
+              <label class="cl-fgroup"><span>ما نطلبه *</span><input class="input" v-model="form.description" placeholder="مثلًا: طباعة أوفست 5000 مطوية"></label>
+              <label class="cl-fgroup"><span>المبلغ *</span><div class="unit-wrap"><input class="input num" v-model="form.amount" inputmode="decimal"><span class="u">دج</span></div></label>
+              <label class="cl-fgroup"><span>موعد الاستلام</span><input class="input" type="date" v-model="form.schedule_date"></label>
+              <label class="cl-fgroup"><span>لأي طلب (تُحسب في ربحه)</span><select class="input" v-model="form.order"><option value="">بدون طلب</option><option v-for="o in d.open_orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + o.customer_name }}</option></select></label></div>
+            <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'po' || !form.description.trim() || !(+form.amount > 0)">إرسال أمر الشراء</button><button type="button" class="cl-btn" @click="form = null">إلغاء</button></div>
           </form>
-          <form v-if="form && form.kind === 'inv'" class="cl-p-sec" @submit.prevent="saveInvoice">
-            <b>فاتورة مورد{{ form.purchase_order ? ' — من ' + form.purchase_order : '' }}</b>
-            <template v-if="!form.purchase_order">
-              <label class="cl-fgroup"><span>البيان *</span><input class="input" v-model="form.description"></label>
-              <div class="st2-row"><label class="cl-fgroup"><span>المبلغ *</span><div class="unit-wrap"><input class="input num" v-model="form.amount" inputmode="decimal"><span class="u">دج</span></div></label>
-                <label class="cl-fgroup"><span>النوع</span><select class="input" v-model="form.account"><option v-for="a in d.accounts" :key="a.name" :value="a.name">{{ a.account_name }}</option></select></label></div>
-              <label class="cl-fgroup"><span>لأي طلب (اختياري)</span><select class="input" v-model="form.order"><option value="">بدون طلب</option><option v-for="o in d.open_orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + o.customer_name }}</option></select></label>
-            </template>
-            <span v-else class="muted">{{ form.description }} · {{ money(form.amount) }}</span>
-            <div class="st2-row"><label class="cl-fgroup"><span>رقم فاتورة المورد</span><input class="input" v-model="form.bill_no" dir="ltr"></label><label class="cl-fgroup"><span>تاريخ الاستحقاق</span><input class="input" type="date" v-model="form.due_date"></label></div>
+          <form v-if="form && form.kind === 'inv'" class="cp-card cp-pad cp-form" @submit.prevent="saveInvoice">
+            <b>فاتورة مورد{{ form.purchase_order ? ' — من أمر الشراء ' + form.purchase_order : '' }}</b>
+            <div class="cp-form-grid">
+              <template v-if="!form.purchase_order">
+                <label class="cl-fgroup"><span>البيان *</span><input class="input" v-model="form.description"></label>
+                <label class="cl-fgroup"><span>المبلغ *</span><div class="unit-wrap"><input class="input num" v-model="form.amount" inputmode="decimal"><span class="u">دج</span></div></label>
+                <label class="cl-fgroup"><span>النوع</span><select class="input" v-model="form.account"><option v-for="a in d.accounts" :key="a.name" :value="a.name">{{ a.account_name }}</option></select></label>
+                <label class="cl-fgroup"><span>لأي طلب (اختياري)</span><select class="input" v-model="form.order"><option value="">بدون طلب</option><option v-for="o in d.open_orders" :key="o.name" :value="o.name">{{ (o.atelier_subject || o.name) + ' — ' + o.customer_name }}</option></select></label>
+              </template>
+              <span v-else class="muted">{{ form.description }} · {{ money(form.amount) }}</span>
+              <label class="cl-fgroup"><span>رقم فاتورة المورد</span><input class="input" v-model="form.bill_no" dir="ltr"></label>
+              <label class="cl-fgroup"><span>تاريخ الاستحقاق</span><input class="input" type="date" v-model="form.due_date"></label></div>
             <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'inv' || (!form.purchase_order && (!form.description.trim() || !(+form.amount > 0)))">تسجيل الفاتورة</button><button type="button" class="cl-btn" @click="form = null">إلغاء</button></div>
           </form>
 
-          <nav class="cl-tabs" role="tablist"><button v-for="x in TABS" :key="x[0]" type="button" role="tab" :aria-selected="tab === x[0]" @click="tab = x[0]">{{ x[1] }}<span v-if="x[0] === 'invoices'" class="muted"> {{ d.invoices.length }}</span><span v-if="x[0] === 'orders'" class="muted"> {{ d.orders.length }}</span></button></nav>
-          <div class="cl-p-body">
-            <template v-if="tab === 'invoices'">
-              <div v-if="!d.invoices.length" class="muted">لا فواتير بعد.</div>
-              <div v-for="i in d.invoices" :key="i.name" class="cl-line">
-                <div style="flex:1;min-width:0"><span class="cl-line-t">{{ i.bill_no ? 'فاتورة ' + i.bill_no : i.name }}</span><span class="muted">{{ i.what || '—' }} · {{ i.outstanding_amount > 0.005 ? 'تستحق ' + date(i.due_date) : date(i.posting_date) }}</span></div>
-                <div class="rp-val"><b>{{ fig(i.grand_total) }}</b><span class="cl-state"><i :style="{background: invState(i)[1]}"></i>{{ invState(i)[0] }}</span></div>
-                <button v-if="i.outstanding_amount > 0.005 && state.boot.can.payment" type="button" class="cl-btn sm" :disabled="busy === 'pay'" @click="payInvoice(i)">دفعت</button></div>
-            </template>
-            <template v-else-if="tab === 'orders'">
-              <div v-if="!d.orders.length" class="muted">لا طلبات شراء بعد.</div>
-              <div v-for="o in d.orders" :key="o.name" class="cl-line">
-                <div style="flex:1;min-width:0"><span class="cl-line-t">{{ o.what || o.name }}</span><span class="muted">{{ o.name }} · {{ date(o.transaction_date) }}</span></div>
-                <div class="rp-val"><b>{{ fig(o.grand_total) }}</b><span class="cl-state"><i :style="{background: poState(o)[1]}"></i>{{ poState(o)[0] }}</span></div>
-                <button v-if="o.per_billed < 100" type="button" class="cl-btn sm" @click="newInvoice(o)">فاتورته</button></div>
-            </template>
-            <template v-else-if="tab === 'items'">
-              <div v-if="!d.items.length" class="muted">لا مشتريات مفوترة بعد.</div>
-              <div v-for="x in d.items" :key="x.what" class="cl-kv"><span class="ellipsis">{{ x.what }}</span><span><b>{{ fig(x.amount) }}</b> <span class="muted">· آخرها {{ date(x.last) }}</span></span></div>
-            </template>
-            <template v-else>
-              <div class="cl-kv"><span>الهاتف</span><span dir="ltr">{{ d.phone || '—' }}</span></div>
-              <div class="cl-kv"><span>البريد</span><span dir="ltr">{{ d.email || '—' }}</span></div>
-              <div class="cl-kv"><span>العنوان</span><span>{{ d.address || '—' }}</span></div>
-              <div class="cl-kv"><span>الرقم الجبائي NIF</span><span dir="ltr">{{ d.tax_id || '—' }}</span></div>
-              <div class="cl-kv"><span>السجل التجاري RC</span><span dir="ltr">{{ d.rc || '—' }}</span></div>
-              <div class="cl-kv"><span>ملاحظة</span><span>{{ d.note || '—' }}</span></div>
-            </template>
+          <div class="cp-card cp-acc">
+            <div><span class="muted">علينا له الآن</span><b :class="d.owe > 0.005 ? 'bad' : 'ok'">{{ d.owe > 0.005 ? money(d.owe) : 'لا شيء' }}</b>
+              <span v-if="openInvoices.length" class="muted">{{ openInvoices.length }} {{ openInvoices.length === 1 ? 'فاتورة غير مدفوعة' : 'فواتير غير مدفوعة' }}<template v-if="oldest && oldest.late"> · أقدمها متأخرة {{ oldest.late }} يومًا</template></span>
+              <label v-if="oldest && state.boot.modes.length > 1" class="muted row" style="gap:6px;margin-top:4px">الدفع من <select class="input" style="width:auto;min-height:30px;height:30px" v-model="mode"><option v-for="m in state.boot.modes" :key="m.value" :value="m.value">{{ m.label }}</option></select></label></div>
+            <div><span class="muted">أقرب استحقاق</span><b>{{ oldest ? (oldest.late ? 'متأخر' : dueWord(oldest.due_date) || '—') : '—' }}</b><span class="muted">{{ oldest ? fig(oldest.outstanding_amount) + ' دج' : 'لا فواتير مفتوحة' }}</span></div>
+            <div><span class="muted">دفعنا له هذه السنة</span><b>{{ money(d.year_paid || 0) }}</b><span class="muted">من مشتريات {{ fig(d.year_bought || 0) }} دج</span></div>
+            <div><span class="muted">أوامر شراء مفتوحة</span><b>{{ openPOs }}</b><span class="muted">{{ openPOs ? 'لم تصل فاتورتها بعد' : 'لا شيء ينتظر' }}</span></div>
           </div>
-          <div class="cl-p-foot row" style="gap:8px">
-            <button v-if="state.boot.can.expense" type="button" class="cl-btn primary" style="flex:1" @click="newPO"><Icon name="plus" :size="16"/>طلب شراء جديد</button>
-            <button type="button" class="cl-btn" @click="newInvoice(null)"><Icon name="file" :size="16"/>فاتورة مورد</button></div>
+
+          <section class="cp-card cp-hist" aria-label="التعامل معه">
+            <div class="cp-hist-head"><h2>التعامل معه</h2><span class="spacer"></span>
+              <div class="seg" role="group" aria-label="تصفية"><button v-for="x in [['all', 'الكل'], ['open', 'غير مدفوع'], ['po', 'أوامر شراء']]" :key="x[0]" type="button" :aria-pressed="hf === x[0]" @click="hf = x[0]">{{ x[1] }}</button></div></div>
+            <div v-if="!history.length" class="muted cp-pad">{{ hf === 'all' ? 'لا تعامل بعد. سجّل أمر شراء أو فاتورة مورد.' : 'لا شيء هنا.' }}</div>
+            <div v-else class="cp-tbl-wrap"><table class="cl-table cp-tbl sp-tbl">
+              <thead><tr><th>التاريخ</th><th>البيان</th><th class="desktop-only">النوع</th><th class="desktop-only">لطلب</th><th class="n desktop-only">المبلغ</th><th class="n">الباقي</th><th>الاستحقاق</th><th><span class="sr-only">إجراء</span></th></tr></thead>
+              <tbody><tr v-for="x in history" :key="x.key" class="sp-row">
+                <td class="muted cp-nowrap sp-c-date">{{ date(x.date) }}</td>
+                <td class="sp-c-what"><b class="cp-job-n">{{ x.what }}</b><span v-if="x.ref && x.kind === 'inv'" class="cl-sub">فاتورة رقم {{ x.ref }}</span></td>
+                <td class="desktop-only"><span class="cp-stage">{{ x.kind === 'inv' ? 'فاتورة' : 'أمر شراء' }}</span></td>
+                <td class="desktop-only"><a v-if="x.order" :href="'/atelier/?card=' + x.order" @click.prevent="go('/?card=' + encodeURIComponent(x.order))" class="cp-final">{{ x.order_title || x.order }}</a><span v-else class="muted">—</span></td>
+                <td class="n desktop-only cp-nowrap">{{ fig(x.amount) }}</td>
+                <td class="n cp-nowrap sp-c-left"><span v-if="x.kind === 'po'" class="muted">—</span><span v-else-if="x.left > 0.005" class="cp-pay bad">{{ fig(x.left) }}</span><span v-else class="cp-pay ok">مدفوع</span></td>
+                <td class="cp-nowrap sp-c-due"><span v-if="x.kind === 'po'" class="muted">لم تصل الفاتورة</span><span v-else-if="x.left <= 0.005" class="muted">—</span>
+                  <span v-else-if="x.late" class="cp-pay bad">متأخر {{ x.late }} يومًا</span><span v-else class="cp-pay warn">{{ x.due ? dueWord(x.due) : '—' }}</span></td>
+                <td class="sp-c-act"><button v-if="x.kind === 'inv' && x.left > 0.005 && state.boot.can.payment" type="button" class="cl-btn sm" :disabled="busy === 'pay'" @click="payInvoice(x.src)">دفعت</button>
+                  <button v-else-if="x.kind === 'po'" type="button" class="cl-btn sm" @click="newInvoice(x.src)">سجّل فاتورته</button></td>
+              </tr></tbody></table></div>
+          </section>
+
+          <section class="cp-card cp-more">
+            <nav class="cl-tabs" role="tablist"><button v-for="x in TABS" :key="x[0]" type="button" role="tab" :aria-selected="tab === x[0]" @click="tab = x[0]">{{ x[1] }}<span v-if="x[0] === 'payments'" class="muted"> {{ d.payments.length }}</span></button></nav>
+            <div class="cl-p-body">
+              <template v-if="tab === 'payments'">
+                <div v-if="!d.payments.length" class="muted">لا دفعات بعد.</div>
+                <div v-for="p in d.payments" :key="p.name" class="cl-line"><div style="flex:1;min-width:0"><span class="cl-line-t">{{ date(p.posting_date) }}</span>
+                  <span class="muted">{{ (state.boot.modes.find(m => m.value === p.mode_of_payment) || {}).label || p.mode_of_payment || '—' }}<template v-if="p.reference_no && p.reference_no !== '—'"> · رقم {{ p.reference_no }}</template></span></div><b>{{ fig(p.paid_amount) }}</b></div>
+              </template>
+              <template v-else-if="tab === 'items'">
+                <div v-if="!d.items.length" class="muted">لا مشتريات مفوترة بعد.</div>
+                <div v-for="x in d.items" :key="x.what" class="cl-kv"><span class="ellipsis">{{ x.what }}</span><span><b>{{ fig(x.amount) }}</b> <span class="muted">· آخرها {{ date(x.last) }}</span></span></div>
+              </template>
+              <template v-else>
+                <div class="cl-kv"><span>الهاتف</span><span dir="ltr">{{ d.phone || '—' }}</span></div>
+                <div class="cl-kv"><span>البريد</span><span dir="ltr">{{ d.email || '—' }}</span></div>
+                <div class="cl-kv"><span>العنوان</span><span>{{ d.address || '—' }}</span></div>
+                <div class="cl-kv"><span>الرقم الجبائي NIF</span><span dir="ltr">{{ d.tax_id || '—' }}</span></div>
+                <div class="cl-kv"><span>السجل التجاري RC</span><span dir="ltr">{{ d.rc || '—' }}</span></div>
+                <div class="cl-kv"><span>ملاحظة</span><span>{{ d.note || '—' }}</span></div>
+              </template>
+            </div>
+          </section>
         </template>
       </template>
-    </aside>
+    </div>
   </div>`,
 };
 

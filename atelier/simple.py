@@ -2080,7 +2080,8 @@ def suppliers2():
 	rows = frappe.get_all("Supplier", fields=["name", "supplier_name", "disabled", "atelier_supplies", "atelier_phone", "creation"], order_by="supplier_name asc", limit=1000)
 	owe = {r.supplier: r for r in frappe.db.sql("""select supplier, sum(outstanding_amount) amount, count(*) n,
 		max(case when due_date < curdate() then datediff(curdate(), due_date) else 0 end) late,
-		sum(case when due_date < curdate() then outstanding_amount else 0 end) late_amount
+		sum(case when due_date < curdate() then outstanding_amount else 0 end) late_amount,
+		sum(case when due_date between curdate() and date_add(curdate(), interval 7 day) then outstanding_amount else 0 end) week_amount
 		from `tabPurchase Invoice` where docstatus=1 and company=%s and outstanding_amount > 0.005 group by supplier""", company, as_dict=True)}
 	last = dict(frappe.db.sql("""select supplier, max(posting_date) from `tabPurchase Invoice` where docstatus=1 and company=%s group by supplier""", company))
 	last_po = dict(frappe.db.sql("""select supplier, max(transaction_date) from `tabPurchase Order` where docstatus=1 and company=%s group by supplier""", company))
@@ -2088,6 +2089,7 @@ def suppliers2():
 	for r in rows:
 		o = owe.get(r.name) or {}
 		r.owe, r.open_invoices, r.late, r.late_amount = flt(o.get("amount")), cint(o.get("n")), cint(o.get("late")), flt(o.get("late_amount"))
+		r.week = flt(o.get("week_amount"))
 		dates = [str(d) for d in (last.get(r.name), last_po.get(r.name)) if d]
 		r.last = max(dates) if dates else None
 		r.month = flt(bought.get(r.name))
@@ -2103,9 +2105,11 @@ def supplier2(name):
 	s = frappe.get_doc("Supplier", name)
 	s.check_permission("read")
 	invoices = frappe.db.sql("""select pi.name, pi.posting_date, pi.due_date, pi.grand_total, pi.outstanding_amount, pi.bill_no,
+		(select so.name from `tabPurchase Invoice Item` x join `tabSales Order` so on so.project=x.project where x.parent=pi.name and ifnull(x.project, '')!='' limit 1) order_name,
 		(select pii.description from `tabPurchase Invoice Item` pii where pii.parent=pi.name limit 1) what
 		from `tabPurchase Invoice` pi where pi.supplier=%s and pi.docstatus=1 order by pi.posting_date desc limit 100""", name, as_dict=True)
 	orders = frappe.db.sql("""select po.name, po.transaction_date, po.schedule_date, po.grand_total, po.per_billed, po.per_received, po.status,
+		(select so.name from `tabPurchase Order Item` x join `tabSales Order` so on so.project=x.project where x.parent=po.name and ifnull(x.project, '')!='' limit 1) order_name,
 		(select poi.description from `tabPurchase Order Item` poi where poi.parent=po.name limit 1) what
 		from `tabPurchase Order` po where po.supplier=%s and po.docstatus=1 order by po.transaction_date desc limit 100""", name, as_dict=True)
 	items = frappe.db.sql("""select pii.item_name, coalesce(pii.description, pii.item_name) what, sum(pii.qty) qty, sum(pii.base_net_amount) amount, max(pi.posting_date) last
@@ -2113,10 +2117,19 @@ def supplier2(name):
 		group by what order by amount desc limit 30""", name, as_dict=True)
 	for i in invoices:
 		i.late = max(0, (frappe.utils.getdate(nowdate()) - frappe.utils.getdate(i.due_date)).days) if i.due_date and flt(i.outstanding_amount) > 0.005 else 0
+	titles = dict(frappe.db.sql("select name, atelier_subject from `tabSales Order` where name in %s",
+		[[x.order_name for x in invoices + orders if x.order_name] or [""]]))
+	for x in invoices + orders:
+		x.order_title = titles.get(x.order_name) if x.order_name else None
+	payments = frappe.db.sql("""select name, posting_date, paid_amount, mode_of_payment, reference_no from `tabPayment Entry`
+		where docstatus=1 and party_type='Supplier' and party=%s order by posting_date desc limit 100""", name, as_dict=True)
+	year = str(frappe.utils.getdate(nowdate()).year) + "-01-01"
 	return {"name": s.name, "supplier_name": s.supplier_name, "supplies": s.get("atelier_supplies") or "", "phone": s.get("atelier_phone") or "",
 		"email": s.get("atelier_email") or "", "address": s.get("atelier_address") or "", "tax_id": s.tax_id or "", "rc": s.get("atelier_rc") or "",
 		"note": s.get("atelier_note") or "", "disabled": cint(s.disabled), "since": str(s.creation)[:10],
-		"owe": sum(flt(i.outstanding_amount) for i in invoices), "invoices": invoices, "orders": orders, "items": items,
+		"owe": sum(flt(i.outstanding_amount) for i in invoices), "invoices": invoices, "orders": orders, "items": items, "payments": payments,
+		"year_paid": sum(flt(p.paid_amount) for p in payments if str(p.posting_date) >= year),
+		"year_bought": sum(flt(i.grand_total) for i in invoices if str(i.posting_date) >= year),
 		"can_edit": bool(frappe.has_permission("Supplier", "write", s)), "accounts": api.expense_options()["accounts"] if api._can("Journal Entry", "create") else [],
 		"open_orders": frappe.get_list("Sales Order", filters={"docstatus": ["<", 2], "project": ["is", "set"], "status": ["not in", ["Closed", "Completed"]]},
 			fields=["name", "atelier_subject", "customer_name"], order_by="creation desc", limit=80)}

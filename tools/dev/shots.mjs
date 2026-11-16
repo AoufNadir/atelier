@@ -28,6 +28,10 @@ const SHOTS = [
   ...M.map((w) => [`m${w}-3-order-end`, "/atelier/orders/new", { width: w, height: 800, mobile: true }, "fillOrderEnd", false]),
   ...M.map((w) => [`m${w}-4-customer`, ALPHA, { width: w, height: 800, mobile: true }, null, false]),
   ["m390-5-payment", "/atelier?action=payment", { width: 390, height: 844, mobile: true }, null, false],
+  ...["suppliers", "suppliers?s=" + encodeURIComponent("مطبعة أوفست خارجية (تجريبي)")].flatMap((p, i) => [
+    ...D.map((w) => [`d${w}-20${"ab"[i]}-supplier`, `/atelier/${p}`, { width: w, height: 900 }]),
+    ...M.map((w) => [`m${w}-20${"ab"[i]}-supplier`, `/atelier/${p}`, { width: w, height: 800, mobile: true }]),
+  ]),
   ...["money", "stock", "machines", "reports", "calc"].flatMap((p, i) => [
     ...D.map((w) => [`d${w}-${6 + i}-${p}`, `/atelier/${p}`, { width: w, height: 900 }]),
     ...M.map((w) => [`m${w}-${6 + i}-${p}`, `/atelier/${p}`, { width: w, height: 800, mobile: true }]),

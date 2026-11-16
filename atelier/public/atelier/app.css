@@ -1938,3 +1938,15 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
   .cp-c-name { grid-area: name; min-width: 0; } .cp-c-rem { grid-area: rem; }
   .cp-c-date, .cp-c-st { grid-area: meta; } .cp-c-st { justify-self: end; }
 }
+
+/* ==== suppliers: full page ==== */
+.cp-form { gap: 10px; }
+.cp-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.sp-tbl td { vertical-align: middle; }
+@media (max-width: 760px) {
+  .sp-tbl, .sp-tbl tbody { display: block; width: 100%; } .sp-tbl thead { display: none; }
+  .sp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "what left" "date due" "act act"; gap: 2px 10px; padding: 10px 12px; border-bottom: 1px solid #F2F4F7; }
+  .sp-row td { display: block; padding: 0 !important; border: 0 !important; }
+  .sp-c-what { grid-area: what; min-width: 0; } .sp-c-left { grid-area: left; } .sp-c-date { grid-area: date; } .sp-c-due { grid-area: due; justify-self: end; }
+  .sp-c-act { grid-area: act; } .sp-c-act:empty { display: none; } .sp-c-act .cl-btn { margin-top: 6px; }
+}
