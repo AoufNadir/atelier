@@ -173,6 +173,14 @@ def quick_order(data):
 		frappe.db.set_value("Sales Order", so, "atelier_assignee", d["assignee"].strip()[:80])
 	if d.get("tags"):
 		production.set_tags(so, json.dumps(d["tags"], ensure_ascii=False))
+	if d.get("status") or d.get("labels"):
+		cfg = get_config()
+		st = [x for x in (d.get("status") or []) if x in {s["id"] for s in cfg["statuses"]}]
+		lb = [x for x in (d.get("labels") or []) if x in {l["id"] for l in cfg["labels"]}]
+		if st:
+			frappe.db.set_value("Sales Order", so, "atelier_status", ",".join(st))
+		if lb:
+			frappe.db.set_value("Sales Order", so, "atelier_labels", json.dumps(lb))
 	return res
 
 
@@ -1312,7 +1320,9 @@ def customer_credit(name):
 	"""For the new-order form: is this customer over their credit limit?"""
 	limit = flt(frappe.db.get_value("Customer", name, "atelier_credit_limit"))
 	owes = flt(frappe.db.sql("select sum(outstanding_amount) from `tabSales Invoice` where customer=%s and docstatus=1", name)[0][0]) if api._can("Sales Invoice") else 0
-	return {"limit": limit, "owes": owes, "over": bool(limit) and owes > limit, "note": frappe.db.get_value("Customer", name, "atelier_note")}
+	c = frappe.db.get_value("Customer", name, ["customer_type", "mobile_no", "atelier_note"], as_dict=True) or {}
+	return {"limit": limit, "owes": owes, "over": bool(limit) and owes > limit, "note": c.get("atelier_note"),
+		"customer_type": c.get("customer_type"), "mobile_no": c.get("mobile_no")}
 
 
 @frappe.whitelist(methods=["POST"])
