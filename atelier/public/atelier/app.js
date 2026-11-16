@@ -2076,8 +2076,9 @@ const SimpleMoney = {
         </div>
         <div class="cl-stats mn-stats mn-stats3">
           <div><span>دخل {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money ok">{{ money(d.income) }}</b><small>{{ change(d.income, d.prev_income) }}</small></div>
-          <div><span>مصاريف {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money bad">{{ money(d.expenses) }}</b><small>{{ change(d.expenses, d.prev_expenses) }}</small></div>
-          <div><span>الصافي</span><b class="money" :class="{bad: d.profit < 0}">{{ money(d.profit) }}</b><small>الدخل ناقص المصاريف</small></div>
+          <div><span>خرج من الصناديق {{ offset ? 'في الشهر' : 'هذا الشهر' }}</span><b class="money bad">{{ money(d.expenses) }}</b>
+            <small>مصاريف مسجّلة {{ fig(catTotal) }}<template v-if="catTotal - d.expenses > 0.005"> · منها {{ fig(catTotal - d.expenses) }} لم تُدفع بعد</template></small></div>
+          <div><span>الصافي في الصناديق</span><b class="money" :class="{bad: d.profit < 0}">{{ money(d.profit) }}</b><small>ما دخل ناقص ما خرج</small></div>
         </div>
 
         <form v-if="cl" class="mn-card mn-close" @submit.prevent="doClose">
