@@ -85,9 +85,60 @@ def _order_lines(d):
 		if code and not frappe.db.get_value("Item", code, "is_sales_item"):
 			frappe.throw(_("خدمة غير صالحة"))
 		rate = row.get("rate")
-		lines.append({"item_code": code or _general_item(), "qty": flt(row.get("qty")) or 1, "description": text,
-			"rate": None if rate in (None, "") else flt(rate)})
+		line = {"item_code": code or _general_item(), "qty": flt(row.get("qty")) or 1, "description": text,
+			"rate": None if rate in (None, "") else flt(rate)}
+		line.update(_measure(row, line["qty"]))
+		lines.append(line)
 	return lines
+
+
+LINE_FIELDS = [
+	{"fieldname": "atelier_unit", "label": "الوحدة", "fieldtype": "Data", "insert_after": "description"},
+	{"fieldname": "atelier_width", "label": "العرض", "fieldtype": "Float", "insert_after": "atelier_unit"},
+	{"fieldname": "atelier_height", "label": "الارتفاع", "fieldtype": "Float", "insert_after": "atelier_width"},
+	{"fieldname": "atelier_length", "label": "الطول", "fieldtype": "Float", "insert_after": "atelier_height"},
+	{"fieldname": "atelier_pieces", "label": "القطع", "fieldtype": "Float", "insert_after": "atelier_length"},
+	{"fieldname": "atelier_size", "label": "المقاس", "fieldtype": "Data", "insert_after": "atelier_pieces"},
+	{"fieldname": "atelier_category", "label": "التصنيف", "fieldtype": "Data", "insert_after": "atelier_size"},
+]
+LINE_KEYS = [f["fieldname"] for f in LINE_FIELDS]
+
+
+def line_fields():
+	"""Unit, size and category on every selling line; ERPNext copies same-named fields from the order to the delivery note and invoice."""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	fields = [{**f, "module": "Atelier"} for f in LINE_FIELDS]
+	create_custom_fields({dt: fields for dt in ("Quotation Item", "Sales Order Item", "Delivery Note Item", "Sales Invoice Item")})
+	create_custom_fields({"Item": [{"fieldname": "atelier_category", "label": "التصنيف", "fieldtype": "Data", "insert_after": "item_group", "module": "Atelier"}]})
+
+
+def _g(v):
+	return ("%g" % flt(v))
+
+
+def _measure(row, qty):
+	"""qty from the unit: area = width x height x pieces, length = length x pieces, count = the quantity typed."""
+	name = (row.get("unit") or "").strip()
+	unit = next((u for u in units() if u["name"] == name), None)
+	if not unit:
+		return {"atelier_category": (row.get("category") or "").strip()[:60] or None} if row.get("category") else {}
+	out = {"atelier_unit": unit["name"], "atelier_category": (row.get("category") or "").strip()[:60] or None}
+	sym = "سم" if unit.get("scale") == "cm" else "م"
+	pieces = flt(row.get("pieces")) or 1
+	if unit["calc"] == "area":
+		w, h = flt(row.get("width")), flt(row.get("height"))
+		if w <= 0 or h <= 0:
+			frappe.throw(_("اكتب العرض والارتفاع للبند «{0}»").format(row.get("text") or ""))
+		out.update(atelier_width=w, atelier_height=h, atelier_pieces=pieces, qty=round(w * h * pieces, 4),
+			atelier_size="%s×%s %s · %s قطعة" % (_g(w), _g(h), sym, _g(pieces)))
+	elif unit["calc"] == "length":
+		ln = flt(row.get("length"))
+		if ln <= 0:
+			frappe.throw(_("اكتب الطول للبند «{0}»").format(row.get("text") or ""))
+		out.update(atelier_length=ln, atelier_pieces=pieces, qty=round(ln * pieces, 4),
+			atelier_size="%s %s · %s قطعة" % (_g(ln), sym, _g(pieces)))
+	return out
 
 
 def _order_subject(lines):
@@ -1892,11 +1943,28 @@ def cancel_opening(entry):
 
 
 DEFAULT_UNITS = [
-	{"name": "قطعة", "group": "بالعدد", "whole": 1}, {"name": "ورقة", "group": "بالعدد", "whole": 1},
-	{"name": "علبة", "group": "بالعدد", "whole": 1}, {"name": "خدمة", "group": "بالعدد", "whole": 1},
-	{"name": "م²", "group": "بالمقاس", "whole": 0}, {"name": "سم²", "group": "بالمقاس", "whole": 0},
-	{"name": "متر طولي", "group": "بالمقاس", "whole": 0}, {"name": "ساعة", "group": "بالوقت", "whole": 0},
+	{"name": "قطعة", "calc": "count", "whole": 1}, {"name": "صفحة", "calc": "count", "whole": 1}, {"name": "وجه", "calc": "count", "whole": 1},
+	{"name": "ورقة", "calc": "count", "whole": 1}, {"name": "علبة", "calc": "count", "whole": 1}, {"name": "خدمة", "calc": "count", "whole": 1},
+	{"name": "م²", "calc": "area", "scale": "m", "whole": 0}, {"name": "سم²", "calc": "area", "scale": "cm", "whole": 0},
+	{"name": "متر طولي", "calc": "length", "scale": "m", "whole": 0}, {"name": "سم طولي", "calc": "length", "scale": "cm", "whole": 0},
+	{"name": "ساعة", "calc": "count", "whole": 0},
 ]
+CALC_GROUP = {"count": "بالعدد", "length": "بالطول", "area": "بالمساحة"}
+
+
+def _unit_calc(u):
+	"""Older stored units have no calc: guess it from the name."""
+	n = u.get("name") or ""
+	if u.get("calc") in CALC_GROUP:
+		calc = u["calc"]
+	elif "²" in n or "مربع" in n:
+		calc = "area"
+	elif "طولي" in n:
+		calc = "length"
+	else:
+		calc = "count"
+	scale = u.get("scale") if u.get("scale") in ("m", "cm") else ("cm" if "سم" in n else "m")
+	return {**u, "calc": calc, "scale": scale if calc != "count" else None, "group": CALC_GROUP[calc]}
 
 
 DEFAULT_LISTS = {
@@ -1906,6 +1974,7 @@ DEFAULT_LISTS = {
 		{"value": "Main d'œuvre", "label": "يد عاملة", "material": 0}, {"value": "Sous-traitance", "label": "عند مورد", "material": 0},
 		{"value": "Finition", "label": "تشطيب", "material": 0}, {"value": "Autre", "label": "أخرى", "material": 0}],
 	"due": [{"label": "اليوم", "days": 0}, {"label": "غدًا", "days": 1}, {"label": "بعد 3 أيام", "days": 3}, {"label": "بعد أسبوع", "days": 7}],
+	"categories": [{"name": n} for n in ("طباعة رقمية", "أوفست", "لافتات", "ملصقات", "تصميم", "تركيب", "منتجات")],
 }
 
 
@@ -1955,9 +2024,10 @@ def save_list(key, rows):
 
 def units():
 	try:
-		return json.loads(frappe.db.get_default("atelier_units") or "null") or DEFAULT_UNITS
+		rows = json.loads(frappe.db.get_default("atelier_units") or "null") or DEFAULT_UNITS
 	except ValueError:
-		return DEFAULT_UNITS
+		rows = DEFAULT_UNITS
+	return [_unit_calc(u) for u in rows]
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1968,7 +2038,7 @@ def save_units(rows):
 		name = (row.get("name") or "").strip()[:40]
 		if name and name not in seen:
 			seen.add(name)
-			out.append({"name": name, "group": (row.get("group") or "أخرى").strip()[:40], "whole": 1 if row.get("whole") else 0})
+			out.append(_unit_calc({"name": name, "calc": row.get("calc"), "scale": row.get("scale"), "whole": 1 if row.get("whole") else 0}))
 	if not out:
 		frappe.throw(_("أبقِ وحدة واحدة على الأقل"))
 	frappe.db.set_default("atelier_units", json.dumps(out, ensure_ascii=False))

@@ -78,8 +78,9 @@
       {%- for i in doc.items %}
         {%- set pending = i.get("atelier_price_pending") %}
         <tr><td>{{ loop.index }}</td>
-          <td><b>{{ i.item_name }}</b>{% set d = frappe.utils.strip_html(i.description or "") %}{% if d and d != i.item_name %}<div class="muted">{{ d }}</div>{% endif %}</td>
-          <td class="n">{{ dz_qty(i.qty) }}</td><td>{{ {"Nos": "قطعة", "Feuille": "ورقة"}.get(i.uom, i.uom) }}</td>
+          {%- set d = frappe.utils.strip_html(i.description or "") %}{% set free = i.item_code == "SRV-GENERAL" and d %}
+          <td><b>{{ d if free else i.item_name }}</b>{% if i.get("atelier_size") %}<div class="muted">{{ i.atelier_size }}</div>{% endif %}{% if d and not free and d != i.item_name %}<div class="muted">{{ d }}</div>{% endif %}</td>
+          <td class="n">{{ dz_qty(i.qty) }}</td><td>{{ i.get("atelier_unit") or {"Nos": "قطعة", "Feuille": "ورقة"}.get(i.uom, i.uom) }}</td>
           {%- if priced %}
             {%- if pending %}<td class="n pending" colspan="2">بانتظار التسعير</td>
             {%- else %}<td class="n">{{ dz_money(i.rate) }}</td><td class="n">{{ dz_money(i.amount) }}</td>{% endif %}

@@ -72,7 +72,7 @@ def boot():
 	items = frappe.get_list(
 		"Item",
 		filters={"disabled": 0, "is_sales_item": 1},
-		fields=["item_code", "item_name", "stock_uom", "is_stock_item", "standard_rate"],
+		fields=["item_code", "item_name", "stock_uom", "is_stock_item", "standard_rate", "atelier_category"],
 		order_by="item_name asc",
 		limit=500,
 	)
@@ -656,6 +656,7 @@ def create_order(data):
 				**({"description": i["description"]} if i.get("description") else {}),
 				"rate": 0 if i.get("rate") in (None, "") else flt(i["rate"]),
 				"atelier_price_pending": 1 if i.get("rate") in (None, "") else 0,
+				**{k: i[k] for k in ("atelier_unit", "atelier_width", "atelier_height", "atelier_length", "atelier_pieces", "atelier_size", "atelier_category") if i.get(k) is not None},
 			}
 			for i in items
 		],
@@ -1001,8 +1002,17 @@ def prices():
 	"""Sales items with their individual and company prices."""
 	_require("Item Price")
 	items = frappe.get_list("Item", filters={"disabled": 0, "is_sales_item": 1},
-		fields=["item_code", "item_name", "item_group", "stock_uom"], order_by="item_name asc", limit=1000)
-	return {"items": _with_prices(items), "lists": {k: _price_list(k) for k in PRICE_LISTS}, "can_edit": _can("Item Price", "write")}
+		fields=["item_code", "item_name", "item_group", "stock_uom", "atelier_category", "is_stock_item"], order_by="item_name asc", limit=1000)
+	return {"items": _with_prices([i for i in items if i.item_code != "SRV-GENERAL"]), "lists": {k: _price_list(k) for k in PRICE_LISTS},
+		"can_edit": _can("Item Price", "write")}
+
+
+@frappe.whitelist(methods=["POST"])
+def set_item_category(item_code, category=None):
+	if not _can("Item", "write"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	frappe.db.set_value("Item", item_code, "atelier_category", (category or "").strip()[:60] or None)
+	return category
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1193,11 +1203,13 @@ def create_item(data):
 		"doctype": "Item", "item_code": make_autoname(("PRD" if product else "SRV") + "-.####"), "item_name": name,
 		"item_group": group, "stock_uom": uom, "is_stock_item": 1 if product else 0, "is_sales_item": 1, "is_purchase_item": 1 if product else 0,
 		"include_item_in_manufacturing": 0, "description": (data.get("description") or "").strip() or name,
+		"atelier_category": (data.get("category") or "").strip()[:60] or None,
 	}).insert()
 	for kind, key in (("Individual", "price_individual"), ("Company", "price_company")):
 		if data.get(key) not in (None, ""):
 			set_price(item.name, kind, data[key])
-	return _with_prices([frappe._dict(item_code=item.name, item_name=item.item_name, stock_uom=uom, is_stock_item=item.is_stock_item, standard_rate=0)])[0]
+	return _with_prices([frappe._dict(item_code=item.name, item_name=item.item_name, stock_uom=uom, is_stock_item=item.is_stock_item, standard_rate=0,
+		atelier_category=item.atelier_category)])[0]
 
 
 @frappe.whitelist()

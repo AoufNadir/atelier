@@ -27,6 +27,7 @@ def setup():
 	simple.custom_fields()
 	simple.board_fields()
 	simple.extra_fields()
+	simple.line_fields()
 	simple.customer_fields()
 	simple.customer_fields_2()
 	simple.settings_fields()

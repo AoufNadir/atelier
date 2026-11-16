@@ -546,7 +546,9 @@ const PricesPage = {
     onMounted(load);
     const saving = reactive({}), failed = reactive({});
     const cols = [
-      { k: "item_name", label: t("pr_service"), sort: true },
+      { k: "item_name", label: "العمل", sort: true },
+      { k: "atelier_category", label: "التصنيف", sort: true },
+      { k: "stock_uom", label: "الوحدة", sort: true },
       { k: "price_individual", label: t("pr_individual_prices"), type: "money", sort: true },
       { k: "price_company", label: t("pr_company_prices"), type: "money", sort: true, main: true },
     ];
@@ -569,7 +571,13 @@ const PricesPage = {
       delete saving[row.item_code + key];
     }
     watch(() => state.rev, load);
-    return { s, load, cols, filters, save, saving, failed, t, money, uom, state };
+    const setCategory = async (row, ev) => {
+      const v = ev.target.value;
+      try { row.atelier_category = await call("set_item_category", { item_code: row.item_code, category: v }, true) || null;
+        const b = state.boot.items.find((i) => i.item_code === row.item_code); if (b) b.atelier_category = row.atelier_category; toast("حُفظ التصنيف"); }
+      catch (e) { toast(e.message, "error"); ev.target.value = row.atelier_category || ""; }
+    };
+    return { s, load, cols, filters, save, saving, failed, t, money, uom, state, setCategory };
   },
   template: `
   <div class="page">
@@ -578,9 +586,14 @@ const PricesPage = {
     <LoadState :s="s" :rows="4" @retry="load">
       <p v-if="embedded" class="muted" style="margin:0 0 14px">{{ t('pr_explain') }}</p>
       <div v-else class="alert info" style="margin-bottom:var(--s4)"><Icon name="tag" :size="16"/><span>{{ t('pr_explain') }}</span></div>
-      <DataTable :rows="s.data.items" :cols="cols" row-key="item_code" :search-keys="['item_name','item_code','item_group']" :filters="filters" initial-sort="item_name" :empty="t('pr_none')">
+      <DataTable :rows="s.data.items" :cols="cols" row-key="item_code" :search-keys="['item_name','item_code','atelier_category','stock_uom']" :filters="filters" initial-sort="item_name" :empty="t('pr_none')">
         <template #cell="{row, col}">
-          <span v-if="col.k==='item_name'" class="title-cell"><span class="medium clamp2">{{ row.item_name }}</span><span class="cap">{{ t('pr_per', uom(row.stock_uom)) }}</span></span>
+          <span v-if="col.k==='item_name'" class="title-cell"><span class="medium clamp2">{{ row.item_name }}</span></span>
+          <select v-else-if="col.k==='atelier_category' && s.data.can_edit" class="input pr-cat" :value="row.atelier_category || ''" :aria-label="'تصنيف ' + row.item_name" @change="setCategory(row, $event)">
+            <option value="">—</option><option v-for="c in state.boot.lists.categories || []" :key="c.name" :value="c.name">{{ c.name }}</option>
+            <option v-if="row.atelier_category && !(state.boot.lists.categories || []).some(c => c.name === row.atelier_category)" :value="row.atelier_category">{{ row.atelier_category }}</option></select>
+          <span v-else-if="col.k==='atelier_category'" class="muted">{{ row.atelier_category || '—' }}</span>
+          <span v-else-if="col.k==='stock_uom'" class="muted">{{ uom(row.stock_uom) }}</span>
           <span v-else class="price-cell">
             <input v-if="s.data.can_edit" class="input num" type="text" inputmode="decimal" autocomplete="off" :value="row[col.k] ?? ''"
               :placeholder="t('price_pending')" :aria-label="col.label + ' — ' + row.item_name" :class="{invalid: failed[row.item_code+col.k]}"
@@ -600,8 +613,9 @@ const PricesPage = {
 const unitGroups = () => { const g = {}; (state.boot.units || []).forEach((u) => (g[u.group] ||= []).push(u.name)); return Object.entries(g); };
 const ItemSheet = {
   props: ["opts"], components: { Icon },
-  setup() {
-    const f = reactive({ item_name: "", kind: "service", uom: state.boot.units?.[0]?.name || "قطعة", price_individual: "", price_company: "", description: "" });
+  setup(props) {
+    const f = reactive({ item_name: "", kind: "service", uom: state.boot.units?.[0]?.name || "قطعة", price_individual: "", price_company: "", description: "", category: "",
+      ...(props.opts?.prefill || {}) });
     const saving = ref(false), error = ref(null), attempted = ref(false);
     const errs = computed(() => ({
       item_name: !f.item_name.trim() ? t("it_err_name") : null,
@@ -620,12 +634,12 @@ const ItemSheet = {
       } catch (e) { error.value = e.message; }
       saving.value = false;
     }
-    return { f, saving, error, attempted, errs, save, close, unitGroups, t };
+    return { f, saving, error, attempted, errs, save, close, unitGroups, t, state };
   },
   template: `
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true" aria-labelledby="is-h">
     <form class="sheet wide" novalidate @submit.prevent="save">
-      <div class="sh-head"><div><h2 id="is-h">{{ t('pr_new_service') }}</h2><span class="muted">تظهر في الطلبات بسعرها حسب نوع العميل</span></div><button type="button" class="cl-btn icon ghost" :aria-label="t('close')" @click="close"><Icon name="x" :size="18"/></button></div>
+      <div class="sh-head"><div><h2 id="is-h">{{ t('pr_new_service') }}</h2><span class="muted">تُقترح في الطلبات بوحدتها وسعرها حسب نوع العميل</span></div><button type="button" class="cl-btn icon ghost" :aria-label="t('close')" @click="close"><Icon name="x" :size="18"/></button></div>
       <div v-if="error" class="alert error" role="alert"><Icon name="alert" :size="16"/><span>{{ error }}</span></div>
       <div class="seg" role="group" :aria-label="t('it_kind')">
         <button type="button" :aria-pressed="f.kind==='service'" @click="f.kind='service'">{{ t('it_service') }}</button>
@@ -636,6 +650,8 @@ const ItemSheet = {
         <span v-if="attempted && errs.item_name" class="error-text">{{ errs.item_name }}</span></div>
       <div class="field"><span class="label">{{ t('it_unit') }}</span>
         <select class="input" v-model="f.uom" :aria-label="t('it_unit')"><optgroup v-for="g in unitGroups()" :key="g[0]" :label="g[0]"><option v-for="u in g[1]" :key="u" :value="u">{{ u }}</option></optgroup></select></div>
+      <div class="field"><label for="is-cat">التصنيف <span class="cap">({{ t('optional') }})</span></label>
+        <select id="is-cat" class="input" v-model="f.category"><option value="">بلا تصنيف</option><option v-for="c in state.boot.lists.categories || []" :key="c.name" :value="c.name">{{ c.name }}</option></select></div>
       <div class="grid-2">
         <div class="field"><label for="is-pi">{{ t('pr_individual_prices') }} ({{ t('currency') }})</label>
           <input id="is-pi" class="input num" type="text" inputmode="decimal" autocomplete="off" v-model="f.price_individual" :placeholder="t('it_price_ph')"></div>
@@ -699,11 +715,12 @@ const CustomerField = {
   </div>`,
 };
 
+const newLine = () => ({ text: "", item_code: null, unit: (state.boot.units || [])[0]?.name || "قطعة", width: "", height: "", length: "", qty: 1, rate: "", auto: false, category: "", focus: false });
 // Side panel: a new order (one short form) or an existing order card.
 const BoardPanel = {
   props: ["mode", "order", "preset", "columns"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
   setup(props, { emit }) {
-    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", subject: "", lines: [{ text: "", item_code: null, uom: "", qty: 1, rate: "", auto: false }], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
+    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", subject: "", lines: [newLine()], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
     const startColumns = computed(() => (props.columns || []).filter((c) => !c.deliver));
     if (startColumns.value.length) f.column = startColumns.value[0].id;
     const dueChips = computed(() => (state.boot?.lists?.due || []).map((c) => [c.label, c.days]));
@@ -714,22 +731,46 @@ const BoardPanel = {
     // a line is a known service (its price follows the customer's type) or free text
     const customerType = computed(() => f.customer?.customer_type || f.type);
     const priceOf = (it) => { const v = customerType.value === "Company" ? it.price_company : it.price_individual; return v === null || v === undefined ? "" : v; };
+    // free text; the price list only suggests (unit, price for this customer type, category)
     const lineInput = (l) => {
-      const it = (state.boot.items || []).find((x) => x.item_name === l.text.trim());
-      l.item_code = it ? it.item_code : null; l.uom = it ? uom(it.stock_uom) : "";
-      if (it && (l.rate === "" || l.auto)) { l.rate = priceOf(it); l.auto = l.rate !== ""; }
-      if (!it && l.auto) { l.rate = ""; l.auto = false; }
+      l.focus = true;
+      if (l.item_code && (state.boot.items || []).find((x) => x.item_code === l.item_code)?.item_name !== l.text.trim()) {
+        l.item_code = null; if (l.auto) { l.rate = ""; l.auto = false; }
+      }
     };
+    const sugg = (l) => { const n = l.text.trim(); if (!n || l.item_code) return [];
+      return (state.boot.items || []).filter((it) => it.item_code !== "SRV-GENERAL" && it.item_name.includes(n)).slice(0, 6); };
+    const pick = (l, it) => {
+      l.text = it.item_name; l.item_code = it.item_code; l.focus = false;
+      if ((state.boot.units || []).some((u) => u.name === it.stock_uom)) l.unit = it.stock_uom;
+      l.category = it.atelier_category || l.category;
+      l.rate = priceOf(it); l.auto = l.rate !== "";
+    };
+    const blurLine = (l) => setTimeout(() => (l.focus = false), 150);
+    const unitOf = (l) => (state.boot.units || []).find((u) => u.name === l.unit) || { calc: "count" };
+    const calcOf = (l) => unitOf(l).calc;
+    const sym = (l) => (unitOf(l).scale === "cm" ? "سم" : "م");
+    const measure = (l) => { const c = calcOf(l), q = +l.qty || 0;
+      return c === "area" ? (+l.width || 0) * (+l.height || 0) * q : c === "length" ? (+l.length || 0) * q : q; };
+    const nf = (v) => new Intl.NumberFormat("ar-DZ", { maximumFractionDigits: 2 }).format(v);
+    const lineTotal = (l) => (l.rate === "" || !(measure(l) > 0) ? null : measure(l) * (+l.rate || 0));
+    const lineCalc = (l) => { const c = calcOf(l), m = measure(l); if (!(m > 0)) return "";
+      const head = c === "area" ? `${nf(+l.width)}×${nf(+l.height)} ${sym(l)} × ${nf(+l.qty)} قطعة = ${nf(m)} ${l.unit}` : c === "length" ? `${nf(+l.length)} ${sym(l)} × ${nf(+l.qty)} قطعة = ${nf(m)} ${l.unit}` : `${nf(m)} ${l.unit}`;
+      return l.rate === "" ? head + " · السعر لاحقًا" : `${head} × ${fig(+l.rate)} دج`; };
+    const addToList = (l) => { const key = customerType.value === "Company" ? "price_company" : "price_individual";
+      state.sheet = { type: "item", prefill: { item_name: l.text.trim(), uom: l.unit, category: l.category, [key]: l.rate } }; };
     watch(customerType, () => f.lines.forEach((l) => { if (l.auto) { const it = state.boot.items.find((x) => x.item_code === l.item_code); if (it) { l.rate = priceOf(it); l.auto = l.rate !== ""; } } }));
-    const addLine = () => f.lines.push({ text: "", item_code: null, uom: "", qty: 1, rate: "", auto: false });
+    const addLine = () => f.lines.push(newLine());
     const dropLine = (i) => { f.lines.splice(i, 1); if (!f.lines.length) addLine(); };
     const filled = computed(() => f.lines.filter((l) => l.text.trim()));
-    const total = computed(() => (filled.value.length && filled.value.every((l) => l.rate !== "") ? filled.value.reduce((sum, l) => sum + (+l.qty || 0) * (+l.rate || 0), 0) : null));
+    const total = computed(() => (filled.value.length && filled.value.every((l) => lineTotal(l) !== null) ? filled.value.reduce((sum, l) => sum + lineTotal(l), 0) : null));
     async function save() {
       error.value = null; onCustomerInput();
       if (!f.customer && !newName.value) return (error.value = "اكتب اسم العميل");
       if (!filled.value.length) return (error.value = "اكتب ماذا يريد العميل");
       if (filled.value.some((l) => !(+l.qty > 0))) return (error.value = "الكمية غير صحيحة");
+      const noSize = filled.value.find((l) => (calcOf(l) === "area" && !(+l.width > 0 && +l.height > 0)) || (calcOf(l) === "length" && !(+l.length > 0)));
+      if (noSize) return (error.value = `اكتب ${calcOf(noSize) === "area" ? "العرض والارتفاع" : "الطول"} للبند «${noSize.text.trim()}»`);
       if (filled.value.some((l) => l.rate !== "" && !(+l.rate >= 0))) return (error.value = "السعر غير صحيح");
       if (f.advance !== "" && !(+f.advance >= 0)) return (error.value = "التسبيق غير صحيح");
       if (total.value !== null && +f.advance > total.value) return (error.value = "التسبيق أكبر من المجموع");
@@ -737,7 +778,8 @@ const BoardPanel = {
       try {
         await call("quick_order", { data: JSON.stringify({
           customer: f.customer?.name || null, subject: f.subject.trim(), new_customer: f.customer ? {} : { name: newName.value, phone: f.phone, type: f.type },
-          lines: filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty, rate: l.rate === "" ? null : +l.rate })), advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
+          lines: filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty, rate: l.rate === "" ? null : +l.rate,
+            unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null })), advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
         }) }, true);
         toast("حُفظ الطلب"); emit("saved");
       } catch (e) { error.value = e.message; } finally { saving.value = false; }
@@ -755,7 +797,7 @@ const BoardPanel = {
     const onKey = (e) => { if (e.key === "Escape" && !state.sheet) emit("close"); };
     onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.querySelector(".bd-panel input, .bd-panel button")?.focus(), 50); });
     onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
-    return { lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
+    return { sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
@@ -771,13 +813,27 @@ const BoardPanel = {
       <div class="f"><label for="qo-subject">اسم المشروع <span class="m" style="display:inline">(اختياري)</span></label>
         <input id="qo-subject" class="input" v-model="f.subject" maxlength="120" placeholder="مثال: هوية مطعم الواحة">
         <span class="m">إن تُرك فارغًا يُسمّى الطلب باسم أول خدمة</span></div>
-      <div class="f"><span class="lbl">ماذا يريد؟</span>
-        <div v-for="(l, i) in f.lines" :key="i" class="ol-row">
-          <input class="input ol-text" list="svc-list" v-model="l.text" @input="lineInput(l)" aria-label="الخدمة" placeholder="اختر خدمة أو اكتب وصفًا">
-          <label class="ol-f"><span class="m">الكمية<template v-if="l.uom"> ({{ l.uom }})</template></span><input class="input num" inputmode="decimal" v-model="l.qty"></label>
-          <label class="ol-f"><span class="m">سعر الوحدة (دج)</span><input class="input num" inputmode="decimal" v-model="l.rate" @input="l.auto = false" placeholder="لاحقًا"></label>
-          <button v-if="f.lines.length > 1" type="button" class="btn ghost icon-btn" :aria-label="'حذف البند ' + (i + 1)" @click="dropLine(i)">×</button></div>
-        <datalist id="svc-list"><option v-for="it in state.boot.items" :key="it.item_code" :value="it.item_name"></option></datalist>
+      <div class="f"><span class="lbl">البنود</span>
+        <div v-for="(l, i) in f.lines" :key="i" class="ol2">
+          <div class="ol2-top">
+            <div class="ol2-desc"><input class="input" v-model="l.text" @input="lineInput(l)" @focus="l.focus = true" @blur="blurLine(l)" :aria-label="'وصف البند ' + (i + 1)" placeholder="اكتب الوصف: لافتة، بطاقات، تصميم…" autocomplete="off">
+              <div v-if="l.focus && sugg(l).length" class="ol2-sug"><span class="m">من قائمة الأسعار</span>
+                <button v-for="it in sugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="pick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b>
+                  <span class="m" style="display:block">{{ [it.atelier_category, uom(it.stock_uom), priceOf(it) !== '' ? fig(priceOf(it)) + ' دج' : 'بلا سعر'].filter(Boolean).join(' · ') }}</span></span></button></div></div>
+            <button v-if="f.lines.length > 1" type="button" class="cl-btn icon ghost sm" :aria-label="'حذف البند ' + (i + 1)" @click="dropLine(i)">×</button></div>
+          <div class="ol2-grid">
+            <label class="ol-f"><span class="m">الوحدة</span><select class="input" v-model="l.unit"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></label>
+            <template v-if="calcOf(l) === 'area'">
+              <label class="ol-f"><span class="m">العرض ({{ sym(l) }})</span><input class="input num" inputmode="decimal" v-model="l.width" placeholder="0"></label>
+              <label class="ol-f"><span class="m">الارتفاع ({{ sym(l) }})</span><input class="input num" inputmode="decimal" v-model="l.height" placeholder="0"></label></template>
+            <label v-if="calcOf(l) === 'length'" class="ol-f"><span class="m">الطول ({{ sym(l) }})</span><input class="input num" inputmode="decimal" v-model="l.length" placeholder="0"></label>
+            <label class="ol-f"><span class="m">{{ calcOf(l) === 'count' ? 'الكمية' : 'القطع' }}</span><input class="input num" inputmode="decimal" v-model="l.qty"></label>
+            <label class="ol-f"><span class="m">السعر للـ {{ l.unit }} (دج)</span><input class="input num" inputmode="decimal" v-model="l.rate" @input="l.auto = false" placeholder="لاحقًا"></label>
+          </div>
+          <div class="ol2-foot"><span class="m">{{ lineCalc(l) }}</span><span class="spacer"></span><b v-if="lineTotal(l) !== null" class="ol2-total">{{ money(lineTotal(l)) }}</b></div>
+          <div class="ol2-foot"><select class="input ol2-cat" v-model="l.category" :aria-label="'تصنيف البند ' + (i + 1)"><option value="">التصنيف (اختياري)</option><option v-for="c in state.boot.lists.categories || []" :key="c.name" :value="c.name">{{ c.name }}</option></select>
+            <span class="spacer"></span><button v-if="l.text.trim() && !l.item_code && state.boot.can.prices" type="button" class="cl-link" @click="addToList(l)">+ أضفه إلى قائمة الأسعار</button></div>
+        </div>
         <div class="row" style="justify-content:space-between"><button type="button" class="tb-addbtn" @click="addLine">+ بند آخر</button><span v-if="filled.length" class="m">المجموع: <b class="money">{{ total === null ? 'يُحدَّد لاحقًا' : money(total) }}</b></span></div></div>
       <div class="f"><label for="qo-adv">تسبيق</label><div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0"><span class="u">دج</span></div></div>
       <div v-if="+f.advance > 0" class="f"><span class="lbl">طريقة دفع التسبيق</span><div class="bd-chips"><button v-for="m in state.boot.modes" :key="m.value" type="button" class="bd-chip" :aria-pressed="f.mode === m.value" @click="f.mode = m.value">{{ m.label }}</button></div></div>
@@ -2454,7 +2510,7 @@ const BoardSettings = {
 // ------------------------------------------------------------------ settings (/atelier/settings), manager only
 const SETTINGS_GROUPS = [
   ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"]]],
-  ["العمل", [["team", "users", "الفريق والحسابات"], ["board", "grid", "لوحة الطلبات"], ["prices", "tag", "الخدمات والأسعار"], ["lists", "grid", "القوائم"]]],
+  ["العمل", [["team", "users", "الفريق والحسابات"], ["board", "grid", "لوحة الطلبات"], ["prices", "tag", "قائمة الأسعار"], ["lists", "grid", "القوائم"]]],
   ["المال والنظام", [["funds", "wallet", "الدفع والصناديق"], ["alerts", "bell", "التنبيهات"], ["mail", "invoice", "البريد"], ["folders", "file", "المجلدات"], ["backup", "box", "النسخ الاحتياطي"]]],
 ];
 const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "الوثائق والضريبة"], ["team", "👥", "الفريق والحسابات"], ["board", "▦", "تخصيص اللوحة"],
@@ -2481,7 +2537,10 @@ const OpeningGroup = {
 };
 
 const LIST_DEFS = [
-  { key: "units", title: "وحدات البيع", hint: "تظهر عند إضافة خدمة أو منتج. الخدمات الموجودة تبقى على وحدتها.", cols: [["name", "الوحدة"], ["group", "المجموعة"], ["whole", "عدد صحيح", "check"]], blank: { name: "", group: "أخرى", whole: 0 } },
+  { key: "units", title: "الوحدات", hint: "لكل وحدة طريقة حساب: بالعدد (قطعة، صفحة، وجه)، بالطول (متر طولي)، أو بالمساحة (م²). البند يطلب المقاس حسب وحدته.",
+    cols: [["name", "الوحدة"], ["calc", "طريقة الحساب", "select", [["count", "بالعدد"], ["length", "بالطول"], ["area", "بالمساحة"]]], ["scale", "المقياس", "select", [["m", "متر"], ["cm", "سنتيمتر"]]], ["whole", "عدد صحيح", "check"]],
+    blank: { name: "", calc: "count", scale: "m", whole: 0 } },
+  { key: "categories", title: "تصنيفات الأعمال", hint: "تُختار في البند وفي قائمة الأسعار، وتظهر في التقارير: كم ربحت من كل تصنيف.", cols: [["name", "التصنيف"]], blank: { name: "" } },
   { key: "tags", title: "الأوسام السريعة", hint: "الترتيب يحدد الأولوية على اللوحة. الطلبات السابقة تحتفظ بوسمها.", cols: [["name", "الوسم"]], blank: { name: "", tone: "" } },
   { key: "due", title: "أزرار موعد التسليم", hint: "تظهر في الطلب الجديد.", cols: [["label", "النص"], ["days", "بعد كم يوم", "number"]], blank: { label: "", days: 1 } },
   { key: "cost_types", title: "أنواع التكلفة", hint: "«مادة» يعني أن تلف المواد يُضاف إلى هذا النوع.", cols: [["label", "النوع"], ["material", "مادة", "check"]], blank: { label: "", material: 0 } },
@@ -2509,6 +2568,7 @@ const ListEditor = {
     <div class="st2-fields"><div v-for="(r, i) in rows" :key="i" class="st2-line">
         <template v-for="c in def.cols" :key="c[0]">
           <label v-if="c[2] === 'check'" class="row" style="gap:4px;white-space:nowrap"><input type="checkbox" :checked="!!r[c[0]]" @change="r[c[0]] = $event.target.checked ? 1 : 0">{{ c[1] }}</label>
+          <select v-else-if="c[2] === 'select'" class="input" v-model="r[c[0]]" :aria-label="c[1]" :disabled="c[0] === 'scale' && r.calc === 'count'"><option v-for="o in c[3]" :key="o[0]" :value="o[0]">{{ o[1] }}</option></select>
           <input v-else class="input" :type="c[2] === 'number' ? 'number' : 'text'" :min="c[2] === 'number' ? 0 : null" v-model="r[c[0]]" :aria-label="c[1]" :placeholder="c[1]"></template>
         <button type="button" class="cl-btn sm" :disabled="i === 0" :aria-label="'رفع ' + (i + 1)" @click="shift(i, -1)">↑</button>
         <button type="button" class="cl-btn sm" :aria-label="'حذف ' + (i + 1)" @click="rows.splice(i, 1)">×</button></div>
