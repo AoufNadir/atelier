@@ -1667,7 +1667,7 @@ const SimpleCustomers = {
       window.open(waLink(d.value.mobile_no) + "?text=" + encodeURIComponent(text), "_blank", "noopener"); };
     const STATE_DOT = (o) => (o.archived ? "#98A2B3" : o.per_delivered >= 100 ? "#12B76A" : o.docstatus === 0 ? "#F79009" : "#2E90FA");
     const owesNow = computed(() => d.value && d.value.balance > 0.005);
-    const TABS = computed(() => [["log", "التواصل"], ["files", "كل الملفات"], ["stats", "الإحصاء"], ...(d.value?.balance !== undefined ? [["account", "كشف الحساب"]] : []), ["data", "البيانات"]]);
+    const TABS = computed(() => [["log", "التواصل"], ["files", "الملفات"], ...(d.value?.balance !== undefined ? [["account", "كشف الحساب"]] : []), ["stats", "الإحصاء"], ["data", "البيانات"]]);
     // list: one-click filters
     const quickF = (type, status) => Object.assign(f, { ...EMPTY, type: type || "all", status: status || "all" });
     const chips = computed(() => [
@@ -1704,13 +1704,23 @@ const SimpleCustomers = {
     const openCard = (o) => go("/?card=" + encodeURIComponent(o.name));
     const initial = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
     const finalName = (o) => decodeURIComponent((o.final || "").split("/").pop());
-    const openCount = computed(() => (d.value?.orders || []).filter((o) => !["Closed", "Completed"].includes(o.status) && !o.archived).length);
+    // what the customer owes, in one sum: unpaid invoices + confirmed orders not invoiced yet
+    const account = computed(() => {
+      const o = (d.value?.orders || []).filter((x) => !x.price_pending && !["Closed"].includes(x.status));
+      const unbilled = o.filter((x) => (x.per_billed || 0) < 100 && x.docstatus < 2).reduce((a, x) => a + Math.max(0, x.grand_total - (x.paid || 0)), 0);
+      const invoices = Math.max(0, d.value?.outstanding || 0);
+      return { invoices, unbilled, total: invoices + unbilled, all: o.reduce((a, x) => a + (x.grand_total || 0), 0),
+        delivered: (d.value?.orders || []).filter((x) => x.per_delivered >= 100).length };
+    });
+    const remaining = (o) => (o.price_pending ? null : Math.max(0, o.grand_total - (o.paid || 0)));
+    const showNote = computed(() => !!(d.value?.note) || editNote.value);
+    const openCount = computed(() => (d.value?.orders || []).filter((o) => (o.per_delivered || 0) < 100 && !o.archived && o.status !== "Closed").length);
     if (sel.value) open(sel.value);
     return { s, load, sel, d, err, tab, q, f, draft, fopen, more, openFilters, applyFilters, resetFilters, TYPES, STATUSES, SORTS, everyone, ctags, rows, active, clearOne,
       kpi, quick, open, bal, lastWord, exportList, newOrderFor, pay, pmenu, merging, editNote, note, startNote, saveExtra, remind, startRemind, sendRemind, toggleDisabled,
       doMerge, exportOrders, reorder, uploading, onFile, copyText, LOG_KINDS, logKind, logText, addLog, months6, maxMonth, stFrom, stTo, statementUrl, sendStatement, STATE_DOT,
       owesNow, TABS, labelStyle, isImg, waLink, money, fig, date, ago, state, go, t,
-      chips, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
+      account, remaining, showNote, chips, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
   },
   template: `
   <div class="cl">
@@ -1783,24 +1793,26 @@ const SimpleCustomers = {
       <div v-else-if="!d" class="ws-loading">جارٍ التحميل…</div>
       <template v-else>
         <header class="cp-card cp-head">
-          <Avatar :name="d.customer_name" :size="56"/>
           <div class="cp-id">
-            <h1>{{ d.customer_name }}<button v-if="d.can_edit" type="button" class="cl-star-btn" :aria-pressed="!!d.vip" :title="d.vip ? 'إلغاء زبون مميز' : 'زبون مميز'" @click="saveExtra({vip: d.vip ? 0 : 1})"><Icon name="star" :size="16"/></button>
-              <span class="cp-type">{{ d.customer_type === 'Company' ? 'مؤسسة' : 'فرد' }}</span></h1>
-            <span class="muted"><template v-if="d.mobile_no"><span dir="ltr">{{ d.mobile_no }}</span> · </template><template v-if="d.legal && d.legal.nif">NIF {{ d.legal.nif }} · </template>عميل منذ {{ date(d.since) }}<template v-for="id in d.tags.filter(x => ctags[x])" :key="id"> · {{ ctags[id].name }}</template></span>
+            <h1>{{ d.customer_name }}<span class="cp-type">{{ d.customer_type === 'Company' ? 'مؤسسة' : 'فرد' }}</span>
+              <button v-if="d.can_edit" type="button" class="cl-star-btn" :aria-pressed="!!d.vip" :title="d.vip ? 'إلغاء زبون مميز' : 'زبون مميز'" @click="saveExtra({vip: d.vip ? 0 : 1})"><Icon name="star" :size="16"/></button></h1>
+            <span class="muted"><template v-if="d.mobile_no"><span dir="ltr">{{ d.mobile_no }}</span> · </template>عميل منذ {{ date(d.since) }}<template v-for="id in d.tags.filter(x => ctags[x])" :key="id"> · {{ ctags[id].name }}</template></span>
           </div>
           <div class="cp-acts">
-            <button v-if="state.boot.can.order" type="button" class="cl-btn primary" @click="newOrderFor(d)"><Icon name="plus" :size="16"/>طلب جديد</button>
             <a v-if="d.mobile_no" class="cl-btn" :href="'tel:' + d.mobile_no"><Icon name="phone" :size="15"/>اتصال</a>
             <a v-if="waLink(d.mobile_no)" class="cl-btn" target="_blank" rel="noopener" :href="waLink(d.mobile_no)"><Icon name="msg" :size="15"/>واتساب</a>
-            <a v-if="d.balance !== undefined" class="cl-btn" target="_blank" rel="noopener" :href="statementUrl"><Icon name="file" :size="15"/>كشف حساب</a>
-            <a v-if="d.folder" class="cl-btn" :href="folderLink(d.folder)" title="يفتح مجلد العميل في مستكشف Windows"><Icon name="file" :size="15"/>افتح مجلد العميل</a>
-            <button v-if="d.can_edit" type="button" class="cl-btn" @click="state.sheet = {type: 'customer', name: d.name}"><Icon name="edit" :size="15"/>تعديل</button>
-            <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="خيارات العميل" :aria-expanded="pmenu" @click.stop="pmenu = !pmenu"><Icon name="more" :size="18"/></button>
+            <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="المزيد" :aria-expanded="pmenu" @click.stop="pmenu = !pmenu"><Icon name="more" :size="18"/></button>
               <div v-if="pmenu" class="cl-pop cl-menu" @click.stop>
+                <a v-if="d.balance !== undefined" :href="statementUrl" target="_blank" rel="noopener" class="cp-menu-a" @click="pmenu = false"><Icon name="file" :size="16"/>كشف حساب PDF</a>
+                <a v-if="d.folder" :href="folderLink(d.folder)" class="cp-menu-a" @click="pmenu = false"><Icon name="file" :size="16"/>افتح مجلد العميل</a>
+                <button v-if="d.can_edit" type="button" @click="pmenu = false; state.sheet = {type: 'customer', name: d.name}"><Icon name="edit" :size="16"/>تعديل بيانات العميل</button>
+                <button v-if="d.can_edit" type="button" @click="pmenu = false; startNote()"><Icon name="pin" :size="16"/>{{ d.note ? 'تعديل الملاحظة الثابتة' : 'إضافة ملاحظة ثابتة' }}</button>
+                <button v-if="owesNow && waLink(d.mobile_no)" type="button" @click="pmenu = false; startRemind()"><Icon name="msg" :size="16"/>تذكير بالدفع</button>
+                <button type="button" @click="exportOrders"><Icon name="file" :size="16"/>تصدير أعماله (Excel)</button>
                 <button v-if="s.data && s.data.manager" type="button" @click="pmenu = false; merging = ''">دمج مع عميل آخر</button>
-                <button v-if="d.can_edit" type="button" @click="toggleDisabled">{{ d.disabled ? 'إعادة تفعيل العميل' : 'إيقاف العميل' }}</button>
-                <button type="button" @click="exportOrders">تصدير أعماله (Excel)</button></div></div>
+                <button v-if="d.can_edit" type="button" @click="toggleDisabled">{{ d.disabled ? 'إعادة تفعيل العميل' : 'إيقاف العميل' }}</button></div></div>
+            <button v-if="state.boot.can.payment" type="button" class="cl-btn" @click="pay">استلمت دفعة</button>
+            <button v-if="state.boot.can.order" type="button" class="cl-btn primary" @click="newOrderFor(d)"><Icon name="plus" :size="16"/>طلب جديد</button>
           </div>
         </header>
         <div v-if="d.disabled" class="cl-note muted-note">هذا العميل موقوف: لا يظهر في القوائم ولا في اختيار العملاء.</div>
@@ -1811,59 +1823,53 @@ const SimpleCustomers = {
             <option v-for="c in everyone.filter(x => x.name !== d.name && x.customer_type === d.customer_type)" :key="c.name" :value="c.name">{{ c.customer_name }}</option></select>
           <div class="row" style="gap:8px"><button type="button" class="cl-btn danger" :disabled="!merging" @click="doMerge">دمج</button><button type="button" class="cl-btn ghost" @click="merging = null">إلغاء</button></div>
         </div>
-
-        <div class="cp-kpis">
-          <div v-if="d.balance !== undefined" class="cp-card cp-kpi"><span class="muted">{{ owesNow ? 'عليه الآن' : d.balance < -0.005 ? 'له عندنا' : 'الحساب' }}</span>
-            <b :class="owesNow ? 'bad' : d.balance < -0.005 ? 'ok' : ''">{{ owesNow ? money(d.balance) : d.balance < -0.005 ? money(-d.balance) : 'خالص' }}</b>
-            <span class="muted" :class="{bad: d.overdue_days}">{{ d.overdue_days ? 'متأخر ' + d.overdue_days + ' يومًا' : owesNow ? 'غير متأخر' : '—' }}</span></div>
-          <div v-if="d.year_paid !== undefined" class="cp-card cp-kpi"><span class="muted">دفع هذه السنة</span><b>{{ money(d.year_paid) }}</b><span class="muted">مجموع مشترياته {{ money(d.invoiced || 0) }}</span></div>
-          <div class="cp-card cp-kpi"><span class="muted">الأعمال</span><b>{{ d.orders.length }}</b><span class="muted">{{ openCount }} جارية الآن</span></div>
-          <div v-if="d.balance !== undefined" class="cp-card cp-kpi"><span class="muted">{{ d.credit_limit ? 'سقف الدين ' + fig(d.credit_limit) + ' دج' : 'بلا سقف دين' }}</span>
-            <button v-if="state.boot.can.payment" type="button" class="cl-btn primary block" @click="pay">استلمت دفعة</button>
-            <button v-if="owesNow && waLink(d.mobile_no)" type="button" class="cl-link" @click="startRemind">تذكير بالدفع</button></div>
-        </div>
-        <div v-if="d.credit_limit && d.balance > d.credit_limit" class="cl-note danger-note">تجاوز سقف الدين: عليه {{ fig(d.balance) }} من {{ fig(d.credit_limit) }} دج</div>
         <div v-if="remind !== null" class="cp-card cp-pad"><label class="muted" for="remind-t">رسالة التذكير (عدّلها قبل الإرسال)</label><textarea id="remind-t" class="input" v-model="remind" rows="5"></textarea>
           <div class="row" style="gap:8px"><button type="button" class="cl-btn primary" @click="sendRemind">فتح في واتساب</button><button type="button" class="cl-btn ghost" @click="remind = null">إلغاء</button></div></div>
-        <div class="cl-note" :class="{empty: !d.note && !editNote}">
+
+        <div class="cp-card cp-acc">
+          <div><span class="muted">المطلوب منه الآن</span><b :class="account.total > 0.005 ? 'bad' : 'ok'">{{ account.total > 0.005 ? money(account.total) : 'لا شيء' }}</b>
+            <span v-if="account.total > 0.005" class="muted">فواتير {{ fig(account.invoices) }} · طلبات لم تُفوتر {{ fig(account.unbilled) }}</span>
+            <span v-if="d.overdue_days" class="muted bad">أقدم فاتورة متأخرة {{ d.overdue_days }} يومًا</span></div>
+          <div v-if="d.received !== undefined"><span class="muted">دفع حتى الآن</span><b>{{ money(d.received || 0) }}</b><span class="muted">من مجموع أعماله {{ fig(account.all) }} دج</span></div>
+          <div><span class="muted">الأعمال</span><b>{{ d.orders.length }}</b><span class="muted">{{ openCount }} جارية · {{ account.delivered }} سُلّمت</span></div>
+          <div v-if="d.credit_limit"><span class="muted">سقف الدين</span><b>{{ money(d.credit_limit) }}</b>
+            <span class="muted" :class="d.credit_limit - account.total < 0 ? 'bad' : 'ok'">{{ d.credit_limit - account.total < 0 ? 'تجاوزه بـ ' + fig(account.total - d.credit_limit) + ' دج' : 'متبقٍ له ' + fig(d.credit_limit - account.total) + ' دج' }}</span></div>
+        </div>
+        <div v-if="showNote" class="cl-note">
           <Icon name="pin" :size="15"/>
-          <template v-if="editNote"><div style="flex:1"><textarea class="input" v-model="note" rows="3" aria-label="الملاحظة الثابتة"></textarea>
+          <template v-if="editNote"><div style="flex:1"><textarea class="input" v-model="note" rows="3" aria-label="الملاحظة الثابتة" placeholder="تظهر في كل بطاقة جديدة لهذا العميل"></textarea>
             <div class="row" style="gap:8px;margin-top:6px"><button type="button" class="cl-btn primary sm" @click="saveExtra({note})">حفظ</button><button type="button" class="cl-btn ghost sm" @click="editNote = false">إلغاء</button></div></div></template>
-          <template v-else><span style="flex:1">{{ d.note || 'ملاحظة ثابتة تظهر في كل بطاقة جديدة لهذا العميل' }}</span>
-            <button v-if="d.can_edit" type="button" class="cl-link" @click="startNote">{{ d.note ? 'تعديل' : 'إضافة' }}</button></template>
+          <template v-else><span style="flex:1">{{ d.note }}</span><button v-if="d.can_edit" type="button" class="cl-link" @click="startNote">تعديل</button></template>
         </div>
 
-        <section class="cp-card cp-hist" aria-label="سجل الأعمال">
-          <div class="cp-hist-head"><h2>سجل الأعمال</h2><span class="muted">{{ jobs.length }}</span><span class="spacer"></span>
+        <section class="cp-card cp-hist" aria-label="أعماله">
+          <div class="cp-hist-head"><h2>أعماله</h2><span class="muted">{{ jobs.length }}</span><span class="spacer"></span>
             <label class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث في أعماله</span><input type="search" v-model="jq" placeholder="ابحث في أعماله"></label>
-            <div class="seg" role="group" aria-label="طريقة العرض"><button type="button" :aria-pressed="hview === 'list'" @click="hview = 'list'">قائمة</button><button type="button" :aria-pressed="hview === 'gallery'" @click="hview = 'gallery'">معرض الصور</button></div></div>
+            <div class="seg" role="group" aria-label="طريقة العرض"><button type="button" :aria-pressed="hview === 'list'" @click="hview = 'list'">جدول</button><button type="button" :aria-pressed="hview === 'gallery'" @click="hview = 'gallery'">معرض الصور</button></div></div>
           <div v-if="!jobs.length" class="muted cp-pad">{{ jq.trim() ? 'لا أعمال تطابق البحث.' : 'لا أعمال بعد.' }}</div>
-          <template v-else-if="hview === 'list'">
-            <div v-for="(Y, yi) in years" :key="Y.y" class="cp-year">
-              <button type="button" class="cp-year-h" :aria-expanded="yearOpen(Y.y, yi)" @click="openYears[Y.y] = !yearOpen(Y.y, yi)">
-                <b>{{ Y.y }}</b><span class="muted">{{ Y.n }} {{ Y.n === 1 ? 'عمل' : 'أعمال' }} · {{ money(Y.total) }}</span><span class="spacer"></span><Icon :name="yearOpen(Y.y, yi) ? 'up' : 'down'" :size="16"/></button>
-              <template v-if="yearOpen(Y.y, yi)">
-                <div v-for="M in Y.months" :key="M.m" class="cp-month"><span class="cp-month-h">{{ M.label }}</span>
-                  <div v-for="o in M.items" :key="o.name" class="cp-job">
-                    <button type="button" class="cp-thumb" :style="thumbOf(o) ? {} : {background: o.cover_color || '#98A2B3'}" :aria-label="'صور ' + (o.atelier_subject || o.name)" @click="showImages(o)">
-                      <img v-if="thumbOf(o)" :src="thumbOf(o)" alt="" loading="lazy"><span v-else>{{ initial(o.atelier_subject || o.name) }}</span></button>
-                    <div class="cp-job-b">
-                      <div class="cp-job-t"><a :href="'/atelier/?card=' + o.name" @click.prevent="openCard(o)">{{ o.atelier_subject || o.name }}</a>
-                        <span v-for="x in stOf(o)" :key="x.id" class="st-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span>
-                        <span v-if="o.archived" class="st-pill none">مؤرشفة</span></div>
-                      <span class="muted">{{ date(o.transaction_date) }} · {{ o.column }}<template v-if="!o.price_pending"> · {{ money(o.grand_total) }}</template> · <span :class="'cp-pay ' + payWord(o).c">{{ payWord(o).t }}</span></span>
-                      <span class="cp-links">
-                        <button v-if="imagesOf(o).length || o.cover" type="button" @click="showImages(o)">عرض الصورة<template v-if="imagesOf(o).length > 1"> ({{ imagesOf(o).length }})</template></button>
-                        <a v-if="o.final" :href="o.final" download :title="finalName(o)"><Icon name="star" :size="12"/> الملف النهائي</a>
-                        <a v-if="o.folder" :href="folderLink(o.folder)">افتح المجلد</a>
-                        <button v-if="state.boot.can.order" type="button" @click="reorder(o)">أعد الطلب</button></span>
-                    </div>
-                    <button type="button" class="cl-btn sm cp-open" @click="openCard(o)">فتح البطاقة</button>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </template>
+          <div v-else-if="hview === 'list'" class="cp-tbl-wrap">
+            <table class="cl-table cp-tbl">
+              <thead><tr><th class="cp-td-img"><span class="sr-only">صورة</span></th><th>العمل</th><th>التاريخ</th><th class="desktop-only">المرحلة</th><th>الحالة</th><th class="n desktop-only">المبلغ</th><th class="n">الباقي</th></tr></thead>
+              <tbody v-for="(Y, yi) in years" :key="Y.y">
+                <tr class="cp-yr" tabindex="0" :aria-expanded="yearOpen(Y.y, yi)" @click="openYears[Y.y] = !yearOpen(Y.y, yi)" @keydown.enter="openYears[Y.y] = !yearOpen(Y.y, yi)">
+                  <td colspan="7"><b>{{ Y.y }}</b> <span class="muted">· {{ Y.n }} {{ Y.n === 1 ? 'عمل' : 'أعمال' }} · {{ money(Y.total) }}</span><Icon :name="yearOpen(Y.y, yi) ? 'up' : 'down'" :size="14" class="cp-yr-ic"/></td></tr>
+                <template v-if="yearOpen(Y.y, yi)">
+                  <tr v-for="o in Y.months.flatMap(M => M.items)" :key="o.name" class="cp-row" tabindex="0" :title="'فتح بطاقة ' + (o.atelier_subject || o.name)" @click="openCard(o)" @keydown.enter="openCard(o)">
+                    <td class="cp-td-img cp-c-img"><button v-if="thumbOf(o)" type="button" class="cp-mini" :aria-label="'صور ' + (o.atelier_subject || o.name)" @click.stop="showImages(o)"><img :src="thumbOf(o)" alt="" loading="lazy"></button></td>
+                    <td class="cp-c-name"><b class="cp-job-n">{{ o.atelier_subject || o.name }}</b>
+                      <span v-if="o.size" class="cl-sub">{{ o.size }}</span>
+                      <a v-if="o.final" class="cp-final" :href="o.final" download @click.stop><Icon name="star" :size="12"/>الملف النهائي</a></td>
+                    <td class="muted cp-nowrap cp-c-date">{{ date(o.transaction_date) }}</td>
+                    <td class="desktop-only cp-c-stage"><span class="cp-stage">{{ o.archived ? 'مؤرشفة' : o.column || '—' }}</span></td>
+                    <td class="cp-c-st"><span class="cp-sts"><span v-for="x in stOf(o)" :key="x.id" class="st-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span></span></td>
+                    <td class="n desktop-only cp-nowrap cp-c-amt"><span v-if="o.price_pending" class="cp-pay warn">بلا سعر</span><template v-else>{{ fig(o.grand_total) }}</template></td>
+                    <td class="n cp-nowrap cp-c-rem"><span v-if="remaining(o) === null" class="muted">—</span><span v-else-if="remaining(o) > 0.005" class="cp-pay bad">{{ fig(remaining(o)) }}</span><span v-else class="cp-pay ok">مدفوع</span></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div class="muted cp-pad" style="padding-top:8px">انقر على أي عمل لفتح بطاقته.</div>
+          </div>
           <div v-else class="cp-gallery">
             <button v-for="(g, gi) in gallery" :key="gi" type="button" class="cp-gtile" :aria-label="(g.o.atelier_subject || g.o.name) + (g.url ? '' : ' — بلا صورة')" @click="g.url ? showImages(g.o, g.url) : openCard(g.o)">
               <span class="cp-gimg" :style="g.url ? {} : {background: g.o.cover_color || '#98A2B3'}"><img v-if="g.url" :src="g.url" alt="" loading="lazy"><span v-else>{{ initial(g.o.atelier_subject || g.o.name) }}</span></span>

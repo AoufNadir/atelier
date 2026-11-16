@@ -931,6 +931,11 @@ def customer2(name):
 		o.cover_color, o.final = e.get("atelier_cover_color"), e.get("atelier_final")
 		o.status = _status_of(e, _jl(e.get("atelier_labels")), cfg)
 		o.folder = folders.card_folder(o.name)
+	sizes = {}
+	for r in frappe.get_all("Sales Order Item", filters={"parent": ["in", orders], "atelier_size": ["is", "set"]}, fields=["parent", "atelier_size"], order_by="idx asc"):
+		sizes.setdefault(r.parent, r.atelier_size)
+	for o in res.get("orders") or []:
+		o.size = sizes.get(o.name)
 	res["statuses"] = cfg["statuses"]
 	if api._can("Payment Entry"):
 		res["year_paid"] = flt(frappe.db.sql("""select sum(paid_amount) from `tabPayment Entry` where party_type='Customer' and party=%s
