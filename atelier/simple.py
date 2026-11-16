@@ -866,13 +866,24 @@ def customer2(name):
 	doc = frappe.db.get_value("Customer", name, ["atelier_note", "atelier_vip", "customer_name"], as_dict=True)
 	res["note"] = doc.atelier_note or ""
 	res["vip"] = cint(doc.atelier_vip)
+	if api._can("Sales Order"):  # the whole history, not only the latest orders
+		res["orders"] = api._order_rows({"customer": name, "docstatus": ["<", 2]}, limit=1000)
 	orders = [o.name for o in res.get("orders") or []] or [""]
-	extra = {r.name: r for r in frappe.get_all("Sales Order", filters={"name": ["in", orders]}, fields=["name", "atelier_cover", "atelier_column", "atelier_archived"])}
+	extra = {r.name: r for r in frappe.get_all("Sales Order", filters={"name": ["in", orders]},
+		fields=["name", "atelier_cover", "atelier_column", "atelier_archived", "atelier_cover_color", "atelier_status", "atelier_final", "atelier_labels"])}
 	cfg = get_config()
+	folders = _folders()
 	for o in res.get("orders") or []:
 		e = extra.get(o.name) or frappe._dict()
 		o.cover, o.atelier_column, o.archived = e.atelier_cover, e.atelier_column, cint(e.atelier_archived)
 		o.column = next((c["name"] for c in cfg["columns"] if c["id"] == _column_for(o, cfg)), "")
+		o.cover_color, o.final = e.get("atelier_cover_color"), e.get("atelier_final")
+		o.status = _status_of(e, _jl(e.get("atelier_labels")), cfg)
+		o.folder = folders.card_folder(o.name)
+	res["statuses"] = cfg["statuses"]
+	if api._can("Payment Entry"):
+		res["year_paid"] = flt(frappe.db.sql("""select sum(paid_amount) from `tabPayment Entry` where party_type='Customer' and party=%s
+			and docstatus=1 and payment_type='Receive' and posting_date >= %s""", (name, str(frappe.utils.getdate(nowdate()).year) + "-01-01"))[0][0])
 	files = frappe.db.sql(
 		"""select f.name, f.file_name, f.file_url, f.creation, f.attached_to_doctype, f.attached_to_name, so.atelier_subject
 		from `tabFile` f left join `tabSales Order` so on f.attached_to_doctype='Sales Order' and so.name=f.attached_to_name
