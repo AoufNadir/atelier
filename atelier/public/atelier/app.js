@@ -818,11 +818,15 @@ const COVER_COLORS = ["#0F6E56", "#534AB7", "#993C1D", "#185FA5", "#993556", "#5
 const folderLink = (path) => "nasaq://open/?p=" + encodeURIComponent(path || "");
 const StatusMenu = {
   props: ["statuses", "current"], emits: ["pick"],
-  setup() { return { go, state }; },
-  template: `<div class="st-menu"><b>الحالة</b>
-    <button v-for="x in statuses" :key="x.id" type="button" class="tm-pop-row" :aria-pressed="x.id === current" @click="$emit('pick', x.id)">
-      <i class="st-sw" :style="{background: x.color}"></i><span style="flex:1">{{ x.name }}</span><span v-if="x.id === current" class="tm-tick">✓</span></button>
-    <button v-if="current" type="button" class="tm-pop-row" @click="$emit('pick', '')"><i class="st-sw st-none"></i><span style="flex:1">بلا حالة</span></button>
+  setup(props, { emit }) {
+    const has = (id) => (props.current || []).includes(id);
+    const flip = (id) => emit("pick", has(id) ? props.current.filter((x) => x !== id) : [...(props.current || []), id]);
+    return { has, flip, inkOn, go, state };
+  },
+  template: `<div class="st-menu"><b>الحالات <span class="m" style="display:inline;font-weight:400">— اختر واحدة أو أكثر</span></b>
+    <label v-for="x in statuses" :key="x.id" class="tm-pop-row st-row"><input type="checkbox" :checked="has(x.id)" @change="flip(x.id)">
+      <span class="st-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span></label>
+    <button v-if="(current || []).length" type="button" class="tm-pop-row" @click="$emit('pick', [])"><i class="st-sw st-none"></i><span style="flex:1">إزالة كل الحالات</span></button>
     <button v-if="state.boot.can.prices" type="button" class="tm-pop-add" @click="go('/settings?tab=board')">تعديل الحالات وألوانها</button></div>`,
 };
 const BOARD_COLORS = ["#9A94AC", "#F5D547", "#F59E0B", "#E5484D", "#2563EB", "#22A06B", "#D7F1A8", "#9B87F5", "#1597A6", "#C2410C"];
@@ -833,8 +837,8 @@ const ago = (iso) => { const m = Math.round((Date.now() - new Date(String(iso).r
 const BoardCard = {
   props: ["c", "labels", "statuses", "busy", "dropBefore", "columns"], emits: ["open", "drag", "dropon", "menu", "status"], components: { Avatar, Icon },
   setup(props) {
-    const st = computed(() => (props.statuses || []).find((x) => x.id === props.c.status));
-    return { st, inkOn, labelStyle, dueWord, daysFromToday, money };
+    const sts = computed(() => (props.statuses || []).filter((x) => (props.c.status || []).includes(x.id)));
+    return { sts, inkOn, labelStyle, dueWord, daysFromToday, money };
   },
   template: `
   <article class="tc tc2" :class="{busy, 'drop-before': dropBefore}" draggable="true" tabindex="0" @dragstart="$emit('drag', c)" @click="$emit('open', c)" @keydown.enter="$emit('open', c)"
@@ -842,8 +846,9 @@ const BoardCard = {
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
     <div v-else-if="c.cover_color" class="tc2-band" :style="{background: c.cover_color}"></div>
     <div class="tc2-top">
-      <button type="button" class="tc2-status" :class="{none: !st}" :style="st ? {background: st.color, color: inkOn(st.color)} : {}" :aria-label="'الحالة: ' + (st ? st.name : 'بلا حالة') + ' — تغيير'" @click.stop="$emit('status', c, $event)">
-        <span class="ellipsis">{{ st ? st.name : 'بلا حالة' }}</span><Icon name="down" :size="14"/></button>
+      <button type="button" class="tc2-sts" :aria-label="'الحالات: ' + (sts.length ? sts.map(x => x.name).join('، ') : 'بلا حالة') + ' — تغيير'" @click.stop="$emit('status', c, $event)">
+        <span v-for="x in sts" :key="x.id" class="st-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span>
+        <span v-if="!sts.length" class="st-pill none">+ حالة</span></button>
       <button type="button" class="tc2-more" aria-label="خيارات البطاقة" @click.stop="$emit('menu', c, $event)"><Icon name="more" :size="16"/></button>
     </div>
     <div class="tc-body">
@@ -1049,8 +1054,8 @@ const CardModal = {
     const dueTone = computed(() => { if (!d.value?.due || d.value.per_delivered >= 100) return ""; const n = daysFromToday(d.value.due); return n < 0 ? "late" : n <= 1 ? "soon" : ""; });
     watch(customer, () => (pickClient.value = false));
     const statuses = computed(() => props.config.statuses || []);
-    const status = computed(() => statuses.value.find((x) => x.id === d.value?.status));
-    const setStatus = (id) => { pop.value = null; save({ status: id }); };
+    const status = computed(() => statuses.value.filter((x) => (d.value?.status || []).includes(x.id)));
+    const setStatus = (list) => { d.value.status = list; save({ status: list }); };
     const images = computed(() => (d.value?.files || []).filter(isImg));
     const coverStyle = computed(() => (d.value?.cover ? { backgroundImage: "url(" + d.value.cover + ")" } : d.value?.cover_color ? { background: d.value.cover_color } : {}));
     const setCover = (changes) => { pop.value = null; save(changes); };
@@ -1091,8 +1096,10 @@ const CardModal = {
           <button type="button" class="tm2-tool" aria-label="إغلاق" @click="$emit('close')"><Icon name="x" :size="18"/></button>
         </div>
         <div class="tm2-sthost tm-pop-host">
-          <button type="button" class="tm2-status" :class="{none: !status}" :style="status ? {background: status.color, color: inkOn(status.color)} : {}" :disabled="!d.can_edit" :aria-expanded="pop === 'status'" @click.stop="pop = pop === 'status' ? null : 'status'">
-            <span>{{ status ? status.name : 'بلا حالة' }}</span><span class="tm2-st-ch">تغيير<Icon name="down" :size="14"/></span></button>
+          <button type="button" class="tm2-sts" :disabled="!d.can_edit" :aria-expanded="pop === 'status'" @click.stop="pop = pop === 'status' ? null : 'status'">
+            <span v-for="x in status" :key="x.id" class="st-pill lg" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span>
+            <span v-if="!status.length" class="st-pill lg none">بلا حالة</span>
+            <span v-if="d.can_edit" class="tm2-st-ch">تغيير الحالات<Icon name="down" :size="14"/></span></button>
           <div v-if="pop === 'status'" class="tm-pop tm2-menu" @click.stop><StatusMenu :statuses="statuses" :current="d.status" @pick="setStatus"/></div>
         </div>
       </header>
@@ -1265,7 +1272,7 @@ const Board = {
     watch(view, (v) => { try { localStorage.setItem("atelier.view", v); } catch { /* private mode */ } });
     const me = computed(() => state.boot.me || state.boot.full_name || "");
     const needle = computed(() => q.value.trim().toLowerCase());
-    const rows = computed(() => (s.data?.cards || []).filter((c) => (!mine.value || c.members.includes(me.value)) && (!label.value || c.labels.includes(label.value) || c.status === label.value)
+    const rows = computed(() => (s.data?.cards || []).filter((c) => (!mine.value || c.members.includes(me.value)) && (!label.value || c.labels.includes(label.value) || (c.status || []).includes(label.value))
       && (!needle.value || [c.title, c.customer_name, c.name].some((v) => String(v || "").toLowerCase().includes(needle.value)))));
     const urgent = (c) => (c.labels.some((x) => labels.value[x]?.name === "عاجل") ? 0 : 1);
     const order = (a, b) => (a.pos && b.pos ? a.pos - b.pos : a.pos ? -1 : b.pos ? 1 : urgent(a) - urgent(b) || String(a.due || "9").localeCompare(String(b.due || "9")));
@@ -1319,10 +1326,10 @@ const Board = {
     const openMenu = (c, ev) => { stMenu.value = null; menu.value = { c, ...place(ev, 230) }; };
     const stMenu = ref(null);
     const openStatus = (c, ev) => { menu.value = null; stMenu.value = { c, ...place(ev, 230) }; };
-    const pickStatus = async (id) => {
-      const c = stMenu.value?.c; stMenu.value = null; if (!c) return;
-      const before = c.status; c.status = id;
-      try { await call("update_card", { name: c.name, changes: JSON.stringify({ status: id }) }, true); toast("تغيّرت الحالة"); await load(); }
+    const pickStatus = async (list) => {
+      const c = stMenu.value?.c; if (!c) return;
+      const before = c.status; c.status = list;
+      try { await call("update_card", { name: c.name, changes: JSON.stringify({ status: list }) }, true); }
       catch (e) { c.status = before; toast(e.message, "error"); }
     };
     const fopen = ref(false), more = ref(false);
@@ -2189,7 +2196,7 @@ const BoardSettings = {
     const tab = ref("columns"), cols = ref([]), labels = ref([]), statuses = ref([]), moves = reactive({}), removed = ref([]), saving = ref(false), err = ref(null);
     watch(() => s.data, (v) => { if (v) { cols.value = v.config.columns.map((c) => ({ ...c })); labels.value = v.config.labels.map((l) => ({ ...l })); statuses.value = (v.config.statuses || []).map((l) => ({ ...l })); removed.value = []; } });
     const count = (id) => (s.data?.cards || []).filter((c) => c.column === id).length;
-    const lcount = (id) => (s.data?.cards || []).filter((c) => c.labels.includes(id) || c.status === id).length;
+    const lcount = (id) => (s.data?.cards || []).filter((c) => c.labels.includes(id) || (c.status || []).includes(id)).length;
     const up = (l, i, dir) => { const j = i + dir; if (j < 0 || j >= l.length) return; [l[i], l[j]] = [l[j], l[i]]; };
     const delCol = (i) => { const c = cols.value[i]; if (c.id && count(c.id)) { removed.value.push(c); moves[c.id] = cols.value.find((x) => x.id !== c.id && !x.deliver)?.id; } cols.value.splice(i, 1); };
     const setDeliver = (c) => cols.value.forEach((x) => (x.deliver = x === c ? (x.deliver ? 0 : 1) : 0));
@@ -2225,7 +2232,7 @@ const BoardSettings = {
       <span class="m">نقل بطاقة إلى «عمود التسليم» يصدر بون التسليم والفاتورة تلقائيًا. عمود واحد فقط يحمل هذه الصفة.</span>
     </div>
     <div v-else-if="tab === 'statuses'" class="bs-list">
-      <span class="m">الحالة شريط ملوّن أعلى كل بطاقة (مثل En cours وTerminé). لكل بطاقة حالة واحدة تُغيَّر بنقرة من اللوحة.</span>
+      <span class="m">الحالات أقراص ملوّنة أعلى كل بطاقة (مثل En cours و«في انتظار معلومات»). يمكن وضع أكثر من حالة على البطاقة، وتُغيَّر بنقرة من اللوحة.</span>
       <div v-for="(l, i) in statuses" :key="l.id || i" class="bs-row">
         <span class="tl bs-prev" :style="labelStyle(l)">{{ l.name || 'حالة' }}</span>
         <input class="input" v-model="l.name" :aria-label="'اسم الحالة ' + (i + 1)" placeholder="اسم الحالة">

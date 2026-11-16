@@ -292,12 +292,13 @@ def get_config():
 
 
 def _status_of(so, labels, cfg):
+	"""A card's statuses, in the board's order. Stored as comma-separated ids; "-" means none chosen."""
 	ids = [s["id"] for s in cfg["statuses"]]
-	if so.get("atelier_status") in ids:
-		return so.atelier_status
-	if so.get("atelier_status") == "-":
-		return None
-	return next((x for x in labels if x in ids), None)
+	raw = so.get("atelier_status")
+	if raw == "-":
+		return []
+	have = set((raw or "").split(",")) if raw else {x for x in labels if x in ids}
+	return [i for i in ids if i in have]
 
 
 def _deliver_col(cfg):
@@ -541,11 +542,19 @@ def update_card(name, changes):
 		so.db_set("atelier_cover_color", ch["cover_color"] if ch["cover_color"] in COVER_COLORS else None)
 	if "status" in ch:
 		st = {s["id"]: s for s in cfg["statuses"]}
-		if ch["status"] and ch["status"] not in st:
+		want = ch["status"] if isinstance(ch["status"], list) else ([ch["status"]] if ch["status"] else [])
+		if any(x not in st for x in want):
 			frappe.throw(_("حالة غير معروفة"))
-		so.db_set("atelier_status", ch["status"] or "-")
+		want = [i for i in st if i in want]
+		before = _status_of(so, _jl(so.get("atelier_labels")), cfg)
+		so.db_set("atelier_status", ",".join(want) or "-")
 		so.db_set("atelier_labels", json.dumps([x for x in _jl(so.get("atelier_labels")) if x not in st]))
-		_log(name, _("غيّر الحالة إلى «{0}»").format(st[ch["status"]]["name"]) if ch["status"] else _("أزال الحالة"))
+		for x in want:
+			if x not in before:
+				_log(name, _("أضاف الحالة «{0}»").format(st[x]["name"]))
+		for x in before:
+			if x not in want:
+				_log(name, _("أزال الحالة «{0}»").format(st[x]["name"]))
 	if "final" in ch:
 		url = ch["final"] or None
 		if url and not frappe.db.exists("File", {"attached_to_doctype": "Sales Order", "attached_to_name": name, "file_url": url}):

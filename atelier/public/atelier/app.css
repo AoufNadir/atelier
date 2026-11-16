@@ -1698,3 +1698,18 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .tm2-head { position: relative; z-index: 3; }
 .tm-sec > .tm2-addrow, .tm-sec > .row { align-self: flex-start; }
 
+
+/* several statuses per card */
+.st-pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12px; font-weight: 700; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.st-pill.lg { height: 28px; padding: 0 12px; font-size: 13.5px; border-radius: 6px; }
+.st-pill.none { background: #F2F4F7; color: #667085; border: 1px dashed #D0D5DD; font-weight: 600; }
+.st-row { gap: 10px; } .st-row input { width: 16px; height: 16px; accent-color: #4338CA; }
+.tc2-sts { all: unset; box-sizing: border-box; flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; cursor: pointer; border-radius: 6px; }
+.tc2-sts:focus-visible, .tm2-sts:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.tc2-sts:hover .st-pill { filter: brightness(.95); }
+.tm2-sts { all: unset; box-sizing: border-box; width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; cursor: pointer; padding: 4px; border-radius: 8px; border: 1px solid transparent; }
+.tm2-sts:hover:not(:disabled) { border-color: #E4E7EC; background: #F9FAFB; }
+.tm2-sts:disabled { cursor: default; }
+.tm2-sts .tm2-st-ch { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: #475467; }
+.tb-list > .tc, .tc2 { flex-shrink: 0; }
+
