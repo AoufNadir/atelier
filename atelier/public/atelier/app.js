@@ -1136,7 +1136,7 @@ const CardModal = {
     const startCheck = () => { showCheck.value = true; nextTick(() => document.getElementById("tm2-check")?.focus()); };
     const setFinal = (f) => save({ final: d.value.final === f.file_url ? "" : f.file_url });
     const openFolder = () => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة في هذا الحاسوب — استعمل «نسخ المسار»");
-    return { askDelete, deleting, deleteCard, pickFile, focusDue, sideMoney, startCheck, statuses, status, setStatus, images, coverStyle, setCover, addingDesc, showCheck, setFinal, openFolder, folderLink, inkOn, COVER_COLORS, tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
+    return { fig, askDelete, deleting, deleteCard, pickFile, focusDue, sideMoney, startCheck, statuses, status, setStatus, images, coverStyle, setCover, addingDesc, showCheck, setFinal, openFolder, folderLink, inkOn, COVER_COLORS, tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
       uploading, onFiles, delFile, copyFolder, pulling, pullFiles, comment, addComment, price, setPrice, pay, quote, offerMaterials, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
@@ -1416,9 +1416,16 @@ const Board = {
         else if (kind === "archive") { await cardActions.archive(c.name); await load(); }
         else if (kind === "move") await moveTo(c, extra, undefined);
         else if (kind === "photo") { photoFor.value = c.name; photoInput.value.click(); }
+        else if (kind === "delete") { delAsk.value = c; }
       } catch (e) { toast(e.message, "error"); }
     };
     const photoFor = ref(null);
+    const delAsk = ref(null), delBusy = ref(false);
+    const doDelete = async () => {
+      const c = delAsk.value; if (!c) return; delBusy.value = true;
+      try { await call("delete_card", { name: c.name }, true); toast("حُذفت البطاقة"); delAsk.value = null; await load(); }
+      catch (e) { toast(e.message, "error"); delAsk.value = null; } finally { delBusy.value = false; }
+    };
     const onPhoto = async (e) => { const f = e.target.files?.[0]; if (!f || !photoFor.value) return; try { await cardActions.photo(photoFor.value, f); await load(); } catch (x) { toast(x.message, "error"); } e.target.value = ""; };
     // archive list
     const archive = ref(null);
@@ -1446,7 +1453,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
+    return { delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
   },
@@ -1528,6 +1535,15 @@ const Board = {
       <button type="button" class="tm-pop-row" @click="act('archive')"><Icon name="box" :size="15"/>أرشفة</button>
       <hr class="tm2-hr"><b>نقل إلى</b>
       <button v-for="col in cfg.columns.filter(x => x.id !== menu.c.column)" :key="col.id" type="button" class="tm-pop-row" @click="act('move', col.id)"><i class="st-sw" :style="{background: col.color}"></i>{{ col.name }}</button>
+      <template v-if="state.boot.can.order"><hr class="tm2-hr">
+        <button v-if="!(menu.c.paid > 0.005) && !(menu.c.per_delivered > 0)" type="button" class="tm-pop-row tm3-danger" @click="act('delete')"><Icon name="trash" :size="15"/>حذف البطاقة</button>
+        <span v-else class="m tm3-hint">عليها دفعة أو تسليم: أرشفها بدل الحذف.</span></template>
+    </div>
+    <div v-if="delAsk" class="overlay tm3-confirm tb-confirm" role="alertdialog" aria-modal="true" aria-labelledby="bdel-h" @click.self="delAsk = null">
+      <div class="tm3-cbox"><b id="bdel-h">حذف البطاقة نهائيًا؟</b>
+        <p>«{{ delAsk.title }}» وملفاتها المرفقة في البرنامج تُحذف ولا يمكن استرجاعها. مجلدها في D يبقى كما هو.</p>
+        <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="cl-btn" @click="delAsk = null">إلغاء</button>
+          <button type="button" class="cl-btn tm3-del" :disabled="delBusy" @click="doDelete">{{ delBusy ? 'جارٍ الحذف…' : 'حذف نهائي' }}</button></div></div>
     </div>
     <div v-if="stMenu" class="tm-pop tb-menu" :style="{top: stMenu.top + 'px', left: stMenu.left + 'px'}" @click.stop>
       <StatusMenu :statuses="cfg.statuses || []" :current="stMenu.c.status" @pick="pickStatus"/>
