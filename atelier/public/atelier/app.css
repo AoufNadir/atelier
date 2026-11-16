@@ -1713,3 +1713,63 @@ a.op-tr:hover { background: #FAF9FC; text-decoration: none; }
 .tm2-sts .tm2-st-ch { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: #475467; }
 .tb-list > .tc, .tc2 { flex-shrink: 0; }
 
+
+/* ==== phase 2: one look for every control (buttons, fields, lists, menus) ==== */
+:root { --control-h: 38px; --ctl-line: #D0D5DD; --ctl-ink: #344054; --menu-line: #E4E7EC; --menu-shadow: 0 12px 32px rgba(16,24,40,.14); --pick-bg: #EEEAFB; --pick-ink: #3A25A3; }
+/* buttons: primary, normal, text; two sizes */
+.btn, .cl-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; height: auto; padding: 0 14px; border-radius: 8px;
+  border: 1px solid var(--ctl-line); background: #fff; color: var(--ctl-ink); font: inherit; font-size: 14px; font-weight: 600; line-height: 1.2; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.btn:hover, .cl-btn:hover { background: #F9FAFB; border-color: #98A2B3; text-decoration: none; filter: none; }
+.btn.primary, .cl-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn.primary:hover, .cl-btn.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.btn.primary svg, .cl-btn.primary svg { color: #fff; }
+.btn.ghost, .cl-btn.ghost { background: transparent; border-color: transparent; color: #475467; }
+.btn.ghost:hover, .cl-btn.ghost:hover { background: #F2F4F7; border-color: transparent; }
+.btn.danger, .cl-btn.danger { background: #fff; border-color: #FDA29B; color: #B42318; }
+.btn.danger:hover, .cl-btn.danger:hover { background: #FEF3F2; }
+.btn.ghost.danger, .cl-btn.ghost.danger { border-color: transparent; background: transparent; }
+.btn.danger-solid { background: #D92D20; border-color: #D92D20; color: #fff; }
+.btn.sm, .cl-btn.sm { min-height: 32px; height: 32px; padding: 0 10px; font-size: 13px; }
+.btn.icon-btn, .cl-btn.icon { width: 38px; height: 38px; min-height: 38px; padding: 0; flex-shrink: 0; }
+.btn.sm.icon-btn, .cl-btn.icon.sm { width: 32px; height: 32px; min-height: 32px; }
+.btn.block, .cl-btn.block { width: 100%; }
+.btn[disabled], .btn:disabled, .cl-btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn:focus-visible, .cl-btn:focus-visible { outline: none; box-shadow: var(--focus); }
+.cl-link { color: var(--primary); font-weight: 600; }
+/* fields: label above, one height, one focus ring */
+.input, select.input, textarea.input { min-height: 38px; border: 1px solid var(--ctl-line); border-radius: 8px; background: #fff; color: #1D2939; font: inherit; font-size: 14px; }
+textarea.input { min-height: 0; padding-top: 8px; padding-bottom: 8px; line-height: 1.6; }
+.input:hover:not(:focus):not([disabled]) { border-color: #98A2B3; }
+.input:focus, .input:focus-within { border-color: var(--primary); box-shadow: var(--focus); outline: none; }
+.input::placeholder { color: #98A2B3; }
+.input[disabled] { background: #F9FAFB; color: #667085; }
+.input.invalid { border-color: #F04438; background: #FEF3F2; }
+select.input { appearance: none; -webkit-appearance: none; padding-inline-end: 34px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23667085' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: left 10px center; }
+[dir="ltr"] select.input { background-position: right 10px center; }
+.field > label, .field .label, .cl-fgroup > span, .ol-f > .m, .f > label, .f > .lbl { font-size: 13px; font-weight: 600; color: var(--ctl-ink); }
+.unit-wrap .u { font-weight: 600; color: #667085; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
+/* menus and drop-downs: one look */
+.tm-pop, .cl-pop { border: 1px solid var(--menu-line); border-radius: 10px; background: #fff; box-shadow: var(--menu-shadow); }
+.tm-pop-row, .cl-menu button { border-radius: 6px; padding: 8px 10px; font-size: 14px; }
+.tm-pop-row:hover, .cl-menu button:hover, .cl-menu button:focus-visible { background: #F2F4F7; }
+.tm-pop-row[aria-pressed="true"], .st-menu .tm-pop-row[aria-pressed="true"] { background: var(--pick-bg); color: var(--pick-ink); font-weight: 600; }
+.tm-tick { color: var(--pick-ink); font-weight: 700; }
+.tm-pop > b, .st-menu > b, .tm2-menu > b { font-size: 12px; font-weight: 700; color: #667085; padding: 4px 6px 2px; }
+.tm-pop-add { color: var(--primary); font-weight: 600; font-size: 13.5px; }
+/* quick choice (segmented) and chips */
+.seg, .mn-month { display: inline-flex; height: 38px; padding: 0; gap: 0; background: #fff; border: 1px solid var(--ctl-line); border-radius: 8px; overflow: hidden; }
+.seg button { min-height: 0; height: 100%; padding: 0 14px; border: 0; border-radius: 0; background: transparent; font-weight: 600; font-size: 13px; color: #475467; box-shadow: none; }
+.seg button + button, .mn-month button + button { border-inline-start: 1px solid var(--ctl-line); }
+.seg button[aria-pressed="true"], .mn-month button[aria-pressed="true"] { background: var(--pick-bg); color: var(--pick-ink); box-shadow: none; }
+.mn-month button { font-weight: 600; font-size: 13px; padding: 0 12px; }
+.bd-chip { min-height: 34px; padding: 0 12px; border-radius: 8px; border-color: var(--ctl-line); font-weight: 600; font-size: 13px; color: #475467; }
+.bd-chip[aria-pressed="true"] { background: var(--pick-bg); border-color: #C4B8F3; color: var(--pick-ink); }
+.bd-chip.debt[aria-pressed="true"] { background: #FEF3F2; border-color: #FDA29B; color: #B42318; }
+/* phase 2: one pressed look for every quick-choice control */
+.calc-chips button { height: 32px; border-color: var(--ctl-line); border-radius: 8px; font-weight: 600; color: #475467; }
+.calc-chips button.on, .sm3-pill[aria-pressed="true"], .cl-seg button[aria-pressed="true"], .bd-chip[aria-pressed="true"], .tb .bd-chip[aria-pressed="true"] { background: var(--pick-bg); border-color: #C4B8F3; color: var(--pick-ink); font-weight: 700; }
+.cl-seg button, .sm3-pill { border-color: var(--ctl-line); border-radius: 8px; font-weight: 600; }
+.qtag[aria-pressed="true"] { background: var(--pick-bg); border-color: #C4B8F3; color: var(--pick-ink); }
