@@ -549,6 +549,7 @@ def card(name):
 		"status": _status_of(so, labels, cfg), "files": files, "activity": activity, "folder": _folders().card_folder(name),
 		"grand_total": row.grand_total, "paid": row.paid, "price_pending": row.price_pending, "docstatus": so.docstatus,
 		"per_delivered": so.per_delivered, "can_edit": bool(frappe.has_permission("Sales Order", "write", so)),
+		"can_delete": bool(frappe.has_permission("Sales Order", "write", so)) and not worker and not _delete_blockers(name),
 		"money": not worker,
 		"materials_pending": bool(flt(so.per_delivered) >= 100 and not cint(so.get("atelier_materials_done")) and _uses_materials(so)),
 	}
@@ -717,6 +718,41 @@ def _so_write(name):
 	so = frappe.get_doc("Sales Order", name)
 	so.check_permission("write")
 	return so
+
+
+def _delete_blockers(name):
+	"""Money or documents on the order: those must stay in the books, so the card is archived instead."""
+	out = []
+	if frappe.db.exists("Payment Entry", {"atelier_order": name, "docstatus": 1}) or frappe.db.sql(
+			"select 1 from `tabPayment Entry Reference` where reference_name=%s and docstatus=1 limit 1", name):
+		out.append(_("دفعة"))
+	if frappe.db.exists("Sales Invoice Item", {"sales_order": name, "docstatus": ["<", 2]}):
+		out.append(_("فاتورة"))
+	if frappe.db.exists("Delivery Note Item", {"against_sales_order": name, "docstatus": ["<", 2]}):
+		out.append(_("بون تسليم"))
+	return out
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_card(name):
+	"""Delete a card created by mistake: the order, its steps and cost. Its folder on D is left as it is."""
+	so = _so_write(name)
+	if is_worker():
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	blockers = _delete_blockers(name)
+	if blockers:
+		frappe.throw(_("لا يمكن حذف بطاقة عليها {0}. أرشفها بدل ذلك.").format("، ".join(blockers)))
+	if so.docstatus == 1:
+		so.cancel()
+	project = so.project
+	for ce in frappe.get_all("Cost Estimate", filters={"sales_order": name}, pluck="name"):
+		frappe.delete_doc("Cost Estimate", ce, force=1, ignore_permissions=True)
+	frappe.delete_doc("Sales Order", name, force=1, ignore_permissions=True)
+	if project and not frappe.db.exists("Sales Order", {"project": project}):
+		for t in frappe.get_all("Task", filters={"project": project}, pluck="name"):
+			frappe.delete_doc("Task", t, force=1, ignore_permissions=True)
+		frappe.delete_doc("Project", project, force=1, ignore_permissions=True)
+	return True
 
 
 @frappe.whitelist(methods=["POST"])
