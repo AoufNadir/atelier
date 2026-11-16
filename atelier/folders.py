@@ -195,6 +195,20 @@ def _copy_file(f, folder):
 	return True
 
 
+FINAL = "نهائي"
+
+
+def final_copy(name, file_url):
+	"""Keep a copy of the card's final file in its «نهائي» subfolder."""
+	def go():
+		f = frappe.db.get_value("File", {"attached_to_doctype": "Sales Order", "attached_to_name": name, "file_url": file_url}, ["name", "file_name", "file_url"], as_dict=True)
+		if f:
+			folder = os.path.join(card_path(name), FINAL)
+			os.makedirs(folder, exist_ok=True)
+			_copy_file(f, folder)
+	_safe(go)
+
+
 def on_file(doc, method=None):
 	if doc.attached_to_doctype != "Sales Order" or doc.is_folder or frappe.flags.atelier_from_folder:
 		return

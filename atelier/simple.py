@@ -274,12 +274,30 @@ def _is_manager():
 	return bool(frappe.has_permission("Item Price", "write"))
 
 
+STATUS_NAMES = ("En attente", "En cours", "En validation", "Terminé")
+COVER_COLORS = ("#0F6E56", "#534AB7", "#993C1D", "#185FA5", "#993556", "#5F5E5A", "#854F0B", "#3B6D11")
+
+
 def get_config():
 	try:
 		cfg = json.loads(frappe.db.get_default("atelier_board") or "null")
 	except ValueError:
 		cfg = None
-	return cfg or json.loads(json.dumps(DEFAULT_CONFIG))
+	cfg = cfg or json.loads(json.dumps(DEFAULT_CONFIG))
+	if "statuses" not in cfg:  # before statuses: the En cours / Terminé labels become the card's status
+		cfg["statuses"] = [l for l in cfg["labels"] if l["name"] in STATUS_NAMES] or [
+			{"id": "s-cours", "name": "En cours", "color": "#BA7517"}, {"id": "s-done", "name": "Terminé", "color": "#3B6D11"}]
+		cfg["labels"] = [l for l in cfg["labels"] if l["name"] not in STATUS_NAMES]
+	return cfg
+
+
+def _status_of(so, labels, cfg):
+	ids = [s["id"] for s in cfg["statuses"]]
+	if so.get("atelier_status") in ids:
+		return so.atelier_status
+	if so.get("atelier_status") == "-":
+		return None
+	return next((x for x in labels if x in ids), None)
 
 
 def _deliver_col(cfg):
@@ -319,7 +337,8 @@ def board2():
 	worker, me = is_worker(), _member_of(frappe.session.user)
 	names = [r.name for r in rows] or [""]
 	extra = {r.name: r for r in frappe.get_all("Sales Order", filters={"name": ["in", names]},
-		fields=["name", "atelier_column", "atelier_labels", "atelier_members", "atelier_checklist", "atelier_cover", "atelier_assignee", "atelier_due_time", "atelier_archived", "atelier_pos"])}
+		fields=["name", "atelier_column", "atelier_labels", "atelier_members", "atelier_checklist", "atelier_cover", "atelier_assignee", "atelier_due_time", "atelier_archived", "atelier_pos",
+			"atelier_status", "atelier_cover_color"])}
 	comments = dict(frappe.db.sql("""select reference_name, count(*) from `tabComment` where reference_doctype='Sales Order'
 		and comment_type='Comment' and reference_name in %s group by reference_name""", [names]))
 	files = dict(frappe.db.sql("""select attached_to_name, count(*) from `tabFile` where attached_to_doctype='Sales Order'
@@ -350,6 +369,7 @@ def board2():
 			"grand_total": r.grand_total, "paid": r.paid, "price_pending": r.price_pending, "docstatus": r.docstatus,
 			"per_delivered": r.per_delivered, "comments": comments.get(r.name, 0), "files": files.get(r.name, 0),
 			"check": [sum(1 for c in checklist if c.get("done")), len(checklist)],
+			"status": _status_of(e, labels, cfg), "cover_color": e.get("atelier_cover_color"),
 		})
 	return {"config": cfg, "cards": cards, "manager": _is_manager(), "worker": worker, "me": me}
 
@@ -365,6 +385,10 @@ def save_board(config, moves=None):
 		"color": c.get("color") or COLORS[0], **({"deliver": 1} if c.get("deliver") else {}), **({"limit": cint(c["limit"])} if cint(c.get("limit")) > 0 else {})} for c in cfg.get("columns") or []]
 	labels = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0]}
 		for l in cfg.get("labels") or []]
+	statuses = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0]}
+		for l in (cfg.get("statuses") if cfg.get("statuses") is not None else old["statuses"])]
+	if any(not l["name"] for l in statuses):
+		frappe.throw(_("لكل حالة اسم"))
 	if not cols:
 		frappe.throw(_("أبقِ عمودًا واحدًا على الأقل"))
 	if any(not c["name"] for c in cols) or any(not l["name"] for l in labels):
@@ -380,7 +404,7 @@ def save_board(config, moves=None):
 		if target not in ids:
 			target = next(c["id"] for c in cols if not c.get("deliver"))
 		frappe.db.sql("update `tabSales Order` set atelier_column=%s where atelier_column=%s", (target, gone))
-	new = {"columns": cols, "labels": labels}
+	new = {"columns": cols, "labels": labels, "statuses": statuses}
 	frappe.db.set_default("atelier_board", json.dumps(new, ensure_ascii=False))
 	return new
 
@@ -469,7 +493,8 @@ def card(name):
 		"due": so.delivery_date, "due_time": str(so.atelier_due_time)[:5] if so.get("atelier_due_time") else None,
 		"description": so.get("atelier_description") or "", "checklist": _jl(so.get("atelier_checklist")),
 		"client": client,
-		"cover": so.get("atelier_cover"), "files": files, "activity": activity, "folder": _folders().card_folder(name),
+		"cover": so.get("atelier_cover"), "cover_color": so.get("atelier_cover_color"), "final": so.get("atelier_final"),
+		"status": _status_of(so, labels, cfg), "files": files, "activity": activity, "folder": _folders().card_folder(name),
 		"grand_total": row.grand_total, "paid": row.paid, "price_pending": row.price_pending, "docstatus": so.docstatus,
 		"per_delivered": so.per_delivered, "can_edit": bool(frappe.has_permission("Sales Order", "write", so)),
 		"money": not worker,
@@ -512,6 +537,23 @@ def update_card(name, changes):
 				_log(name, _("أكمل «{0}»").format(c["text"]))
 	if "cover" in ch:
 		so.db_set("atelier_cover", ch["cover"] or None)
+	if "cover_color" in ch:
+		so.db_set("atelier_cover_color", ch["cover_color"] if ch["cover_color"] in COVER_COLORS else None)
+	if "status" in ch:
+		st = {s["id"]: s for s in cfg["statuses"]}
+		if ch["status"] and ch["status"] not in st:
+			frappe.throw(_("حالة غير معروفة"))
+		so.db_set("atelier_status", ch["status"] or "-")
+		so.db_set("atelier_labels", json.dumps([x for x in _jl(so.get("atelier_labels")) if x not in st]))
+		_log(name, _("غيّر الحالة إلى «{0}»").format(st[ch["status"]]["name"]) if ch["status"] else _("أزال الحالة"))
+	if "final" in ch:
+		url = ch["final"] or None
+		if url and not frappe.db.exists("File", {"attached_to_doctype": "Sales Order", "attached_to_name": name, "file_url": url}):
+			frappe.throw(_("هذا الملف ليس من هذه البطاقة"))
+		so.db_set("atelier_final", url)
+		if url:
+			_folders().final_copy(name, url)
+			_log(name, _("علّم «{0}» كملف نهائي").format(url.rsplit("/", 1)[-1]))
 	if "due_time" in ch:
 		so.db_set("atelier_due_time", ch["due_time"] or None)
 	if "due" in ch and ch["due"]:
@@ -572,6 +614,8 @@ def delete_file(name, file):
 		frappe.throw(_("هذا الملف ليس من هذه البطاقة"))
 	if so.get("atelier_cover") == f.file_url:
 		so.db_set("atelier_cover", None)
+	if so.get("atelier_final") == f.file_url:
+		so.db_set("atelier_final", None)
 	f.delete(ignore_permissions=True)
 	return card(name)
 
@@ -597,6 +641,9 @@ def demo_board():
 EXTRA_FIELDS = [
 	{"fieldname": "atelier_archived", "label": "مؤرشفة", "fieldtype": "Check", "insert_after": "atelier_due_time"},
 	{"fieldname": "atelier_pos", "label": "الترتيب في العمود", "fieldtype": "Float", "insert_after": "atelier_archived"},
+	{"fieldname": "atelier_status", "label": "الحالة", "fieldtype": "Data", "insert_after": "atelier_pos"},
+	{"fieldname": "atelier_cover_color", "label": "لون الغلاف", "fieldtype": "Data", "insert_after": "atelier_status"},
+	{"fieldname": "atelier_final", "label": "الملف النهائي", "fieldtype": "Data", "insert_after": "atelier_cover_color"},
 ]
 
 
