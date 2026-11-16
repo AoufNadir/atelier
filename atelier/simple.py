@@ -171,6 +171,9 @@ def quick_order(data):
 		frappe.db.set_value("Sales Order", so, "atelier_column", column)
 	if d.get("assignee"):
 		frappe.db.set_value("Sales Order", so, "atelier_assignee", d["assignee"].strip()[:80])
+	checklist = [{"text": str(t).strip()[:200], "done": 0} for t in (d.get("checklist") or []) if str(t).strip()]
+	if checklist:
+		frappe.db.set_value("Sales Order", so, "atelier_checklist", json.dumps(checklist, ensure_ascii=False))
 	if d.get("tags"):
 		production.set_tags(so, json.dumps(d["tags"], ensure_ascii=False))
 	if d.get("status") or d.get("labels"):
@@ -442,7 +445,7 @@ def save_board(config, moves=None):
 	cfg = frappe.parse_json(config)
 	old = get_config()
 	cols = [{"id": (c.get("id") or frappe.generate_hash(length=8)), "name": (c.get("name") or "").strip()[:60],
-		"color": c.get("color") or COLORS[0], **({"deliver": 1} if c.get("deliver") else {}), **({"limit": cint(c["limit"])} if cint(c.get("limit")) > 0 else {})} for c in cfg.get("columns") or []]
+		"color": c.get("color") or COLORS[0], **({"deliver": 1} if c.get("deliver") else {}), **({"limit": cint(c["limit"])} if cint(c.get("limit")) > 0 else {}), **({"hidden": 1} if c.get("hidden") else {})} for c in cfg.get("columns") or []]
 	labels = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0]}
 		for l in cfg.get("labels") or []]
 	statuses = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0]}
@@ -2330,3 +2333,42 @@ def _folders():
 	from atelier import folders
 
 	return folders
+
+
+# ---------------------------------------------------------------- card templates: a card's title, lines and checklist, reused by «طلب جديد»
+def _card_templates():
+	return frappe.parse_json(frappe.db.get_default("atelier_card_templates") or "[]") or []
+
+
+@frappe.whitelist()
+def card_templates():
+	return _card_templates()
+
+
+@frappe.whitelist(methods=["POST"])
+def save_card_template(name, title):
+	if is_worker():
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	title = (title or "").strip()[:60]
+	if not title:
+		frappe.throw(_("اكتب اسم القالب"))
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission("read")
+	lines = [{k: l.get(k) for k in ("text", "item_code", "unit", "width", "height", "length", "pieces", "qty", "rate", "category")} for l in _card_lines(so)]
+	for l in lines:
+		if l["item_code"] == "SRV-GENERAL":
+			l["item_code"] = None
+	tpl = {"id": frappe.generate_hash(length=8), "title": title, "subject": so.get("atelier_subject") or "",
+		"lines": lines, "checklist": [c.get("text") for c in _jl(so.get("atelier_checklist")) if c.get("text")]}
+	items = [t for t in _card_templates() if t.get("title") != title] + [tpl]
+	frappe.db.set_default("atelier_card_templates", json.dumps(items, ensure_ascii=False))
+	return items
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_card_template(id):
+	if is_worker():
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	items = [t for t in _card_templates() if t.get("id") != id]
+	frappe.db.set_default("atelier_card_templates", json.dumps(items, ensure_ascii=False))
+	return items
