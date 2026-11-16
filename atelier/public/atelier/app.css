@@ -2143,3 +2143,24 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
 .od-size .od-f { width: 66px; padding: 0 6px !important; }
 .od-calc { min-height: 0; padding-top: 4px; }
 .od-calc:empty { display: none; }
+
+/* ==== card lines ==== */
+.ln-rows { margin-inline-start: 32px; border: 1px solid #E3E6EB; border-radius: 10px; overflow: hidden; background: #fff; }
+.ln-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) 118px 118px; gap: 14px; align-items: center; padding: 10px 16px; border-bottom: 1px solid #E3E6EB; }
+.ln-spec { height: 52px; display: flex; align-items: center; justify-content: center; color: #8A93A5; }
+.ln-sheet { fill: #E8F4F8; stroke: #0E7C99; stroke-width: 1.4; }
+.ln-dim { stroke: #0E7C99; stroke-width: 1; fill: none; }
+.ln-what { min-width: 0; display: flex; flex-direction: column; } .ln-what b { font-size: 15px; overflow-wrap: anywhere; }
+.ln-size { color: #0E7C99; font-weight: 700; }
+.ln-unit { display: flex; flex-direction: column; text-align: left; font-size: 12.5px; } .ln-unit b { font-size: 14px; font-weight: 600; color: #3B4558; }
+.ln-tot { text-align: left; font-weight: 800; font-size: 15.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ln-pend { color: #B54708; font-weight: 700; font-size: 13px; }
+.ln-sum { display: flex; align-items: center; gap: 12px; padding: 11px 16px; background: #F6F7F9; font-size: 14px; color: #3B4558; }
+.ln-sum b { font-size: 17px; color: #172033; font-weight: 800; }
+.ln-empty { padding: 14px 16px; color: #6A7487; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid #E3E6EB; }
+.ln-lock { font-size: 12.5px; font-weight: 700; color: #B54708; background: #FFF6E5; border-radius: 6px; padding: 3px 9px; }
+.ln-note { margin-inline-start: 32px; padding: 10px 12px; border-radius: 8px; background: #FFF6E5; color: #7A3E00; font-size: 13.5px; line-height: 1.7; }
+.ln-tbl th:nth-child(2) { width: 104px; } .ln-tbl th:nth-child(3) { width: 156px; } .ln-tbl th:nth-child(4) { width: 64px; }
+.ln-tbl th:nth-child(5) { width: 88px; } .ln-tbl th:nth-child(6) { width: 84px; } .ln-tbl th:nth-child(7) { width: 36px; }
+.ln-tbl .od-size .od-f { width: 58px; }
+@media (max-width: 900px) { .ln-rows, .ln-note { margin-inline-start: 0; } .ln-row { grid-template-columns: 56px minmax(0, 1fr) auto; } .ln-unit { display: none; } }

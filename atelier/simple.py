@@ -558,6 +558,7 @@ def card(name):
 		"grand_total": row.grand_total, "paid": row.paid, "price_pending": row.price_pending, "docstatus": so.docstatus,
 		"per_delivered": so.per_delivered, "can_edit": bool(frappe.has_permission("Sales Order", "write", so)),
 		"can_delete": bool(frappe.has_permission("Sales Order", "write", so)) and not worker and not _delete_blockers(name),
+		"lines": [] if worker else _card_lines(so), "lines_locked": _lines_locked(name),
 		"money": not worker,
 		"materials_pending": bool(flt(so.per_delivered) >= 100 and not cint(so.get("atelier_materials_done")) and _uses_materials(so)),
 	}
@@ -739,6 +740,66 @@ def _delete_blockers(name):
 	if frappe.db.exists("Delivery Note Item", {"against_sales_order": name, "docstatus": ["<", 2]}):
 		out.append(_("بون تسليم"))
 	return out
+
+
+def _lines_locked(name):
+	"""An invoice or a delivery fixes the lines: they must match those documents."""
+	return [b for b in _delete_blockers(name) if b != _("دفعة")]
+
+
+def _card_lines(so):
+	out = []
+	for i in so.items:
+		text = frappe.utils.strip_html(i.description or "").strip()
+		out.append({"row": i.name, "item_code": i.item_code, "item_name": i.item_name, "text": text or i.item_name,
+			"unit": i.get("atelier_unit") or {"Nos": "قطعة", "Feuille": "ورقة"}.get(i.uom, i.uom) or "", "width": flt(i.get("atelier_width")), "height": flt(i.get("atelier_height")),
+			"length": flt(i.get("atelier_length")), "pieces": flt(i.get("atelier_pieces")) or 1, "qty": flt(i.qty),
+			"rate": None if cint(i.get("atelier_price_pending")) else flt(i.rate), "amount": flt(i.amount),
+			"size": i.get("atelier_size"), "category": i.get("atelier_category")})
+	return out
+
+
+@frappe.whitelist(methods=["POST"])
+def update_lines(name, lines):
+	"""Edit the order's lines from the card, measured by their unit like a new order."""
+	so = _so_write(name)
+	if is_worker():
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	locked = _lines_locked(name)
+	if locked:
+		frappe.throw(_("البنود مقفلة: صدر لهذا الطلب {0}.").format("، ".join(locked)))
+	rows = _order_lines({"lines": frappe.parse_json(lines) or []})
+	if not rows:
+		frappe.throw(_("أبقِ بندًا واحدًا على الأقل"))
+	numeric = {"atelier_width", "atelier_height", "atelier_length", "atelier_pieces"}
+	extra = lambda r: {k: (flt(r.get(k)) if k in numeric else r.get(k)) for k in LINE_KEYS}
+	if so.docstatus == 0:
+		so.set("items", [])
+		for r in rows:
+			so.append("items", {"item_code": r["item_code"], "qty": r["qty"], "description": r["description"] or None,
+				"rate": 0 if r["rate"] is None else r["rate"], "atelier_price_pending": 1 if r["rate"] is None else 0,
+				"delivery_date": so.delivery_date, **extra(r)})
+		so.save()
+	else:
+		if any(r["rate"] is None for r in rows):
+			frappe.throw(_("الطلب مؤكَّد: اكتب سعر كل بند"))
+		from erpnext.controllers.accounts_controller import update_child_qty_rate
+
+		old = list(so.items)
+		trans = []
+		for idx, r in enumerate(rows):
+			t = {"item_code": r["item_code"], "qty": r["qty"], "rate": r["rate"], "conversion_factor": 1,
+				"uom": frappe.db.get_value("Item", r["item_code"], "stock_uom"), "delivery_date": str(so.delivery_date), "idx": idx + 1}
+			if idx < len(old) and old[idx].item_code == r["item_code"]:
+				t["docname"] = old[idx].name
+			trans.append(t)
+		update_child_qty_rate("Sales Order", json.dumps(trans), name)
+		so.reload()
+		for i, r in zip(so.items, rows):
+			frappe.db.set_value("Sales Order Item", i.name, {"description": r["description"] or i.item_name, "atelier_price_pending": 0, **extra(r)},
+				update_modified=False)
+	_log(name, _("عدّل البنود"))
+	return card(name)
 
 
 @frappe.whitelist(methods=["POST"])

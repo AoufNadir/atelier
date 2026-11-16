@@ -685,7 +685,7 @@ const waLink = (phone) => { const d = String(phone || "").replace(/\D/g, ""); re
 const Avatar = {
   props: ["name", "size"],
   setup: () => ({ avatarStyle }),
-  template: `<span class="bd-av" :style="[avatarStyle(name), size ? {width: size + 'px', height: size + 'px', fontSize: (size * 0.4) + 'px'} : {}]" :title="name || 'بلا مسؤول'" aria-hidden="true">{{ name ? [...name][0] : '؟' }}</span>`,
+  template: `<span class="bd-av" :style="[avatarStyle(name), size ? {width: size + 'px', height: size + 'px', fontSize: Math.max(12, size * 0.4) + 'px'} : {}]" :title="name || 'بلا مسؤول'" aria-hidden="true">{{ name ? [...name][0] : '؟' }}</span>`,
 };
 
 // Customer search-or-create field used by the quick order form.
@@ -715,6 +715,16 @@ const CustomerField = {
   </div>`,
 };
 
+// order lines measured by their unit, shared by the new-order window and the card window
+const unitOfName = (n) => (state.boot.units || []).find((u) => u.name === n) || { calc: "count" };
+const lineMeasure = (l) => { const c = unitOfName(l.unit).calc, q = +l.qty || 0;
+  return c === "area" ? (+l.width || 0) * (+l.height || 0) * q : c === "length" ? (+l.length || 0) * q : q; };
+const lineSpec = (l) => { // a small proportional drawing of the piece
+  const c = unitOfName(l.unit).calc;
+  if (c === "area" && +l.width > 0 && +l.height > 0) { const k = Math.min(60 / l.width, 40 / l.height); return { kind: "area", w: Math.max(6, l.width * k), h: Math.max(6, l.height * k) }; }
+  if (c === "length" && +l.length > 0) return { kind: "length" };
+  return { kind: "count" };
+};
 const newLine = () => ({ text: "", item_code: null, unit: (state.boot.units || [])[0]?.name || "قطعة", width: "", height: "", length: "", qty: 1, rate: "", auto: false, category: "", focus: false });
 // Side panel: a new order (one short form) or an existing order card.
 const BoardPanel = {
@@ -1169,6 +1179,39 @@ const CardModal = {
     const pickFile = () => fileInput.value?.click();
     const focusDue = () => nextTick(() => document.getElementById("tm3-due")?.focus());
     const sideMoney = ref(false);
+    // lines: read, edit (same table as a new order), locked when invoiced or delivered
+    const edLines = ref(null), savingLines = ref(false);
+    const custType = computed(() => d.value?.client?.type || "Individual");
+    const priceFor = (it) => { const v = custType.value === "Company" ? it.price_company : it.price_individual; return v === null || v === undefined ? "" : v; };
+    const startLines = () => {
+      edLines.value = (d.value.lines.length ? d.value.lines : [{}]).map((l) => {
+        const unit = l.unit || (state.boot.units || [])[0]?.name || "قطعة", count = unitOfName(unit).calc === "count";
+        return { text: l.text || "", item_code: l.item_code && l.item_code !== "SRV-GENERAL" ? l.item_code : null, unit, width: l.width || "", height: l.height || "", length: l.length || "",
+          qty: count ? (l.qty || 1) : (l.pieces || 1), rate: l.rate === null || l.rate === undefined ? "" : l.rate, category: l.category || "", auto: false, focus: false };
+      });
+    };
+    const lnCalc = (l) => unitOfName(l.unit).calc;
+    const lnSym = (l) => (unitOfName(l.unit).scale === "cm" ? "سم" : "م");
+    const lnTotal = (l) => (l.rate === "" || !(lineMeasure(l) > 0) ? null : lineMeasure(l) * (+l.rate || 0));
+    const lnSugg = (l) => { const n = l.text.trim(); if (!n || l.item_code) return []; return (state.boot.items || []).filter((it) => it.item_code !== "SRV-GENERAL" && it.item_name.includes(n)).slice(0, 6); };
+    const lnPick = (l, it) => { l.text = it.item_name; l.item_code = it.item_code; l.focus = false; if ((state.boot.units || []).some((u) => u.name === it.stock_uom)) l.unit = it.stock_uom; l.category = it.atelier_category || l.category; l.rate = priceFor(it); };
+    const lnInput = (l) => { l.focus = true; if (l.item_code && (state.boot.items || []).find((x) => x.item_code === l.item_code)?.item_name !== l.text.trim()) l.item_code = null; };
+    const lnBlur = (l) => setTimeout(() => (l.focus = false), 150);
+    const edTotal = computed(() => (edLines.value || []).filter((l) => l.text.trim()).reduce((a, l) => a + (lnTotal(l) || 0), 0));
+    const saveLines = async () => {
+      const rows = edLines.value.filter((l) => l.text.trim());
+      if (!rows.length) { err.value = "أبقِ بندًا واحدًا على الأقل"; return; }
+      const bad = rows.find((l) => (lnCalc(l) === "area" && !(+l.width > 0 && +l.height > 0)) || (lnCalc(l) === "length" && !(+l.length > 0)) || !(+l.qty > 0));
+      if (bad) { err.value = `أكمل مقاس وكمية البند «${bad.text.trim()}»`; return; }
+      savingLines.value = true; err.value = null;
+      try {
+        d.value = await call("update_lines", { name: props.name, lines: JSON.stringify(rows.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty,
+          rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null }))) }, true);
+        edLines.value = null; emit("changed"); toast("حُفظت البنود");
+      } catch (e) { err.value = e.message; } finally { savingLines.value = false; }
+    };
+    const viewTotal = computed(() => (d.value?.lines || []).filter((l) => l.rate !== null).reduce((a, l) => a + l.amount, 0));
+    const viewPending = computed(() => (d.value?.lines || []).filter((l) => l.rate === null).length);
     // drop-downs: members (team people with a login) and labels (editable here by the manager)
     const closePop = () => { pop.value = null; editing.value = null; };
     onMounted(() => window.addEventListener("click", closePop));
@@ -1202,7 +1245,8 @@ const CardModal = {
     const startCheck = () => { showCheck.value = true; nextTick(() => document.getElementById("tm2-check")?.focus()); };
     const setFinal = (f) => save({ final: d.value.final === f.file_url ? "" : f.file_url });
     const openFolder = () => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة في هذا الحاسوب — استعمل «نسخ المسار»");
-    return { fig, askDelete, deleting, deleteCard, pickFile, focusDue, sideMoney, startCheck, statuses, status, setStatus, images, coverStyle, setCover, addingDesc, showCheck, setFinal, openFolder, folderLink, inkOn, COVER_COLORS, tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
+    return { edLines, savingLines, startLines, lnCalc, lnSym, lnTotal, lnSugg, lnPick, lnInput, lnBlur, edTotal, saveLines, viewTotal, viewPending, lineSpec, unitOfName, uom, newLine,
+      fig, askDelete, deleting, deleteCard, pickFile, focusDue, sideMoney, startCheck, statuses, status, setStatus, images, coverStyle, setCover, addingDesc, showCheck, setFinal, openFolder, folderLink, inkOn, COVER_COLORS, tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
       uploading, onFiles, delFile, copyFolder, pulling, pullFiles, comment, addComment, price, setPrice, pay, quote, offerMaterials, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
@@ -1312,6 +1356,50 @@ const CardModal = {
                 <input type="time" class="input bd-date" :value="d.due_time || ''" :disabled="busy || !d.can_edit" aria-label="ساعة التسليم" @change="save({due_time: $event.target.value})">
                 <span class="tm-due-w">{{ dueWord(d.due) }}</span></div></div>
           </div>
+
+          <section v-if="d.money" class="tm3-sec" aria-label="البنود">
+            <div class="tm3-sh"><Icon name="orders" :size="20"/><b>البنود <span class="m" style="display:inline">{{ d.lines.length }}</span></b>
+              <span v-if="d.lines_locked.length" class="ln-lock">مقفلة — صدر {{ d.lines_locked.join('، ') }}</span>
+              <div v-else-if="d.can_edit" class="btn-row">
+                <button v-if="!edLines" type="button" class="cl-btn sm" @click="startLines">تعديل البنود</button>
+                <template v-else><button type="button" class="cl-btn sm" @click="edLines = null">إلغاء</button><button type="button" class="cl-btn primary sm" :disabled="savingLines" @click="saveLines">{{ savingLines ? 'جارٍ الحفظ…' : 'حفظ البنود' }}</button></template></div></div>
+
+            <div v-if="!edLines" class="ln-rows">
+              <div v-for="l in d.lines" :key="l.row" class="ln-row">
+                <div class="ln-spec" aria-hidden="true">
+                  <svg v-if="lineSpec(l).kind === 'area'" width="72" height="52" viewBox="0 0 72 52"><rect :x="36 - lineSpec(l).w / 2" :y="22 - lineSpec(l).h / 2" :width="lineSpec(l).w" :height="lineSpec(l).h" rx="1.5" class="ln-sheet"/>
+                    <path :d="'M' + (36 - lineSpec(l).w / 2) + ' 47H' + (36 + lineSpec(l).w / 2) + 'M' + (36 - lineSpec(l).w / 2) + ' 44v6M' + (36 + lineSpec(l).w / 2) + ' 44v6'" class="ln-dim"/></svg>
+                  <svg v-else-if="lineSpec(l).kind === 'length'" width="72" height="52" viewBox="0 0 72 52"><rect x="6" y="20" width="60" height="8" rx="1.5" class="ln-sheet"/><path d="M6 40H66M6 37v6M66 37v6" class="ln-dim"/></svg>
+                  <Icon v-else name="box" :size="22"/></div>
+                <div class="ln-what"><b>{{ l.text }}</b><span class="m"><template v-if="l.size"><span class="ln-size">{{ l.size }}</span> = </template>{{ fig(l.qty) }} {{ l.unit }}</span></div>
+                <div class="ln-unit"><template v-if="l.rate !== null"><span class="m">للـ {{ l.unit || 'وحدة' }}</span><b>{{ fig(l.rate) }} دج</b></template><span v-else class="ln-pend">لم يُسعَّر</span></div>
+                <div class="ln-tot"><template v-if="l.rate !== null">{{ fig(l.amount) }} دج</template><span v-else class="ln-pend">بلا سعر</span></div>
+              </div>
+              <div v-if="!d.lines.length" class="ln-empty">لا بنود بعد.<button v-if="d.can_edit && !d.lines_locked.length" type="button" class="cl-link" @click="startLines">أضف البنود</button></div>
+              <div class="ln-sum"><span v-if="viewPending">{{ viewPending }} {{ viewPending === 1 ? 'بند بلا سعر' : 'بنود بلا سعر' }}</span><span class="spacer"></span><span>المجموع <b>{{ money(viewTotal) }}</b></span></div>
+            </div>
+
+            <div v-else class="ln-rows">
+              <table class="od-tbl ln-tbl">
+                <thead><tr><th>الوصف</th><th>الوحدة</th><th>المقاس</th><th>الكمية</th><th>السعر</th><th class="n">المجموع</th><th><span class="sr-only">حذف</span></th></tr></thead>
+                <tbody><tr v-for="(l, i) in edLines" :key="i">
+                  <td class="od-c-desc"><div class="ol2-desc"><input class="input od-f od-strong" v-model="l.text" @input="lnInput(l)" @focus="l.focus = true" @blur="lnBlur(l)" :aria-label="'وصف البند ' + (i + 1)" placeholder="لافتة، بطاقات، تصميم…" autocomplete="off">
+                    <div v-if="l.focus && lnSugg(l).length" class="ol2-sug"><span class="m">من قائمة الأسعار</span>
+                      <button v-for="it in lnSugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="lnPick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b></span></button></div></div></td>
+                  <td><select class="input od-f od-unit" v-model="l.unit" :aria-label="'وحدة البند ' + (i + 1)"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></td>
+                  <td><div v-if="lnCalc(l) === 'area'" class="od-size"><input class="input od-f num" :class="{miss: !(+l.width > 0)}" inputmode="decimal" v-model="l.width" placeholder="العرض" :aria-label="'العرض ' + (i + 1)"><span>×</span><input class="input od-f num" :class="{miss: !(+l.height > 0)}" inputmode="decimal" v-model="l.height" placeholder="الارتفاع" :aria-label="'الارتفاع ' + (i + 1)"><span class="m">{{ lnSym(l) }}</span></div>
+                    <div v-else-if="lnCalc(l) === 'length'" class="od-size"><input class="input od-f num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"><span class="m">{{ lnSym(l) }}</span></div>
+                    <span v-else class="od-none">—</span></td>
+                  <td><input class="input od-f num od-qty" inputmode="decimal" v-model="l.qty" :aria-label="'الكمية ' + (i + 1)"></td>
+                  <td><input class="input od-f num od-rate" inputmode="decimal" v-model="l.rate" :placeholder="d.docstatus === 1 ? 'مطلوب' : 'لاحقًا'" :aria-label="'سعر البند ' + (i + 1)"></td>
+                  <td class="n od-tot"><template v-if="lnTotal(l) !== null">{{ fig(lnTotal(l)) }}</template><span v-else-if="l.text.trim()" class="od-pending">{{ l.rate !== '' && lnCalc(l) !== 'count' ? 'أدخل المقاس' : 'بلا سعر' }}</span></td>
+                  <td><button v-if="edLines.length > 1" type="button" class="od-del" :aria-label="'حذف البند ' + (i + 1)" @click="edLines.splice(i, 1)"><Icon name="x" :size="16"/></button></td>
+                </tr></tbody></table>
+              <div class="od-add"><button type="button" class="od-addb" @click="edLines.push(newLine())"><Icon name="plus" :size="16"/>بند جديد</button></div>
+              <div class="ln-sum"><span v-if="d.docstatus === 1" class="m">الطلب مؤكَّد: يلزم سعر لكل بند.</span><span class="spacer"></span><span>المجموع <b>{{ money(edTotal) }}</b></span></div>
+            </div>
+            <div v-if="d.lines_locked.length" class="ln-note">صدر لهذا الطلب {{ d.lines_locked.join('، ') }}، فالبنود مقفلة حتى لا تختلف عن المستندات. لتعديلها: ألغِ المستند أولًا، أو أنشئ طلبًا إضافيًا للفرق.</div>
+          </section>
 
           <section v-if="addingDesc || d.can_edit" class="tm3-sec">
             <div class="tm3-sh"><Icon name="file" :size="20"/><b>الوصف</b><button v-if="d.can_edit && !editDesc && d.description" type="button" class="cl-btn sm" @click="startDesc">تعديل</button></div>

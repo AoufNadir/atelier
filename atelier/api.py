@@ -1255,7 +1255,7 @@ from atelier.materials import issue_order_materials, order_materials, recipes, s
 from atelier.quotes import card_quote
 from atelier.simple import save_list, add_fund, add_mode, remove_fund, remove_mode, card_cost, save_card_cost, cancel_opening, opening_balances, save_opening, save_units, add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
 from atelier.simple import customer2, customers2, reorder_card, set_customer_extra  # noqa: E402, F401
-from atelier.simple import delete_card, archive_card, archive_paid, archived_cards, checklist_templates, copy_card, delete_checklist_template, mark_read, notifications, reorder, save_checklist_template  # noqa: E402, F401
+from atelier.simple import update_lines, delete_card, archive_card, archive_paid, archived_cards, checklist_templates, copy_card, delete_checklist_template, mark_read, notifications, reorder, save_checklist_template  # noqa: E402, F401
 from atelier.simple import add_card, add_comment, board, board2, card, delete_file, file_added, move, move_card, quick_order, save_board, update_card, update_order  # noqa: E402, F401
 from atelier.simple import money as money_simple  # noqa: E402, F401
 from atelier.folders import pull_files, save_settings as save_folders, sync_all as sync_folders  # noqa: E402, F401
