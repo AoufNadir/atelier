@@ -355,7 +355,9 @@ const tagRank = (o) => { const order = quickTags().map((q) => q[0]); const hits 
 // Where the order is, whatever its steps are called: at the workshop, at a supplier, or ready.
 const phaseOf = (o) => (["جاهز للتسليم", "سُلّم"].includes(o.atelier_stage) ? "ready" : o.step && o.step.mode === "خارجي" ? "ext" : "work");
 const PHASE_TABS = [["work", "قيد التنفيذ", (o) => phaseOf(o) === "work"], ["ext", "عند مورد", (o) => phaseOf(o) === "ext"], ["ready", "جاهز للتسليم", (o) => phaseOf(o) === "ready"]];
-const fig = (v) => `${LRI}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(+v || 0))}${PDI}`;
+// amounts always show two decimals (1,377.00); whole counts use figN
+const fig = (v) => `${LRI}${nf2.format(+v || 0)}${PDI}`;
+const figN = (v) => `${LRI}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(+v || 0)}${PDI}`;
 
 
 const billState = (o) => (o.docstatus === 0 ? { text: "مسودة", cls: "" } : o.per_billed >= 100 ? { text: "✓ مفوتر", cls: "ok" }
@@ -1336,7 +1338,7 @@ const CardModal = {
     const startCheck = () => { showCheck.value = true; nextTick(() => document.getElementById("tm2-check")?.focus()); };
     const setFinal = (f) => save({ final: d.value.final === f.file_url ? "" : f.file_url });
     const openFolder = () => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة في هذا الحاسوب — استعمل «نسخ المسار»");
-    return { unitChanged, edLines, savingLines, startLines, lnCalc, lnSym, lnTotal, lnSugg, lnPick, lnInput, lnBlur, edTotal, saveLines, viewTotal, viewPending, lineSpec, unitOfName, uom, newLine,
+    return { figN, unitChanged, edLines, savingLines, startLines, lnCalc, lnSym, lnTotal, lnSugg, lnPick, lnInput, lnBlur, edTotal, saveLines, viewTotal, viewPending, lineSpec, unitOfName, uom, newLine,
       fig, askDelete, deleting, deleteCard, pickFile, focusDue, sideMoney, startCheck, statuses, status, setStatus, images, coverStyle, setCover, addingDesc, showCheck, setFinal, openFolder, folderLink, inkOn, COVER_COLORS, tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
       uploading, onFiles, delFile, copyFolder, pulling, pullFiles, comment, addComment, price, setPrice, pay, quote, offerMaterials, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
   },
@@ -1462,7 +1464,7 @@ const CardModal = {
                     <path :d="'M' + (36 - lineSpec(l).w / 2) + ' 47H' + (36 + lineSpec(l).w / 2) + 'M' + (36 - lineSpec(l).w / 2) + ' 44v6M' + (36 + lineSpec(l).w / 2) + ' 44v6'" class="ln-dim"/></svg>
                   <svg v-else-if="lineSpec(l).kind === 'length'" width="72" height="52" viewBox="0 0 72 52"><rect x="6" y="20" width="60" height="8" rx="1.5" class="ln-sheet"/><path d="M6 40H66M6 37v6M66 37v6" class="ln-dim"/></svg>
                   <Icon v-else name="box" :size="22"/></div>
-                <div class="ln-what"><b>{{ l.text }}</b><span class="m"><template v-if="l.size"><span class="ln-size">{{ l.size }}</span> = </template>{{ fig(l.qty) }} {{ l.unit }}</span></div>
+                <div class="ln-what"><b>{{ l.text }}</b><span class="m"><template v-if="l.size"><span class="ln-size">{{ l.size }}</span> = </template>{{ figN(l.qty) }} {{ l.unit }}</span></div>
                 <div class="ln-unit"><template v-if="l.rate !== null"><span class="m">للـ {{ l.unit || 'وحدة' }}</span><b>{{ fig(l.rate) }} دج</b></template><span v-else class="ln-pend">لم يُسعَّر</span></div>
                 <div class="ln-tot"><template v-if="l.rate !== null">{{ fig(l.amount) }} دج</template><span v-else class="ln-pend">بلا سعر</span></div>
               </div>
@@ -3403,10 +3405,10 @@ const ReportsPage2 = {
     const printIt = () => window.print();
     const marginTone = (m) => (m === null ? "" : m < 15 ? "bad" : m < 35 ? "warn" : "ok");
     const ageOpen = ref(null);
-    const kfig = (v) => fig(Math.round((+v || 0) / 1000));
+    const kfig = (v) => figN(Math.round((+v || 0) / 1000));
     const sumOf = (l) => (l || []).reduce((x, y) => x + (+y.total || 0), 0);
     const isCur = (iso) => d.value && String(iso).slice(0, 7) === String(d.value.period.to).slice(0, 7);
-    return { ageOpen, kfig, sumOf, isCur, uom, s, load, d, period, from, to, custom, setPeriod, applyCustom, PERIODS, title, cmp, pct, maxM, mlabel, ageTotal, AGES, maxTop, exportCsv, printIt, marginTone, money, fig, date, go };
+    return { figN, ageOpen, kfig, sumOf, isCur, uom, s, load, d, period, from, to, custom, setPeriod, applyCustom, PERIODS, title, cmp, pct, maxM, mlabel, ageTotal, AGES, maxTop, exportCsv, printIt, marginTone, money, fig, date, go };
   },
   template: `
   <div class="cl rp">
@@ -3469,7 +3471,7 @@ const ReportsPage2 = {
             <section class="mn-card"><div class="mn-card-h"><b>المواد المصروفة من المخزون</b><span class="muted">{{ money(sumOf(d.materials)) }}</span></div>
               <div v-if="!(d.materials || []).length" class="mn-empty">لم تُصرف مواد في هذه الفترة.</div>
               <table v-else class="cl-table mn-table"><thead><tr><th>المادة</th><th class="n">الكمية</th><th class="n">القيمة</th></tr></thead><tbody>
-                <tr v-for="x in d.materials" :key="x.item_code" style="cursor:default"><td>{{ x.name }}</td><td class="n">{{ fig(x.qty) }} {{ uom(x.uom) }}</td><td class="n">{{ fig(x.total) }}</td></tr></tbody></table></section>
+                <tr v-for="x in d.materials" :key="x.item_code" style="cursor:default"><td>{{ x.name }}</td><td class="n">{{ figN(x.qty) }} {{ uom(x.uom) }}</td><td class="n">{{ fig(x.total) }}</td></tr></tbody></table></section>
             <section class="mn-card"><div class="mn-card-h"><b>أكثر الخدمات طلبًا</b></div>
               <div v-if="!d.top_services.length" class="mn-empty">لا طلبات في هذه الفترة.</div>
               <div v-for="(c, i) in d.top_services" :key="c.name" class="rp-rank"><span class="muted">{{ i + 1 }}</span><div style="flex:1;min-width:0"><span class="cl-name ellipsis" style="display:block">{{ c.name }}</span><div class="mn-catbar"><span :style="{width: (c.total / maxTop(d.top_services) * 100) + '%'}"></span></div></div>
