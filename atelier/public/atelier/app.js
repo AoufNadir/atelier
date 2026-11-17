@@ -1436,7 +1436,9 @@ const Board = {
     const hideCol = async (on, id) => { colMenu.value = null; more.value = false; await editCol(id, on ? { hidden: 1 } : { hidden: 0 }); };
     // drag a column by its title to change the order (manager)
     const colDrag = ref(null), colOver = ref(null);
-    const colDragStart = (c, e) => { if (!s.data?.manager) return; colDrag.value = c.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "col:" + c.id); };
+    const colIdx = (id) => (cfg.value?.columns || []).findIndex((x) => x.id === id);
+    const colDragStart = (c, e) => { if (!s.data?.manager) return; colDrag.value = c.id; colOver.value = c.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "col:" + c.id);
+      const sec = e.target.closest(".tb-col"); if (sec) { const r = sec.getBoundingClientRect(); try { e.dataTransfer.setDragImage(sec, e.clientX - r.left, e.clientY - r.top); } catch { /* ok */ } } };
     const colDrop = async (target) => {
       const from = colDrag.value; colDrag.value = null; colOver.value = null; if (!from || from === target.id) return;
       const list = cfg.value.columns.map((c) => ({ ...c })), a = list.findIndex((c) => c.id === from), b = list.findIndex((c) => c.id === target.id);
@@ -1478,6 +1480,7 @@ const Board = {
     }
     const drop = (col) => { const c = dragging.value; dragging.value = null; over.value = null; before.value = null; if (c) moveTo(c, col, null); };
     const dropOn = (target, done) => {
+      if (colDrag.value) { const col = cols.value.find((x) => x.items.some((i) => i.name === target.name)); if (col) { if (done) colDrop(col); else colOver.value = col.id; } return; }
       if (!dragging.value || dragging.value.name === target.name) return;
       over.value = target.column; before.value = target.name;
       if (done) { const c = dragging.value; dragging.value = null; over.value = null; before.value = null; moveTo(c, target.column, target.name); }
@@ -1621,7 +1624,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { colDrag, colOver, colDragStart, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { colDrag, colOver, colIdx, colDragStart, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -1697,10 +1700,10 @@ const Board = {
     </div>
 
     <div v-else class="tb-cols">
-      <section v-for="c in cols" :key="c.id" class="tb-col" :class="{over: over === c.id, deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name" :style="{'--cc': c.color}"
-        @dragover.prevent="dragging && (over = c.id, before = null)" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="drop(c.id)">
+      <section v-for="c in cols" :key="c.id" class="tb-col" :class="{over: over === c.id, 'col-moving': colDrag === c.id, 'col-target': colDrag && colOver === c.id && colDrag !== c.id, 'col-after': colDrag && colOver === c.id && colIdx(colDrag) < colIdx(c.id), deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name" :style="{'--cc': c.color}"
+        @dragover.prevent="colDrag ? (colOver = c.id) : dragging && (over = c.id, before = null)" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="colDrag ? colDrop(c) : drop(c.id)">
         <h2 class="tb-ch" :draggable="!!s.data.manager" :class="{'col-drag': colDrag === c.id, 'col-drop': colOver === c.id && colDrag && colDrag !== c.id}"
-          @dragstart.stop="colDragStart(c, $event)" @dragend="colDrag = null; colOver = null" @dragover="colDrag && ($event.preventDefault(), colOver = c.id)" @drop.stop="colDrop(c)"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
+          @dragstart.stop="colDragStart(c, $event)" @dragend="colDrag = null; colOver = null" ><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
           <span class="bd-n" :class="{over: c.limit && c.items.length > c.limit}">{{ c.items.length }}<template v-if="c.limit"> / {{ c.limit }}<template v-if="c.items.length > c.limit"> !</template></template></span>
           <button type="button" class="tb-cdots" :aria-label="'خيارات العمود ' + c.name" :aria-expanded="colMenu && colMenu.col.id === c.id" @click.stop="openColMenu(c, $event)"><Icon name="more" :size="16"/></button></h2>
         <div v-if="(c.sum && !s.data.worker) || c.late || c.unpriced || colSort[c.id]" class="tb-cstat">
@@ -1981,7 +1984,7 @@ const SimpleCustomers = {
     const gallery2 = computed(() => { const list = galleryJobs.value.filter((o) => gGroup.value === "all" || groupOf(o) === gGroup.value);
       return gSort.value === "price" ? [...list].sort((a, b) => (b.grand_total || 0) - (a.grand_total || 0)) : list; });
     const specOf = (o) => { const l = (o.lines || [])[0]; if (!l) return o.size || "";
-      return [l.size || o.size, l.qty ? (Number.isInteger(l.qty) ? l.qty.toLocaleString("en-US") : fig(l.qty)) + " " + (l.uom || "") : "", (o.lines.length > 1 ? "+" + (o.lines.length - 1) + " بنود" : "")].filter(Boolean).join(" · "); };
+      return [l.size || o.size, l.qty ? (Number.isInteger(l.qty) ? l.qty.toLocaleString("en-US") : fig(l.qty)) + " " + (l.uom || "") : "", (o.lines.length > 1 ? "و" + (o.lines.length - 1 === 1 ? "بند آخر" : (o.lines.length - 1) + " بنود أخرى") : "")].filter(Boolean).join(" · "); };
     const unitOf = (o) => { const l = (o.lines || [])[0]; return l && l.rate && o.lines.length === 1 && l.qty > 1 ? fig(l.rate) + " / " + (/m|م/i.test(l.uom || "") ? (l.uom || "") : "وحدة") : ""; };
     const coverOf = (o) => o.cover || (isImg({ file_name: o.final || "" }) ? o.final : null) || imagesOf(o)[0]?.file_url || null;
     // files tab: grouped by job, identity first, kind = final / source / reference (guessed, can be corrected), old versions folded
@@ -2228,8 +2231,8 @@ const SimpleCustomers = {
             </table>
           </div>
           <div v-else class="cpg">
-            <div class="cpg-bar"><button type="button" class="bd-chip" :aria-pressed="gGroup === 'all'" @click="gGroup = 'all'">كل الخدمات <span class="cl-quick-n">{{ galleryJobs.length }}</span></button>
-              <button v-for="g in gGroups" :key="g[0]" type="button" class="bd-chip" :aria-pressed="gGroup === g[0]" @click="gGroup = g[0]">{{ g[0] }} <span class="cl-quick-n">{{ g[1] }}</span></button>
+            <div class="cpg-bar"><template v-if="gGroups.length > 1"><button type="button" class="bd-chip" :aria-pressed="gGroup === 'all'" @click="gGroup = 'all'">كل الخدمات <span class="cl-quick-n">{{ galleryJobs.length }}</span></button>
+              <button v-for="g in gGroups" :key="g[0]" type="button" class="bd-chip" :aria-pressed="gGroup === g[0]" @click="gGroup = g[0]">{{ g[0] }} <span class="cl-quick-n">{{ g[1] }}</span></button></template>
               <span class="spacer"></span>
               <label class="cpg-chk"><input type="checkbox" :checked="!gAll" @change="gAll = !$event.target.checked">المسلَّمة فقط</label>
               <select class="input cpg-sort" v-model="gSort" aria-label="الترتيب"><option value="new">الأحدث</option><option value="price">الأعلى سعرًا</option></select></div>
@@ -2238,13 +2241,13 @@ const SimpleCustomers = {
               <article v-for="o in gallery2" :key="o.name" class="cpg-it">
                 <button type="button" class="cpg-ph" :style="coverOf(o) ? {} : {background: o.cover_color || '#98A2B3'}" :aria-label="'صور ' + (o.atelier_subject || o.name)" @click="coverOf(o) ? showImages(o, imagesOf(o)[0]?.file_url) : openCard(o)">
                   <img v-if="coverOf(o)" :src="coverOf(o)" alt="" loading="lazy"><span v-else class="cpg-ini">{{ initial(o.atelier_subject || o.name) }}</span>
-                  <span class="cpg-tag">{{ groupOf(o) }}</span><span v-if="(o.per_delivered || 0) < 100" class="cpg-tag run">قيد التنفيذ</span></button>
+                  <span v-if="gGroups.length > 1" class="cpg-tag">{{ groupOf(o) }}</span><span v-if="(o.per_delivered || 0) < 100" class="cpg-tag run">قيد التنفيذ</span></button>
                 <div class="cpg-in">
-                  <button type="button" class="cpg-t" :title="o.atelier_subject || o.name" @click="openCard(o)">{{ o.atelier_subject || o.name }}</button>
+                  <button type="button" class="cpg-t" dir="auto" :title="o.atelier_subject || o.name" @click="openCard(o)">{{ o.atelier_subject || o.name }}</button>
                   <span class="cpg-spec">{{ specOf(o) || '—' }}</span>
-                  <div class="cpg-pr"><div><b v-if="!o.price_pending">{{ money(o.grand_total) }}</b><b v-else class="warn">بلا سعر</b>
-                    <small v-if="unitOf(o)">{{ unitOf(o) }}</small><small>{{ date(o.transaction_date) }}</small></div>
-                    <button v-if="state.boot.can.order" type="button" class="cl-btn sm cpg-again" title="بطاقة جديدة بنفس البنود في اللوحة" @click="reorder(o)">طلب مشابه</button></div>
+                  <div class="cpg-pr"><b v-if="!o.price_pending">{{ money(o.grand_total) }}</b><b v-else class="warn">بلا سعر</b><small v-if="unitOf(o)">{{ unitOf(o) }}</small></div>
+                  <div class="cpg-ft"><span>{{ date(o.transaction_date) }}</span>
+                    <button v-if="state.boot.can.order" type="button" class="cpg-again" title="بطاقة جديدة بنفس البنود في اللوحة" @click="reorder(o)">طلب مشابه</button></div>
                 </div>
               </article>
             </div>
