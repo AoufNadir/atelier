@@ -2673,3 +2673,17 @@ button.rp-rank { display: flex; align-items: center; gap: 12px; padding: 10px 18
 .cpg-pr > div { min-width: 0; }
 .cpg-pr small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cpg-ph:not(:has(img)) { height: 96px; }
+/* customer profile fixes */
+.cpg-bar { overflow: hidden; flex-wrap: nowrap; }
+.cpg-sort, .cpg-bar select.input { width: auto !important; min-width: 120px; }
+.cpf-help { font-size: 12px; color: #475467; background: #F9FAFB; border-bottom: 1px solid #E4E7EC; padding: 6px 14px; line-height: 1.7; }
+.cpf-acts { opacity: 1; } .cpf-acts .cl-btn { color: #475467; }
+.cpf-kind { border-color: transparent; background: transparent !important; font-weight: 600; cursor: pointer; }
+.cpf-kind:hover, .cpf-kind:focus { border-color: #D0D5DD; background: #fff !important; }
+/* table: clear year / month / job separation */
+.cp-tbl tr.cp-yr td { background: #EEF0F4; border-top: 2px solid #D0D5DD; padding: 8px 14px; font-size: 14px; }
+.cp-tbl tr.cp-yr td b { font-size: 15px; color: #17202A; }
+.cp-tbl tr.cp-mo td { background: #F8F7FF; border-top: 1px solid #E4E7EC; border-bottom: 1px solid #E4E7EC; padding: 5px 14px 5px 14px; color: #4F35D2; font-size: 12px; font-weight: 700; box-shadow: inset -3px 0 0 #9B87F5; }
+.cp-tbl tr.cp-mo td .muted { color: #667085; }
+.cp-tbl tr.cp-row td { border-bottom: 1px solid #EAECF0; }
+.cp-tbl tr.cp-row:hover td { background: #FAFAFF; }

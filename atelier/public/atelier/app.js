@@ -1974,7 +1974,7 @@ const SimpleCustomers = {
       if (i >= 0) viewer.value = { list, i }; else go("/?card=" + encodeURIComponent(o.name)); };
     const openCard = (o) => go("/?card=" + encodeURIComponent(o.name));
     // gallery for the salesperson: delivered work, what it was and what it cost
-    const gGroup = ref("all"), gSort = ref("new"), gAll = ref(false);
+    const gGroup = ref("all"), gSort = ref("new"), gAll = ref(true);
     const groupOf = (o) => (o.lines || [])[0]?.group || "أخرى";
     const galleryJobs = computed(() => jobs.value.filter((o) => gAll.value || (o.per_delivered || 0) >= 100));
     const gGroups = computed(() => { const c = {}; for (const o of galleryJobs.value) c[groupOf(o)] = (c[groupOf(o)] || 0) + 1; return Object.entries(c).sort((a, b) => b[1] - a[1]); });
@@ -2171,8 +2171,9 @@ const SimpleCustomers = {
           <div v-if="hview === 'files'" class="cpf">
             <nav class="cpf-tree" aria-label="مجموعات الملفات"><button type="button" :aria-pressed="!fsel" @click="fsel = null">كل الأعمال<i>{{ d.card_files.length }}</i></button>
               <button v-for="G in fileGroups" :key="G.key" type="button" :aria-pressed="fsel === G.key" :class="{id: G.key === '__id'}" @click="fsel = G.key"><span class="ellipsis">{{ G.title }}</span><i>{{ G.n }}</i></button>
-              <label v-if="d.can_edit" class="cl-btn sm cpf-up">{{ uploading ? 'جارٍ الرفع…' : 'رفع ملف للهوية' }}<input type="file" multiple class="sr-only" @change="onFile"></label></nav>
+              <label v-if="d.can_edit" class="cl-btn sm cpf-up">{{ uploading ? 'جارٍ الرفع…' : 'رفع شعار أو هوية العميل' }}<input type="file" multiple class="sr-only" @change="onFile"></label></nav>
             <div class="cpf-body">
+              <div class="cpf-help">كل ملفات العميل في مكان واحد، مرتبة حسب العمل. <b>الهوية</b> = ملفات ثابتة للعميل (شعار، ألوان، خطوط) تُستعمل في كل أعماله. غيّر نوع أي ملف من القائمة بجانبه.</div>
               <div v-if="!shownGroups.length" class="muted cp-pad">{{ d.card_files.length ? 'لا ملفات تطابق التصفية.' : 'لا ملفات بعد. ما يُرفق في البطاقات يظهر هنا مرتبًا حسب العمل.' }}</div>
               <section v-for="G in shownGroups" :key="G.key" class="cpf-grp">
                 <div class="cpf-gh"><b class="ellipsis">{{ G.title }}</b><span class="muted">{{ G.sub }}</span><button v-if="G.order" type="button" class="cl-link" @click="openCard(G.order)">فتح البطاقة</button>
@@ -2216,20 +2217,19 @@ const SimpleCustomers = {
                 </template></template>
               </tbody>
             </table>
-            <div class="muted cp-pad" style="padding-top:8px">انقر على أي عمل لفتح بطاقته.</div>
           </div>
           <div v-else class="cpg">
             <div class="cpg-bar"><button type="button" class="bd-chip" :aria-pressed="gGroup === 'all'" @click="gGroup = 'all'">كل الخدمات <span class="cl-quick-n">{{ galleryJobs.length }}</span></button>
               <button v-for="g in gGroups" :key="g[0]" type="button" class="bd-chip" :aria-pressed="gGroup === g[0]" @click="gGroup = g[0]">{{ g[0] }} <span class="cl-quick-n">{{ g[1] }}</span></button>
               <span class="spacer"></span>
-              <label class="cpg-chk"><input type="checkbox" v-model="gAll">مع الجارية</label>
+              <label class="cpg-chk"><input type="checkbox" :checked="!gAll" @change="gAll = !$event.target.checked">المسلَّمة فقط</label>
               <select class="input cpg-sort" v-model="gSort" aria-label="الترتيب"><option value="new">الأحدث</option><option value="price">الأعلى سعرًا</option></select></div>
-            <div v-if="!gallery2.length" class="muted cp-pad">{{ gAll ? 'لا أعمال.' : 'لا أعمال مسلَّمة بعد — فعّل «مع الجارية» لرؤية الكل.' }}</div>
+            <div v-if="!gallery2.length" class="muted cp-pad">{{ gAll ? 'لا أعمال.' : 'لا أعمال مسلَّمة بعد — ألغِ «المسلَّمة فقط» لرؤية الكل.' }}</div>
             <div class="cpg-grid">
               <article v-for="o in gallery2" :key="o.name" class="cpg-it">
                 <button type="button" class="cpg-ph" :style="coverOf(o) ? {} : {background: o.cover_color || '#98A2B3'}" :aria-label="'صور ' + (o.atelier_subject || o.name)" @click="coverOf(o) ? showImages(o, imagesOf(o)[0]?.file_url) : openCard(o)">
                   <img v-if="coverOf(o)" :src="coverOf(o)" alt="" loading="lazy"><span v-else class="cpg-ini">{{ initial(o.atelier_subject || o.name) }}</span>
-                  <span class="cpg-tag">{{ groupOf(o) }}</span><span v-if="(o.per_delivered || 0) < 100" class="cpg-tag run">جارٍ</span></button>
+                  <span class="cpg-tag">{{ groupOf(o) }}</span><span v-if="(o.per_delivered || 0) < 100" class="cpg-tag run">قيد التنفيذ</span></button>
                 <div class="cpg-in">
                   <button type="button" class="cpg-t" :title="o.atelier_subject || o.name" @click="openCard(o)">{{ o.atelier_subject || o.name }}</button>
                   <span class="cpg-spec">{{ specOf(o) || '—' }}</span>
