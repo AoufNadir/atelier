@@ -563,7 +563,8 @@ def card(name):
 		"grand_total": row.grand_total, "paid": row.paid, "price_pending": row.price_pending, "docstatus": so.docstatus,
 		"per_delivered": so.per_delivered, "can_edit": bool(frappe.has_permission("Sales Order", "write", so)),
 		"can_delete": bool(frappe.has_permission("Sales Order", "write", so)) and not worker and not _delete_blockers(name),
-		"lines": [] if worker else _card_lines(so), "lines_locked": _lines_locked(name),
+		# designers and production see what to make, never the prices
+		"lines": [{**l, "rate": None, "amount": None} for l in _card_lines(so)] if worker else _card_lines(so), "lines_locked": _lines_locked(name),
 		"money": not worker,
 		"materials_pending": bool(flt(so.per_delivered) >= 100 and not cint(so.get("atelier_materials_done")) and _uses_materials(so)),
 	}

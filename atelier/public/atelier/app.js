@@ -851,6 +851,8 @@ const BoardPanel = {
     const ed = ref(null), members = ref([]);
     const editing = computed(() => !!props.edit);
     const locked = computed(() => (ed.value?.lines_locked || []).length > 0);
+    const worker = computed(() => !!state.boot.worker || ed.value?.money === false);  // designer / production: no prices, no money
+    const ro = computed(() => locked.value || worker.value);
     onMounted(async () => {
       if (!props.edit) return;
       try {
@@ -874,7 +876,7 @@ const BoardPanel = {
     const run = async (fn) => { sv.value = "saving"; try { await fn(); sv.value = "saved"; svMsg.value = ""; state.rev++; } catch (e) { sv.value = "error"; svMsg.value = e.message; } };
     const saveMeta = () => run(() => call("update_card", { name: props.edit, changes: JSON.stringify({ title: f.subject.trim() || props.edit, status: f.status, labels: f.labels, members: members.value, description: f.description, checklist: f.checklist, due_time: f.due_time || "", ...(f.due ? { due: f.due } : {}) }) }, true));
     const saveLinesNow = () => {
-      if (locked.value || !ready.value) return;
+      if (ro.value || !ready.value) return;
       const bad = !filled.value.length ? "أبقِ بندًا واحدًا على الأقل" : filled.value.some((l) => !(+l.qty > 0)) ? "الكمية غير صحيحة"
         : (() => { const x = filled.value.find((l) => (calcOf(l) === "area" && !(+l.width > 0 && +l.height > 0)) || (calcOf(l) === "length" && !(+l.length > 0))); return x ? `أكمل مقاس البند «${x.text.trim()}»` : ""; })()
         || (ed.value?.docstatus === 1 && filled.value.some((l) => l.rate === "") ? "الطلب مؤكَّد: يلزم سعر لكل بند" : "");
@@ -961,7 +963,7 @@ const BoardPanel = {
     const dropTpl = async (tp) => { if (!confirm(`حذف القالب «${tp.title}»؟`)) return; try { tpls.value = await call("delete_card_template", { id: tp.id }, true); if (tplOn.value === tp.id) tplOn.value = null; } catch (e) { error.value = e.message; } };
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
-    return { daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
@@ -975,7 +977,7 @@ const BoardPanel = {
           <select class="input od-colsel" v-model="f.column" aria-label="العمود"><option v-for="c in boardCols" :key="c.id" :value="c.id" :disabled="c.deliver && c.id !== ed.column">{{ c.name }}</option></select>
           <span class="spacer"></span>
           <span class="od-sv" :class="sv" role="status">{{ sv === 'saving' ? 'جارٍ الحفظ…' : sv === 'saved' ? '✓ حُفظ' : sv === 'pending' ? 'غير محفوظ: ' + svMsg : sv === 'error' ? 'تعذّر الحفظ: ' + svMsg : '' }}</span>
-          <span v-if="state.boot.can.order" class="od-pop-host"><button type="button" class="cl-btn od-more" :aria-expanded="hdPop === 'docs'" @click.stop="hdPop = hdPop === 'docs' ? null : 'docs'"><Icon name="file" :size="16"/>المستندات<Icon name="down" :size="14"/></button>
+          <span v-if="state.boot.can.order && !worker" class="od-pop-host"><button type="button" class="cl-btn od-more" :aria-expanded="hdPop === 'docs'" @click.stop="hdPop = hdPop === 'docs' ? null : 'docs'"><Icon name="file" :size="16"/>المستندات<Icon name="down" :size="14"/></button>
             <div v-if="hdPop === 'docs'" class="tm-pop od-pop" @click.stop>
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('devis')"><Icon name="file" :size="15"/>Devis — عرض سعر</button>
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('proforma')"><Icon name="file" :size="15"/>Pro forma</button>
@@ -983,11 +985,11 @@ const BoardPanel = {
               <span v-if="unpriced > 0" class="m tm3-hint">سعّر كل البنود لإصدار Devis أو Pro forma.</span></div></span>
           <span class="od-pop-host"><button type="button" class="cl-btn icon od-more" aria-label="خيارات البطاقة" :aria-expanded="hdPop === 'more'" @click.stop="hdPop = hdPop === 'more' ? null : 'more'"><Icon name="more" :size="16"/></button>
             <div v-if="hdPop === 'more'" class="tm-pop od-pop" @click.stop>
-              <button type="button" class="tm-pop-row" @click="copyIt"><Icon name="file" :size="15"/>نسخ البطاقة</button>
-              <button type="button" class="tm-pop-row" @click="templateIt"><Icon name="grid" :size="15"/>حفظ كقالب</button>
-              <button type="button" class="tm-pop-row" @click="archiveIt"><Icon name="box" :size="15"/>أرشفة</button>
-              <button v-if="!(paid > 0.005) && !(ed.per_delivered > 0)" type="button" class="tm-pop-row tm3-danger" @click="deleteIt"><Icon name="trash" :size="15"/>حذف البطاقة</button>
-              <span v-else class="m tm3-hint">عليها دفعة أو تسليم: أرشفها بدل الحذف.</span></div></span>
+              <button v-if="!worker" type="button" class="tm-pop-row" @click="copyIt"><Icon name="file" :size="15"/>نسخ البطاقة</button>
+              <button v-if="!worker" type="button" class="tm-pop-row" @click="templateIt"><Icon name="grid" :size="15"/>حفظ كقالب</button>
+              <button v-if="!worker" type="button" class="tm-pop-row" @click="archiveIt"><Icon name="box" :size="15"/>أرشفة</button>
+              <button v-if="ed.can_delete" type="button" class="tm-pop-row tm3-danger" @click="deleteIt"><Icon name="trash" :size="15"/>حذف البطاقة</button>
+              <span v-else-if="!worker" class="m tm3-hint">عليها دفعة أو تسليم: أرشفها بدل الحذف.</span></div></span>
         </template>
         <div v-else><h2 id="od-h">طلب جديد</h2><span class="m">{{ colName ? 'يُضاف إلى لوحة الطلبات في عمود «' + colName + '»' : 'يُضاف إلى لوحة الطلبات' }}</span></div>
         <button type="button" class="od-x" aria-label="إغلاق" @click="editing ? closeEdit() : $emit('close')"><Icon name="x" :size="18"/></button></header>
@@ -997,7 +999,7 @@ const BoardPanel = {
             <div v-if="f.customer && !pickCust" class="od-cust">
               <span class="od-av">{{ initialOf(f.customer.customer_name) }}</span>
               <div style="flex:1;min-width:0">
-                <div class="od-cn"><b>{{ f.customer.customer_name }}</b><span class="od-tag">{{ customerType === 'Company' ? 'مؤسسة' : 'فرد' }}</span><span class="od-tag pri">{{ customerType === 'Company' ? 'أسعار المؤسسات' : 'أسعار الأفراد' }}</span>
+                <div class="od-cn"><b>{{ f.customer.customer_name }}</b><span class="od-tag">{{ customerType === 'Company' ? 'مؤسسة' : 'فرد' }}</span><span v-if="!worker" class="od-tag pri">{{ customerType === 'Company' ? 'أسعار المؤسسات' : 'أسعار الأفراد' }}</span>
                   <span v-if="credit && credit.owes > 0.005" class="od-tag bad">عليه {{ fig(credit.owes) }} دج</span></div>
                 <span v-if="f.customer.mobile_no" class="m" dir="ltr">{{ f.customer.mobile_no }}</span></div>
               <button v-if="!editing" type="button" class="cl-link" @click="pickCust = true">تغيير العميل</button></div>
@@ -1018,7 +1020,7 @@ const BoardPanel = {
               <span v-for="tp in tpls" :key="tp.id" class="od-tpl" :class="{on: tplOn === tp.id}"><button type="button" :aria-pressed="tplOn === tp.id" @click="useTpl(tp)">{{ tp.title }}<span class="m">{{ (tp.lines || []).length }} بند<template v-if="(tp.checklist || []).length"> · {{ tp.checklist.length }} مهام</template></span></button>
                 <button type="button" class="od-tpl-x" :aria-label="'حذف القالب ' + tp.title" @click="dropTpl(tp)">×</button></span>
               <button v-if="tplOn" type="button" class="cl-link" @click="clearTpl">طلب فارغ</button></div>
-            <fieldset class="lb-list od-fs" :disabled="locked">
+            <fieldset class="lb-list od-fs" :disabled="ro">
               <div v-for="(l, i) in f.lines" :key="i" class="lb">
                 <div class="lb-top"><span class="lb-no">{{ i + 1 }}</span>
                   <div class="ol2-desc"><textarea class="input lb-desc" rows="1" v-model="l.text" @input="lineInput(l)" @focus="l.focus = true" @blur="blurLine(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="الوصف: بطاقات زيارة 350 غ وجهان…" autocomplete="off"></textarea>
@@ -1033,15 +1035,15 @@ const BoardPanel = {
                     <div v-else-if="calcOf(l) === 'length'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"></div>
                     <span v-else class="lb-none">—</span></div>
                   <label class="lb-c"><span>{{ calcOf(l) === 'count' ? 'الكمية' : 'عدد القطع' }}</span><input class="input lb-in num" inputmode="decimal" v-model="l.qty"></label>
-                  <label class="lb-c"><span>سعر الوحدة</span><input class="input lb-in num" inputmode="decimal" v-model="l.rate" @input="l.auto = false" placeholder="لاحقًا"></label>
-                  <div class="lb-c lb-t"><span>المجموع</span><b v-if="lineTotal(l) !== null">{{ fig(lineTotal(l)) }}</b><em v-else-if="l.text.trim()" class="od-pending">{{ l.rate !== '' && calcOf(l) !== 'count' ? (calcOf(l) === 'area' ? 'أدخل المقاس' : 'أدخل الطول') : 'بلا سعر' }}</em></div>
+                  <label v-if="!worker" class="lb-c"><span>سعر الوحدة</span><input class="input lb-in num" inputmode="decimal" v-model="l.rate" @input="l.auto = false" placeholder="لاحقًا"></label>
+                  <div v-if="!worker" class="lb-c lb-t"><span>المجموع</span><b v-if="lineTotal(l) !== null">{{ fig(lineTotal(l)) }}</b><em v-else-if="l.text.trim()" class="od-pending">{{ l.rate !== '' && calcOf(l) !== 'count' ? (calcOf(l) === 'area' ? 'أدخل المقاس' : 'أدخل الطول') : 'بلا سعر' }}</em></div>
                 </div>
-                <div v-if="lineCalc(l) || (l.text.trim() && !l.item_code && state.boot.can.prices)" class="lb-calc"><span>{{ lineCalc(l) }}</span>
+                <div v-if="!worker && (lineCalc(l) || (l.text.trim() && !l.item_code && state.boot.can.prices))" class="lb-calc"><span>{{ lineCalc(l) }}</span>
                   <button v-if="l.text.trim() && !l.item_code && state.boot.can.prices" type="button" class="cl-link od-tolist" @click="addToList(l)">+ إلى قائمة الأسعار</button></div>
               </div></fieldset>
-            <div v-if="!locked" class="od-add"><button type="button" class="od-addb" @click="addLine"><Icon name="plus" :size="16"/>بند جديد</button><span class="spacer"></span>
+            <div v-if="!ro" class="od-add"><button type="button" class="od-addb" @click="addLine"><Icon name="plus" :size="16"/>بند جديد</button><span class="spacer"></span>
               <template v-if="popular.length"><span class="m">الأكثر طلبًا:</span><button v-for="it in popular" :key="it.item_code" type="button" class="od-sug" @click="addFrom(it)">{{ it.item_name }}</button></template></div>
-            <div class="od-totals"><div class="od-tbox">
+            <div v-if="!worker" class="od-totals"><div class="od-tbox">
               <div><span>مجموع البنود المسعّرة</span><span class="num">{{ money(priced) }}</span></div>
               <div v-if="unpriced"><span>بنود بلا سعر</span><span>{{ unpriced }}</span></div>
               <div v-if="editing && paid > 0.005"><span>المدفوع</span><span class="num od-ok">− {{ money(paid) }}</span></div>
@@ -1102,7 +1104,7 @@ const BoardPanel = {
               <div class="od-opts"><button v-for="x in boardLabels" :key="x.id" type="button" class="od-opt" :aria-pressed="f.labels.includes(x.id)" @click="flip(f.labels, x.id)">
                 <span class="od-box" :style="f.labels.includes(x.id) ? {background: x.color, borderColor: x.color, color: inkOn(x.color)} : {}">{{ f.labels.includes(x.id) ? '✓' : '' }}</span>
                 <span class="od-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span></button></div></template></div></section>
-          <section v-if="editing && ed" class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>المال</b><span class="m od-r">المجموع {{ money(ed.grand_total) }}</span></div><div class="od-pad">
+          <section v-if="editing && ed && !worker" class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>المال</b><span class="m od-r">المجموع {{ money(ed.grand_total) }}</span></div><div class="od-pad">
             <div class="od-money"><span class="m">{{ ed.grand_total - ed.paid > 0.005 ? 'الباقي' : 'دُفع بالكامل' }}</span><b :class="{bad: ed.grand_total - ed.paid > 0.005}">{{ money(Math.max(0, ed.grand_total - ed.paid)) }}</b></div>
             <div class="tm-paybar"><span :style="{width: Math.min(100, ed.grand_total ? ed.paid / ed.grand_total * 100 : 0) + '%'}"></span></div>
             <span class="m">المدفوع: {{ money(ed.paid) }}</span>
@@ -1121,8 +1123,8 @@ const BoardPanel = {
         </aside>
       </div>
       <footer class="od-ft">
-        <div class="od-big"><span>المجموع</span><b>{{ money(priced) }}</b></div>
-        <div class="od-big"><span>الباقي</span><b :class="{bad: remain > 0.005}">{{ money(Math.max(0, remain)) }}</b></div>
+        <template v-if="!worker"><div class="od-big"><span>المجموع</span><b>{{ money(priced) }}</b></div>
+        <div class="od-big"><span>الباقي</span><b :class="{bad: remain > 0.005}">{{ money(Math.max(0, remain)) }}</b></div></template>
         <div v-if="error" class="alert error od-err" role="alert">{{ error }}</div>
         <span class="spacer"></span>
         <span v-if="!editing" class="od-kbd"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> حفظ · <kbd>Esc</kbd> إغلاق</span><span v-else class="od-kbd">كل تعديل يُحفظ مباشرة</span>
@@ -1806,7 +1808,7 @@ const Board = {
     const open = ref(props.openCard || state.query.get("card") || null);
     // a card opens in the order window (same as a new order); the full card (files, comments, money) on request
     const detailsOnce = ref(null);
-    watch(open, (v) => { if (v && state.boot.can.order && detailsOnce.value !== v) { state.sheet = { type: "order", edit: v }; open.value = null; } }, { immediate: true });
+    watch(open, (v) => { if (v && detailsOnce.value !== v) { state.sheet = { type: "order", edit: v }; open.value = null; } }, { immediate: true });
     watch(() => state.cardDetails, (v) => { if (v) { detailsOnce.value = v; open.value = v; state.cardDetails = null; } });
     const busy = ref(null), dragging = ref(null), over = ref(null), before = ref(null);
     async function moveTo(c, col, beforeName) {
