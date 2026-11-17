@@ -2379,3 +2379,10 @@ button.stk-kpi { cursor: pointer; } button.stk-kpi:focus-visible { outline: 3px 
   .cl-table th { padding: 8px 14px; font-size: 12px; }
   .cl-table td { padding: 7px 14px; }
 }
+@media (min-width: 1024px) {
+  .mn-funds { padding: 12px 20px 0; gap: 8px; }
+  .mn-fund { padding: 8px 12px; gap: 0; } .mn-fund > b { font-size: 18px; }
+  .mn-stats > div { padding: 8px 16px; }
+  .mn-grid { padding: 12px 20px 20px; gap: 12px; }
+  .mn-card-h { padding: 10px 14px; } .mn-card-h > b:first-child { font-size: 14px; }
+}
