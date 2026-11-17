@@ -2458,3 +2458,16 @@ button.rp-rank { display: flex; align-items: center; gap: 12px; padding: 10px 18
 .od-adds { display: flex; gap: 8px; flex-wrap: wrap; }
 .od-addline { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px dashed #BDB4F5; border-radius: 8px; color: var(--primary); background: #F7F5FF; font-size: 13px; font-weight: 700; }
 .od-addline:hover { background: #EEEAFF; } .od-addline:focus-visible { outline: 3px solid var(--primary); outline-offset: 1px; }
+
+/* settings: search, flags, readiness */
+.st2-search { display: flex; align-items: center; gap: 6px; height: 34px; border: 1px solid #D0D5DD; border-radius: 8px; padding: 0 10px; background: #F9FAFB; margin-bottom: 6px; color: #667085; }
+.st2-search input { all: unset; flex: 1; font-size: 13px; color: #17202A; min-width: 0; }
+.st2-res { display: flex; flex-direction: column; gap: 2px; background: #fff; border: 1px solid #D0D5DD; border-radius: 8px; box-shadow: 0 8px 24px rgba(16,24,40,.12); padding: 4px; margin-bottom: 6px; }
+.st2-res button { all: unset; cursor: pointer; padding: 6px 8px; border-radius: 6px; font-size: 13px; } .st2-res button:hover, .st2-res button:focus-visible { background: #F4F2FD; }
+.st2-res small { display: block; font-size: 12px; color: #667085; } .st2-res .muted { padding: 6px 8px; font-size: 12px; }
+.st2-nav button .st2-flag { margin-inline-start: auto; font-size: 12px; color: #B54708; font-weight: 700; }
+.st2-nav button .st2-dot { margin-inline-start: auto; width: 7px; height: 7px; border-radius: 50%; background: #F79009; }
+.st2-ready { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff; border: 1px solid var(--c-line); border-radius: 10px; padding: 10px 14px; font-size: 12px; }
+.st2-ready > b { font-size: 13px; } .st2-rbar { flex: 1; min-width: 120px; height: 6px; border-radius: 9px; background: #EAECF0; overflow: hidden; } .st2-rbar i { display: block; height: 100%; background: #12B76A; }
+.st2-ready .ok { color: #067647; } .st2-ready .no { color: #B54708; font-weight: 700; }
+.st2-hl { background: #F4F2FD; border-radius: 8px; transition: background .4s; }

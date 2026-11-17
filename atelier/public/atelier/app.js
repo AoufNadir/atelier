@@ -2686,11 +2686,11 @@ const TeamPage = {
 };
 
 const BoardSettings = {
-  props: ["embedded"], components: { Icon, TeamPage },
-  setup() {
+  props: ["embedded", "only"], components: { Icon, TeamPage },
+  setup(props) {
     const { s, load } = useLoad(() => call("board2"));
     onMounted(load);
-    const tab = ref("columns"), cols = ref([]), labels = ref([]), statuses = ref([]), moves = reactive({}), removed = ref([]), saving = ref(false), err = ref(null);
+    const tab = ref(props.only || "columns"), cols = ref([]), labels = ref([]), statuses = ref([]), moves = reactive({}), removed = ref([]), saving = ref(false), err = ref(null);
     watch(() => s.data, (v) => { if (v) { cols.value = v.config.columns.map((c) => ({ ...c })); labels.value = v.config.labels.map((l) => ({ ...l })); statuses.value = (v.config.statuses || []).map((l) => ({ ...l })); removed.value = []; } });
     const count = (id) => (s.data?.cards || []).filter((c) => c.column === id).length;
     const lcount = (id) => (s.data?.cards || []).filter((c) => c.labels.includes(id) || (c.status || []).includes(id)).length;
@@ -2720,8 +2720,8 @@ const BoardSettings = {
   <div class="page">
     <div v-if="!embedded" class="bd-head"><div><h1>تخصيص اللوحة</h1><div class="sub">للمدير فقط. التغييرات تظهر للفريق مباشرة.</div></div>
       <button type="button" class="btn" @click="go('/')">← العودة إلى الطلبات</button></div>
-    <div class="cv-tabs" role="tablist" style="margin:12px 0 18px">
-      <button v-for="tb in [['columns','الأعمدة'],['statuses','الحالات'],['labels','الوسوم'],['calendar','التقويم'],['team','الفريق']]" :key="tb[0]" type="button" role="tab" class="bs-tab" :aria-selected="tab===tb[0]" @click="tab=tb[0]">{{ tb[1] }}</button></div>
+    <div v-if="!only || only === 'statuses'" class="cv-tabs" role="tablist" style="margin:12px 0 18px">
+      <button v-for="tb in (only ? [['statuses','الحالات'],['labels','الوسوم']] : [['columns','الأعمدة'],['statuses','الحالات'],['labels','الوسوم'],['calendar','التقويم']])" :key="tb[0]" type="button" role="tab" class="bs-tab" :aria-selected="tab===tb[0]" @click="tab=tb[0]">{{ tb[1] }}</button></div>
     <div v-if="!s.data && tab !== 'team'" class="ws-loading">جارٍ التحميل…</div>
     <div v-else-if="tab === 'columns'" class="bs-list">
       <div v-for="(c, i) in cols" :key="c.id || i" class="bs-row">
@@ -2779,8 +2779,23 @@ const BoardSettings = {
 // ------------------------------------------------------------------ settings (/atelier/settings), manager only
 const SETTINGS_GROUPS = [
   ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"]]],
-  ["العمل", [["team", "users", "الفريق والحسابات"], ["board", "grid", "لوحة الطلبات"], ["prices", "tag", "قائمة الأسعار"], ["lists", "grid", "القوائم"]]],
-  ["المال والنظام", [["funds", "wallet", "الدفع والصناديق"], ["alerts", "bell", "التنبيهات"], ["mail", "invoice", "البريد"], ["folders", "file", "المجلدات"], ["backup", "box", "النسخ الاحتياطي"]]],
+  ["العمل", [["team", "users", "الفريق والحسابات"], ["columns", "grid", "أعمدة اللوحة"], ["statuses", "tag", "الحالات والوسوم"], ["calendar", "calendar", "التقويم"],
+    ["prices", "tag", "الخدمات والأسعار"], ["lists", "grid", "القوائم"]]],
+  ["المال", [["funds", "wallet", "الدفع والصناديق"]]],
+  ["النظام", [["alerts", "bell", "التنبيهات"], ["mail", "invoice", "البريد"], ["folders", "file", "المجلدات"], ["backup", "box", "النسخ الاحتياطي"]]],
+];
+// settings search: what people type, and where it lives
+const SETTINGS_INDEX = [
+  ["اسم المطبعة الشعار logo", "profile", "الشعار والاسم"], ["العنوان المدينة الهاتف البريد email", "profile", "العنوان والاتصال"],
+  ["RC السجل التجاري NIF الرقم الجبائي NIS AI المادة RIB الحساب البنكي", "profile", "البيانات القانونية"],
+  ["TVA الضريبة نص أسفل الوثائق مهلة الدفع صلاحية Devis الوصف", "docs", "الوثائق والضريبة"],
+  ["حساب دخول كلمة السر صلاحية مدير بائع مصمم طباعة الفريق أسماء", "team", "الفريق والحسابات"],
+  ["أعمدة اللوحة عمود التسليم لون حد", "columns", "أعمدة اللوحة"], ["الحالات الوسوم En attente", "statuses", "الحالات والوسوم"],
+  ["التقويم الحد اليومي العطلة الجمعة السبت", "calendar", "التقويم"], ["خدمة سعر الأفراد المؤسسات قائمة الأسعار", "prices", "الخدمات والأسعار"],
+  ["وحدات البيع م² سم² قطعة تصنيفات الأوسام مواعيد التسليم أنواع التكلفة الأدوار", "lists", "القوائم"],
+  ["الصناديق طرق الدفع كاش بريدي موب CCP تحويل صك الرصيد الافتتاحي", "funds", "الدفع والصناديق"],
+  ["التنبيهات الجرس إسناد ذكر المواعيد", "alerts", "التنبيهات"], ["البريد SMTP رسالة تجريبية", "mail", "البريد"],
+  ["المجلدات مجلد العميل البطاقة D:", "folders", "المجلدات"], ["النسخ الاحتياطي نسخة تحميل", "backup", "النسخ الاحتياطي"],
 ];
 const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "الوثائق والضريبة"], ["team", "👥", "الفريق والحسابات"], ["board", "▦", "تخصيص اللوحة"],
   ["prices", "🏷", "الخدمات والأسعار"], ["funds", "💳", "الدفع والصناديق"], ["alerts", "🔔", "التنبيهات"], ["backup", "💾", "النسخ الاحتياطي"]];
@@ -2849,7 +2864,18 @@ const SettingsPage = {
   setup(props) {
     const { s, load } = useLoad(() => call("settings"));
     onMounted(load);
-    const tab = ref(props.start || state.query.get("tab") || "profile");
+    const tab = ref({ board: "columns" }[props.start || state.query.get("tab")] || props.start || state.query.get("tab") || "profile");
+    const sq = ref("");
+    const norm = (x) => String(x || "").toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
+    const sres = computed(() => { const q = norm(sq.value.trim()); if (!q) return [];
+      const title = Object.fromEntries(SETTINGS_GROUPS.flatMap((g) => g[1].map((x) => [x[0], x[2]])));
+      return SETTINGS_INDEX.filter((x) => norm(x[0] + " " + x[2]).includes(q)).slice(0, 6).map((x) => ({ tab: x[1], sec: x[2], page: title[x[1]] })); });
+    const goSearch = (x) => { tab.value = x.tab; sq.value = ""; nextTick(() => { const el = [...document.querySelectorAll(".st2-lbl b, .st2-body h3, .st2-body b")].find((b) => b.textContent.trim() === x.sec);
+      if (el) { el.scrollIntoView({ block: "center" }); const g = el.closest(".st2-grp") || el.parentElement; g?.classList.add("st2-hl"); setTimeout(() => g?.classList.remove("st2-hl"), 1800); g?.querySelector("input, select, textarea")?.focus(); } }); };
+    // what a workshop still needs before official invoices
+    const READY = [["name_ar", "الاسم"], ["phone", "الهاتف"], ["address", "العنوان"], ["logo", "الشعار"], ["rc", "RC"], ["nif", "NIF"]];
+    const ready = computed(() => { const done = READY.filter((x) => String(p[x[0]] || "").trim()); return { items: READY.map((x) => ({ label: x[1], ok: done.includes(x) })), pct: Math.round(done.length / READY.length * 100), missing: READY.length - done.length }; });
+    const navFlag = (k) => (!s.data ? "" : k === "profile" && ready.value.missing ? "ناقص " + ready.value.missing : k === "mail" && !s.data.email?.configured ? "dot" : k === "backup" && !(s.data.backups || []).length ? "dot" : "");
     const p = reactive({}), docs = reactive({}), alerts = reactive({});
     watch(() => s.data, (v) => { if (v) { Object.assign(p, v.profile); Object.assign(docs, v.docs); Object.assign(alerts, v.alerts); } });
     const busy = ref(null), err = ref(null);
@@ -2902,19 +2928,23 @@ const SettingsPage = {
     const foldSample = computed(() => { const d = "2026-11-08", t = "لافتة واجهة"; return (fold.order === "title_first" ? `${t} — ${d}` : `${d} — ${t}`) + " (00012)"; });
     const testMail = () => run("mailtest", () => call("test_email", { to: mailTo.value || mail.email_id }, true), "أُرسلت رسالة تجريبية — تحقق من صندوق الوارد");
     const META = { profile: ["بيانات المطبعة", "تظهر في رأس كل بون وفاتورة وكشف حساب", saveProfile], docs: ["الوثائق والضريبة", "الضريبة ونص أسفل الوثائق ومهلة الدفع", saveDocs],
-      team: ["الفريق والحسابات", "من يدخل إلى البرنامج وبأي صلاحية"], board: ["لوحة الطلبات", "الأعمدة والحالات التي يراها الفريق"], prices: ["الخدمات والأسعار", "سعر الأفراد وسعر المؤسسات لكل خدمة"],
+      team: ["الفريق والحسابات", "من يدخل إلى البرنامج وبأي صلاحية"], columns: ["أعمدة اللوحة", "مراحل الطلب كما يراها الفريق في اللوحة"], statuses: ["الحالات والوسوم", "حالات البطاقة ووسومها وألوانها"], calendar: ["التقويم", "الحد اليومي للطلبات وأيام العطلة"], prices: ["الخدمات والأسعار", "سعر الأفراد وسعر المؤسسات لكل خدمة"],
       lists: ["القوائم", "وحدات البيع والأوسام ومواعيد التسليم وأنواع التكلفة والأدوار"], funds: ["الدفع والصناديق", "أسماء الصناديق وطرق الدفع"], alerts: ["التنبيهات", "ما يصل إلى جرس كل عضو", saveAlerts],
       mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], folders: ["المجلدات", "مجلد لكل عميل ولكل بطاقة على هذا الحاسوب", saveFolders], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"] };
     const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
-    return { fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
+    return { sq, sres, goSearch, ready, navFlag, fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
       LIST_DEFS, addToTeam, renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
   },
   template: `
   <div class="cl st2">
     <nav class="st2-nav" aria-label="أقسام الإعدادات">
+      <div class="st2-search"><Icon name="search" :size="15"/><input v-model="sq" placeholder="ابحث في الإعدادات" aria-label="ابحث في الإعدادات" @keydown.enter.prevent="sres[0] && goSearch(sres[0])"></div>
+      <div v-if="sq.trim()" class="st2-res"><button v-for="x in sres" :key="x.tab + x.sec" type="button" @click="goSearch(x)">{{ x.sec }}<small>{{ x.page }}</small></button>
+        <span v-if="!sres.length" class="muted">لا نتيجة.</span></div>
       <template v-for="g in SETTINGS_GROUPS" :key="g[0]">
         <span class="st2-group">{{ g[0] }}</span>
-        <button v-for="x in g[1]" :key="x[0]" type="button" :aria-current="tab === x[0] ? 'page' : null" @click="tab = x[0]"><Icon :name="x[1]" :size="17"/>{{ x[2] }}</button>
+        <button v-for="x in g[1]" :key="x[0]" type="button" :aria-current="tab === x[0] ? 'page' : null" @click="tab = x[0]"><Icon :name="x[1]" :size="17"/>{{ x[2] }}
+          <span v-if="navFlag(x[0]) === 'dot'" class="st2-dot" title="يحتاج انتباهًا"></span><span v-else-if="navFlag(x[0])" class="st2-flag">{{ navFlag(x[0]) }}</span></button>
       </template>
     </nav>
     <div class="cl-main">
@@ -2929,6 +2959,8 @@ const SettingsPage = {
       <div v-else class="st2-body">
         <div v-if="err" class="alert error" role="alert">{{ err }}</div>
 
+        <div v-if="tab === 'profile'" class="st2-ready"><b>جاهزية المطبعة</b><span class="st2-rbar"><i :style="{width: ready.pct + '%'}"></i></span><b>{{ ready.pct }}%</b>
+          <span v-for="x in ready.items" :key="x.label" :class="x.ok ? 'ok' : 'no'">{{ x.ok ? '✓ ' : '' }}{{ x.label }}</span></div>
         <div v-if="tab === 'profile'" class="st2-card">
           <div class="st2-grp"><div class="st2-lbl"><b>الشعار والاسم</b><span>PNG أو SVG بخلفية شفافة. الاسم بالفرنسية اختياري ويظهر تحت الاسم العربي.</span></div>
             <div class="st2-fields">
@@ -2982,7 +3014,7 @@ const SettingsPage = {
           </div>
         </template>
 
-        <div v-else-if="tab === 'board'" class="st2-card st2-embed"><BoardSettings :embedded="true"/></div>
+        <div v-else-if="tab === 'columns' || tab === 'statuses' || tab === 'calendar'" class="st2-card st2-embed"><BoardSettings :embedded="true" :only="tab" :key="tab"/></div>
         <div v-else-if="tab === 'prices'" class="st2-card st2-embed"><PricesPage :embedded="true"/></div>
         <div v-else-if="tab === 'lists'" class="st2-card"><ListEditor v-for="l in LIST_DEFS" :key="l.key" :def="l"/></div>
 
