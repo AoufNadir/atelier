@@ -3333,13 +3333,21 @@ const ReportsPage2 = {
     const maxTop = (l) => Math.max(1, ...(l || []).map((x) => x.total));
     const exportCsv = () => {
       const n = d.value.now, rows = [["البند", "القيمة"], ["الفترة", title.value], ["المبيعات المفوترة", n.invoiced], ["المحصّل", n.collected], ["المصاريف", n.expenses], ["الربح", n.profit],
-        ["عدد الطلبات", n.orders], [], ["الطلب", "العميل", "المبيعات", "التكلفة", "الربح", "الهامش %"], ...d.value.profit.map((r) => [r.title, r.customer, r.revenue, r.cost, r.result, r.margin])];
+        ["عدد الطلبات", n.orders], [], ["الطلب", "العميل", "المبيعات", "التكلفة", "الربح", "الهامش %"], ...d.value.profit.map((r) => [r.title, r.customer, r.revenue, r.cost, r.result, r.margin]),
+        [], ["طريقة الدفع", "المبلغ", "عدد الدفعات"], ...(d.value.by_mode || []).map((x) => [x.label, x.total, x.n]),
+        [], ["نوع المصروف", "المبلغ"], ...(d.value.expense_types || []).map((x) => [x.name, x.total]),
+        [], ["المورد", "المشتريات", "الفواتير"], ...(d.value.purchases || []).map((x) => [x.name, x.total, x.n]),
+        [], ["المادة المصروفة", "الكمية", "القيمة"], ...(d.value.materials || []).map((x) => [x.name, x.qty, x.total])];
       const text = "﻿" + rows.map((r) => r.map((v) => '"' + String(v ?? "").replace(/"/g, '""') + '"').join(",")).join("\n");
       const el = document.createElement("a"); el.href = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" })); el.download = `تقرير ${title.value}.csv`; el.click();
     };
     const printIt = () => window.print();
     const marginTone = (m) => (m === null ? "" : m < 15 ? "bad" : m < 35 ? "warn" : "ok");
-    return { s, load, d, period, from, to, custom, setPeriod, applyCustom, PERIODS, title, cmp, pct, maxM, mlabel, ageTotal, AGES, maxTop, exportCsv, printIt, marginTone, money, fig, date, go };
+    const ageOpen = ref(null);
+    const kfig = (v) => fig(Math.round((+v || 0) / 1000));
+    const sumOf = (l) => (l || []).reduce((x, y) => x + (+y.total || 0), 0);
+    const isCur = (iso) => d.value && String(iso).slice(0, 7) === String(d.value.period.to).slice(0, 7);
+    return { ageOpen, kfig, sumOf, isCur, uom, s, load, d, period, from, to, custom, setPeriod, applyCustom, PERIODS, title, cmp, pct, maxM, mlabel, ageTotal, AGES, maxTop, exportCsv, printIt, marginTone, money, fig, date, go };
   },
   template: `
   <div class="cl rp">
@@ -3366,9 +3374,10 @@ const ReportsPage2 = {
         </div>
         <div class="mn-grid">
           <div class="mn-col">
-            <section class="mn-card"><div class="mn-card-h"><b>المبيعات والمصاريف</b><span class="mn-legend"><span><i class="rp-s"></i>المبيعات</span><span><i class="rp-e"></i>المصاريف</span><span>آخر 12 شهرًا</span></span></div>
+            <section class="mn-card"><div class="mn-card-h"><b>المبيعات والمصاريف</b><span class="mn-legend"><span><i class="rp-s"></i>المبيعات</span><span><i class="rp-e"></i>المصاريف</span><span>آخر 12 شهرًا · بالآلاف</span></span></div>
               <div class="mn-chart rp-chart" role="img" aria-label="المبيعات والمصاريف لآخر 12 شهرًا">
-                <div v-for="m in d.months" :key="m.month" class="mn-wk" :title="mlabel(m.month) + ': مبيعات ' + fig(m.sales) + ' · مصاريف ' + fig(m.expenses)">
+                <div v-for="m in d.months" :key="m.month" class="mn-wk rp-mo" :class="{cur: isCur(m.month)}" :title="mlabel(m.month) + ': مبيعات ' + fig(m.sales) + ' · مصاريف ' + fig(m.expenses)">
+                  <span class="rp-v">{{ kfig(m.sales) }}</span><span class="rp-v2">{{ kfig(m.expenses) }}</span>
                   <div class="mn-bars"><span class="rp-s" :style="{height: (m.sales / maxM * 100) + '%'}"></span><span class="rp-e" :style="{height: (m.expenses / maxM * 100) + '%'}"></span></div><small>{{ mlabel(m.month) }}</small></div></div></section>
             <section class="mn-card"><div class="mn-card-h"><b>ربحية الطلبات</b><span class="muted">الأقل ربحًا أولًا</span></div>
               <table class="cl-table mn-table"><thead><tr><th>الطلب</th><th class="n">المبيعات</th><th class="n desktop-only">التكلفة</th><th class="n">الربح</th><th class="n">الهامش</th></tr></thead><tbody>
@@ -3377,13 +3386,31 @@ const ReportsPage2 = {
                   <td class="n">{{ fig(r.revenue) }}</td><td class="n desktop-only muted">{{ fig(r.cost) }}</td><td class="n"><span class="cl-bal" :class="r.result < 0 ? 'bad' : ''">{{ fig(r.result) }}</span></td>
                   <td class="n"><span class="rp-m" :class="marginTone(r.margin)">{{ r.margin === null ? '—' : r.margin + '%' }}</span></td></tr></tbody></table></section>
             <section class="mn-card"><div class="mn-card-h"><b>أعمار الديون</b><b class="bad">{{ money(ageTotal) }}</b></div>
-              <div class="rp-ages"><div v-for="x in AGES" :key="x[0]"><span class="muted">{{ x[1] }}</span><b :style="{color: x[2]}">{{ fig(d.ageing[x[0]]) }}</b><i :style="{background: x[2], width: Math.max(2, pct(d.ageing[x[0]], ageTotal)) + '%'}"></i></div></div></section>
+              <div class="rp-ages"><button v-for="x in AGES" :key="x[0]" type="button" class="rp-age" :aria-pressed="ageOpen === x[0]" :disabled="!(d.debtors && d.debtors[x[0]] || []).length" @click="ageOpen = ageOpen === x[0] ? null : x[0]"><span class="muted">{{ x[1] }}</span><b :style="{color: x[2]}">{{ fig(d.ageing[x[0]]) }}</b><i :style="{background: x[2], width: Math.max(2, pct(d.ageing[x[0]], ageTotal)) + '%'}"></i></button></div>
+              <div v-if="ageOpen && d.debtors" class="rp-debtors"><button v-for="x in d.debtors[ageOpen]" :key="x.invoice" type="button" class="rp-rank rp-link" @click="go('/customers/' + encodeURIComponent(x.customer))">
+                <div style="flex:1;min-width:0"><span class="cl-name ellipsis" style="display:block">{{ x.customer_name }}</span><span class="muted">فاتورة {{ x.invoice }}<template v-if="x.late"> · متأخرة {{ x.late }} {{ x.late <= 10 ? 'أيام' : 'يومًا' }}</template></span></div>
+                <div class="rp-val"><b>{{ fig(x.amount) }}</b></div><span class="rp-go">‹ فتح</span></button></div></section>
+            <section class="mn-card"><div class="mn-card-h"><b>المحصّل حسب طريقة الدفع</b><span class="muted">{{ money(sumOf(d.by_mode)) }}</span></div>
+              <div v-if="!(d.by_mode || []).length" class="mn-empty">لا دفعات في هذه الفترة.</div>
+              <div v-else class="rp-modes"><div v-for="x in d.by_mode" :key="x.mode || 'x'"><span class="muted">{{ x.label }}</span><b>{{ fig(x.total) }}</b><small class="muted">{{ pct(x.total, sumOf(d.by_mode)) }}% · {{ x.n }} {{ x.n === 1 ? 'دفعة' : 'دفعات' }}</small></div></div></section>
           </div>
           <div class="mn-col">
-            <section class="mn-card"><div class="mn-card-h"><b>أفضل العملاء</b><span class="muted">بالمبيعات</span></div>
+            <section class="mn-card"><div class="mn-card-h"><b>أفضل العملاء</b><span class="muted">بالمبيعات · اضغط لفتح العميل</span></div>
               <div v-if="!d.top_customers.length" class="mn-empty">لا مبيعات في هذه الفترة.</div>
-              <div v-for="(c, i) in d.top_customers" :key="c.name" class="rp-rank"><span class="muted">{{ i + 1 }}</span><div style="flex:1;min-width:0"><span class="cl-name ellipsis" style="display:block">{{ c.name }}</span><div class="mn-catbar"><span :style="{width: (c.total / maxTop(d.top_customers) * 100) + '%'}"></span></div></div>
+              <div v-for="(c, i) in d.top_customers" :key="c.name" class="rp-rank rp-link" role="link" tabindex="0" @click="c.customer && go('/customers/' + encodeURIComponent(c.customer))" @keydown.enter="c.customer && go('/customers/' + encodeURIComponent(c.customer))"><span class="muted">{{ i + 1 }}</span><div style="flex:1;min-width:0"><span class="cl-name ellipsis" style="display:block">{{ c.name }}</span><div class="mn-catbar"><span :style="{width: (c.total / maxTop(d.top_customers) * 100) + '%'}"></span></div></div>
                 <div class="rp-val"><b>{{ fig(c.total) }}</b><span class="muted">{{ c.n }} {{ c.n === 1 ? 'فاتورة' : 'فواتير' }}</span></div></div></section>
+            <section class="mn-card"><div class="mn-card-h"><b>المصاريف حسب النوع</b><span class="muted">{{ money(sumOf(d.expense_types)) }}</span></div>
+              <div v-if="!(d.expense_types || []).length" class="mn-empty">لا مصاريف في هذه الفترة.</div>
+              <div v-for="c in d.expense_types" :key="c.name" class="rp-rank"><div style="flex:1;min-width:0"><span class="cl-name ellipsis" style="display:block">{{ c.name }}</span><div class="mn-catbar rp-bar-o"><span :style="{width: pct(c.total, maxTop(d.expense_types)) + '%'}"></span></div></div>
+                <div class="rp-val"><b>{{ fig(c.total) }}</b><span class="muted">{{ pct(c.total, sumOf(d.expense_types)) }}%</span></div></div></section>
+            <section class="mn-card"><div class="mn-card-h"><b>المشتريات حسب المورد</b><span class="muted">{{ money(sumOf(d.purchases)) }}</span></div>
+              <div v-if="!(d.purchases || []).length" class="mn-empty">لا مشتريات في هذه الفترة.</div>
+              <div v-for="c in d.purchases" :key="c.supplier" class="rp-rank"><div style="flex:1;min-width:0"><span class="cl-name ellipsis" style="display:block">{{ c.name }}</span><div class="mn-catbar rp-bar-g"><span :style="{width: pct(c.total, maxTop(d.purchases)) + '%'}"></span></div></div>
+                <div class="rp-val"><b>{{ fig(c.total) }}</b><span class="muted">{{ c.n }} {{ c.n === 1 ? 'فاتورة' : 'فواتير' }}</span></div></div></section>
+            <section class="mn-card"><div class="mn-card-h"><b>المواد المصروفة من المخزون</b><span class="muted">{{ money(sumOf(d.materials)) }}</span></div>
+              <div v-if="!(d.materials || []).length" class="mn-empty">لم تُصرف مواد في هذه الفترة.</div>
+              <table v-else class="cl-table mn-table"><thead><tr><th>المادة</th><th class="n">الكمية</th><th class="n">القيمة</th></tr></thead><tbody>
+                <tr v-for="x in d.materials" :key="x.item_code" style="cursor:default"><td>{{ x.name }}</td><td class="n">{{ fig(x.qty) }} {{ uom(x.uom) }}</td><td class="n">{{ fig(x.total) }}</td></tr></tbody></table></section>
             <section class="mn-card"><div class="mn-card-h"><b>أكثر الخدمات طلبًا</b></div>
               <div v-if="!d.top_services.length" class="mn-empty">لا طلبات في هذه الفترة.</div>
               <div v-for="(c, i) in d.top_services" :key="c.name" class="rp-rank"><span class="muted">{{ i + 1 }}</span><div style="flex:1;min-width:0"><span class="cl-name ellipsis" style="display:block">{{ c.name }}</span><div class="mn-catbar"><span :style="{width: (c.total / maxTop(d.top_services) * 100) + '%'}"></span></div></div>

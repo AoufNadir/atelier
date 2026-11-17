@@ -1783,11 +1783,29 @@ def reports2(period="month", start=None, end=None):
 	profit.sort(key=lambda r: r["margin"] if r["margin"] is not None else 999)
 	# ageing of what customers owe
 	ageing = {"current": 0, "d30": 0, "d60": 0, "older": 0}
-	for r in frappe.db.sql("""select outstanding_amount, datediff(curdate(), due_date) late from `tabSales Invoice`
-			where docstatus=1 and company=%s and outstanding_amount > 0.005""", company, as_dict=True):
+	debtors = {k: [] for k in ageing}
+	for r in frappe.db.sql("""select name, customer, customer_name, outstanding_amount, datediff(curdate(), due_date) late from `tabSales Invoice`
+			where docstatus=1 and company=%s and outstanding_amount > 0.005 order by due_date asc""", company, as_dict=True):
 		k = "current" if r.late <= 0 else "d30" if r.late <= 30 else "d60" if r.late <= 60 else "older"
 		ageing[k] += flt(r.outstanding_amount)
-	top_customers = frappe.db.sql("""select customer_name name, count(*) n, sum(base_net_total) total from `tabSales Invoice`
+		debtors[k].append({"invoice": r.name, "customer": r.customer, "customer_name": r.customer_name, "amount": flt(r.outstanding_amount), "late": max(0, cint(r.late))})
+	# money in by payment method, expenses by account, purchases by supplier, materials used from stock
+	by_mode = frappe.db.sql("""select mode_of_payment mode, count(*) n, sum(base_received_amount) total from `tabPayment Entry`
+		where docstatus=1 and company=%s and payment_type='Receive' and party_type='Customer' and posting_date between %s and %s
+		group by mode_of_payment order by total desc""", (company, a, b), as_dict=True)
+	labels = dict(api.all_modes())
+	for r in by_mode:
+		r.label = labels.get(r.mode, r.mode or "غير محدد")
+	expense_types = frappe.db.sql("""select acc.account_name name, sum(gle.debit - gle.credit) total from `tabGL Entry` gle join `tabAccount` acc on acc.name=gle.account
+		where gle.is_cancelled=0 and gle.company=%s and acc.root_type='Expense' and gle.posting_date between %s and %s
+		group by acc.account_name having total > 0 order by total desc limit 8""", (company, a, b), as_dict=True)
+	purchases = frappe.db.sql("""select supplier, supplier_name name, count(*) n, sum(base_net_total) total from `tabPurchase Invoice`
+		where docstatus=1 and company=%s and posting_date between %s and %s group by supplier order by total desc limit 8""", (company, a, b), as_dict=True)
+	materials = frappe.db.sql("""select sle.item_code, item.item_name name, item.stock_uom uom, -sum(sle.actual_qty) qty, -sum(sle.stock_value_difference) total
+		from `tabStock Ledger Entry` sle join `tabItem` item on item.name=sle.item_code
+		where sle.is_cancelled=0 and sle.company=%s and sle.voucher_type='Stock Entry' and sle.actual_qty < 0 and sle.posting_date between %s and %s
+		group by sle.item_code order by total desc limit 10""", (company, a, b), as_dict=True)
+	top_customers = frappe.db.sql("""select customer, customer_name name, count(*) n, sum(base_net_total) total from `tabSales Invoice`
 		where docstatus=1 and company=%s and posting_date between %s and %s group by customer order by total desc limit 6""", (company, a, b), as_dict=True)
 	top_services = frappe.db.sql("""select soi.item_name name, count(distinct so.name) n, sum(soi.base_net_amount) total from `tabSales Order Item` soi
 		join `tabSales Order` so on so.name=soi.parent where so.docstatus<2 and so.company=%s and so.transaction_date between %s and %s
@@ -1814,7 +1832,8 @@ def reports2(period="month", start=None, end=None):
 		t["role"] = roles.get(t["name"])
 	return {"period": {"kind": period, "from": str(a), "to": str(b), "prev_from": str(pa), "prev_to": str(pb)},
 		"now": now, "prev": prev, "months": months, "profit": profit, "ageing": ageing,
-		"top_customers": top_customers, "top_services": top_services, "team": sorted(team.values(), key=lambda t: -t["done"])}
+		"top_customers": top_customers, "top_services": top_services, "team": sorted(team.values(), key=lambda t: -t["done"]),
+		"debtors": debtors, "by_mode": by_mode, "expense_types": expense_types, "purchases": purchases, "materials": materials}
 
 
 def payment_order_field():
