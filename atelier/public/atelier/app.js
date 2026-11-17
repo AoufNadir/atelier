@@ -914,7 +914,9 @@ const BoardPanel = {
     };
     watch(() => [f.subject, f.due, f.due_time, JSON.stringify(f.status), JSON.stringify(f.labels), JSON.stringify(members.value), f.description, JSON.stringify(f.checklist)], () => { if (ready.value) later("meta", saveMeta, 600); });
     // checklist, attachments, cover (same window for a new order and an opened card)
-    const showDesc = ref(false), showCk = ref(false), showFiles = ref(false), allActs = ref(false);
+    // optional sections: null = automatic (open when they hold something), true/false = the person's choice
+    const secOpen = reactive({ desc: null, ck: null, files: null, cost: null });
+    const allActs = ref(false);
     const newItem = ref(""), queued = ref([]), fileIn = ref(null), uploading = ref(false), ckTpls = ref(null);
     const addItem = () => { const v = newItem.value.trim(); if (v) f.checklist.push({ text: v, done: 0 }); newItem.value = ""; };
     const openCkTpls = async () => { if (ckTpls.value) { ckTpls.value = null; return; } try { ckTpls.value = await call("checklist_templates"); } catch { ckTpls.value = []; } };
@@ -922,6 +924,13 @@ const BoardPanel = {
     const saveCkTpl = async () => { const title = prompt("اسم قالب المهام:", (f.subject || "").slice(0, 40)); if (!title) return;
       try { await call("save_checklist_template", { title, items: JSON.stringify(f.checklist.map((c) => c.text)) }, true); toast("حُفظ القالب"); } catch (e) { toast(e.message, "error"); } };
     const files = computed(() => ed.value?.files || []);
+    const fileCount = computed(() => (editing.value ? files.value.length : queued.value.length));
+    const secHas = (k) => (k === "desc" ? !!f.description.trim() : k === "ck" ? f.checklist.length > 0 : k === "files" ? fileCount.value > 0 || !!(editing.value ? ed.value?.cover_color : f.cover_color) : false);
+    const isOpen = (k) => (secOpen[k] === null ? secHas(k) : secOpen[k]);
+    const toggleSec = (k) => { secOpen[k] = !isOpen(k); };
+    const secLabel = (k) => k === "desc" ? (f.description.trim() ? "✓ الوصف" : "الوصف")
+      : k === "ck" ? (f.checklist.length ? `المهام ${f.checklist.filter((c) => c.done).length}/${f.checklist.length}` : "قائمة مهام")
+      : k === "files" ? (fileCount.value ? `المرفقات ${fileCount.value}` : "مرفق أو غلاف") : "التكلفة";
     const imagesOf = computed(() => files.value.filter(isImg));
     const onFiles = async (e) => {
       const list = [...(e.target.files || e.dataTransfer?.files || [])]; if (!list.length) return;
@@ -937,7 +946,7 @@ const BoardPanel = {
       e.preventDefault();
       const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
       const named = imgs.map((x, k) => (x.name && x.name !== "image.png" ? x : new File([x], `لصق-${stamp}${k ? "-" + k : ""}.${(x.type.split("/")[1] || "png").replace("jpeg", "jpg")}`, { type: x.type })));
-      showFiles.value = true; onFiles({ target: { files: named } }); toast(editing.value ? "جارٍ رفع الصورة الملصقة" : "أُضيفت الصورة، تُرفع عند حفظ الطلب");
+      secOpen.files = true; onFiles({ target: { files: named } }); toast(editing.value ? "جارٍ رفع الصورة الملصقة" : "أُضيفت الصورة، تُرفع عند حفظ الطلب");
     };
     onMounted(() => document.addEventListener("paste", onPaste)); onBeforeUnmount(() => document.removeEventListener("paste", onPaste));
     const delFile = async (x) => { if (!confirm(`حذف «${x.file_name}»؟`)) return; try { ed.value = await call("delete_file", { name: props.edit, file: x.name }, true); state.rev++; } catch (e) { toast(e.message, "error"); } };
@@ -1003,7 +1012,7 @@ const BoardPanel = {
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
     const folderHint = () => setTimeout(() => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة على هذا الحاسوب — استعمل «نسخ المسار»"), 1500);
-    return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, showDesc, showCk, showFiles, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, secOpen, isOpen, toggleSec, secHas, secLabel, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
@@ -1086,14 +1095,13 @@ const BoardPanel = {
               <div class="od-g-row"><span>الباقي على العميل</span><span class="num">{{ money(Math.max(0, remain)) }}</span></div></div></div>
           </section>
 
-          <div v-if="(!showDesc && !f.description.trim()) || (!showCk && !f.checklist.length) || (!showFiles && !(editing ? files.length : queued.length))" class="od-adds">
-            <button v-if="!showDesc && !f.description.trim()" type="button" class="od-addline" @click="showDesc = true"><Icon name="plus" :size="14"/>وصف</button>
-            <button v-if="!showCk && !f.checklist.length" type="button" class="od-addline" @click="showCk = true"><Icon name="plus" :size="14"/>قائمة مهام</button>
-            <button v-if="!showFiles && !(editing ? files.length : queued.length)" type="button" class="od-addline" @click="showFiles = true"><Icon name="plus" :size="14"/>مرفق أو غلاف</button></div>
-          <section v-if="showDesc || f.description.trim()" class="od-card"><div class="od-ch"><Icon name="file" :size="18"/><b>الوصف</b><button v-if="!f.description.trim()" type="button" class="od-fold" aria-label="إخفاء الوصف" title="إخفاء" @click="showDesc = false"><Icon name="x" :size="14"/></button><span class="m od-r">يظهر في البون والعرض إن فُعّل في الإعدادات</span></div>
+          <div class="od-secbar" role="group" aria-label="أقسام إضافية">
+            <button v-for="k in (editing && ed && state.boot.can.finance ? ['desc', 'ck', 'files', 'cost'] : ['desc', 'ck', 'files'])" :key="k" type="button" class="od-sec" :class="{on: isOpen(k), has: secHas(k)}" :aria-pressed="isOpen(k)" @click="toggleSec(k)">
+              <Icon :name="isOpen(k) ? 'down' : 'plus'" :size="13"/>{{ secLabel(k) }}</button></div>
+          <section v-if="isOpen('desc')" class="od-card"><div class="od-ch"><Icon name="file" :size="18"/><b>الوصف</b><button type="button" class="od-fold" aria-label="طي الوصف" title="طي (يبقى المحتوى)" @click="secOpen.desc = false"><Icon name="x" :size="14"/></button><span class="m od-r">يظهر في البون والعرض إن فُعّل في الإعدادات</span></div>
             <div class="od-pad"><textarea class="input od-desc" v-model="f.description" rows="3" placeholder="المقاسات، الورق، الكمية، ملاحظات العميل…" aria-label="الوصف"></textarea></div></section>
 
-          <section v-if="showCk || f.checklist.length" class="od-card"><div class="od-ch"><Icon name="check" :size="18"/><b>قائمة المهام</b><button v-if="!f.checklist.length" type="button" class="od-fold" aria-label="إخفاء قائمة المهام" title="إخفاء" @click="showCk = false"><Icon name="x" :size="14"/></button><span v-if="f.checklist.length" class="m">{{ f.checklist.filter((c) => c.done).length }} / {{ f.checklist.length }}</span>
+          <section v-if="isOpen('ck')" class="od-card"><div class="od-ch"><Icon name="check" :size="18"/><b>قائمة المهام</b><button type="button" class="od-fold" aria-label="طي قائمة المهام" title="طي (يبقى المحتوى)" @click="secOpen.ck = false"><Icon name="x" :size="14"/></button><span v-if="f.checklist.length" class="m">{{ f.checklist.filter((c) => c.done).length }} / {{ f.checklist.length }}</span>
               <span class="od-r od-pop-host"><button type="button" class="cl-link" @click.stop="openCkTpls">من قالب ▾</button>
                 <div v-if="ckTpls" class="tm-pop od-pop" @click.stop><button v-for="tp in ckTpls" :key="tp.title" type="button" class="tm-pop-row" @click="useCkTpl(tp)">{{ tp.title }} <span class="m">· {{ tp.items.length }}</span></button>
                   <span v-if="!ckTpls.length" class="m tm3-hint">لا قوالب بعد.</span>
@@ -1103,7 +1111,7 @@ const BoardPanel = {
                 <input class="input lb-in" :class="{done: c.done}" v-model="c.text" :aria-label="'مهمة ' + (i + 1)"><button type="button" class="lb-del" :aria-label="'حذف ' + c.text" @click="f.checklist.splice(i, 1)"><Icon name="x" :size="14"/></button></div>
               <input class="input lb-in" v-model="newItem" placeholder="+ مهمة جديدة ثم Enter" aria-label="مهمة جديدة" @keydown.enter.prevent="addItem"></div></section>
 
-          <section v-if="showFiles || (editing ? files.length : queued.length)" class="od-card"><div class="od-ch"><Icon name="image" :size="18"/><b>المرفقات</b><button v-if="!(editing ? files.length : queued.length) && !(editing ? ed && ed.cover_color : f.cover_color)" type="button" class="od-fold" aria-label="إخفاء المرفقات" title="إخفاء" @click="showFiles = false"><Icon name="x" :size="14"/></button><span v-if="uploading" class="m">جارٍ الرفع…</span>
+          <section v-if="isOpen('files')" class="od-card"><div class="od-ch"><Icon name="image" :size="18"/><b>المرفقات</b><button type="button" class="od-fold" aria-label="طي المرفقات" title="طي (يبقى المحتوى)" @click="secOpen.files = false"><Icon name="x" :size="14"/></button><span v-if="uploading" class="m">جارٍ الرفع…</span>
               <span class="od-r btn-row"><label class="cl-btn sm"><Icon name="image" :size="14"/>تصوير<input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFiles"></label>
                 <label class="cl-btn sm"><Icon name="plus" :size="14"/>إضافة<input ref="fileIn" type="file" multiple class="sr-only" @change="onFiles"></label></span></div>
             <div class="od-pad">
@@ -1125,8 +1133,8 @@ const BoardPanel = {
                 <button v-if="ed.cover || ed.cover_color" type="button" class="cl-link" @click="cardSet({cover: '', cover_color: ''})">بلا غلاف</button></div>
               <div v-if="editing && ed && ed.folder" class="od-folder"><span class="m">المجلد:</span><code dir="ltr">{{ ed.folder }}</code><a class="cl-btn sm" :href="folderLink(ed.folder)" title="يفتح المجلد في مستكشف Windows" @click="folderHint"><Icon name="file" :size="14"/>فتح المجلد</a><button type="button" class="cl-link" @click="copyPath">نسخ المسار</button></div></div></section>
 
-          <section v-if="editing && ed && state.boot.can.finance" class="od-card"><details class="od-cost"><summary class="od-ch"><Icon name="calc" :size="18"/><b>التكلفة</b><span class="m od-r">اختياري · للمدير</span></summary>
-            <div class="od-pad"><CostSection :name="ed.name" :key="ed.name"/></div></details></section>
+          <section v-if="editing && ed && state.boot.can.finance && isOpen('cost')" class="od-card"><div class="od-ch"><Icon name="calc" :size="18"/><b>التكلفة</b><button type="button" class="od-fold" aria-label="طي التكلفة" title="طي" @click="secOpen.cost = false"><Icon name="x" :size="14"/></button><span class="m od-r">للمدير فقط</span></div>
+            <div class="od-pad"><CostSection :name="ed.name" :key="ed.name"/></div></section>
         </div>
 
         <aside class="od-side">
@@ -1250,7 +1258,7 @@ const BoardCard = {
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
     <div v-else-if="c.cover_color" class="tc2-band" :style="{background: c.cover_color}"></div>
     <div class="tc-body">
-      <div class="tc3-top"><div class="tc-title">{{ c.title }}</div>
+      <div class="tc3-top" :class="{'has-sts': sts.length}"><div class="tc-title">{{ c.title }}</div>
         <button type="button" class="tc2-sts" :class="{empty: !sts.length}" :aria-label="'الحالات: ' + (sts.length ? sts.map(x => x.name).join('، ') : 'بلا حالة') + ' — تغيير'" @click.stop="$emit('status', c, $event)">
           <span v-for="x in sts" :key="x.id" class="st-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span>
           <span v-if="!sts.length" class="st-pill none">+ حالة</span></button>
