@@ -2252,3 +2252,4 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
 .sz-pop > b { font-size: 13px; } .sz-pop .m { font-size: 12px; color: #667085; line-height: 1.5; }
 .who-row .sz-pop { top: auto; bottom: calc(100% + 8px); }
 .who-row .sz-pop { left: auto; right: 0; }
+.who-row .sz-host { position: static; } .who-row .sz-pop { left: 0; right: 0; width: auto; }
