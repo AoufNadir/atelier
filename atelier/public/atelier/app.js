@@ -1202,15 +1202,13 @@ const BoardCard = {
     @dragover.prevent.stop="$emit('dropon', c, false)" @drop.prevent.stop="$emit('dropon', c, true)" :aria-label="c.title + ' — ' + c.customer_name">
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
     <div v-else-if="c.cover_color" class="tc2-band" :style="{background: c.cover_color}"></div>
-    <div class="tc2-top">
-      <button type="button" class="tc2-sts" :aria-label="'الحالات: ' + (sts.length ? sts.map(x => x.name).join('، ') : 'بلا حالة') + ' — تغيير'" @click.stop="$emit('status', c, $event)">
-        <span v-for="x in sts" :key="x.id" class="st-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span>
-        <span v-if="!sts.length" class="st-pill none">+ حالة</span></button>
-      <button type="button" class="tc2-more" aria-label="خيارات البطاقة" @click.stop="$emit('menu', c, $event)"><Icon name="more" :size="16"/></button>
-    </div>
     <div class="tc-body">
-      <div class="tc-title">{{ c.title }}</div>
-      <div class="tc-cust">{{ c.customer_name }}<template v-if="c.price_pending"> · <span class="bd-warn">بلا سعر</span></template></div>
+      <div class="tc3-top"><div class="tc-title">{{ c.title }}</div>
+        <button type="button" class="tc2-sts" :class="{empty: !sts.length}" :aria-label="'الحالات: ' + (sts.length ? sts.map(x => x.name).join('، ') : 'بلا حالة') + ' — تغيير'" @click.stop="$emit('status', c, $event)">
+          <span v-for="x in sts" :key="x.id" class="st-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span>
+          <span v-if="!sts.length" class="st-pill none">+ حالة</span></button>
+        <button type="button" class="tc2-more" aria-label="خيارات البطاقة" @click.stop="$emit('menu', c, $event)"><Icon name="more" :size="14"/></button></div>
+      <div class="tc-cust">{{ c.customer_name }}<template v-if="c.price_pending"> · <span class="bd-warn">بلا سعر</span></template><template v-else-if="c.grand_total > 0"> · {{ money(c.grand_total) }}</template></div>
       <div v-if="c.labels.some(id => labels[id])" class="tc2-tags"><span v-for="id in c.labels.filter(id => labels[id])" :key="id" class="tc2-tag"><i :style="{background: labels[id].color}"></i>{{ labels[id].name }}</span></div>
       <div class="tc-foot">
         <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: daysFromToday(c.due) < 0, soon: daysFromToday(c.due) >= 0 && daysFromToday(c.due) <= 1}"><Icon name="clock" :size="13"/>{{ dueWord(c.due) }}<template v-if="c.due_time"> {{ c.due_time }}</template></span>
@@ -1355,7 +1353,12 @@ const Board = {
     const SORTS = { due: (a, b) => String(a.due || "9").localeCompare(String(b.due || "9")), created: (a, b) => String(b.name).localeCompare(String(a.name)), amount: (a, b) => (+b.grand_total || 0) - (+a.grand_total || 0) };
     const isLate = (c) => c.due && c.per_delivered < 100 && daysFromToday(c.due) < 0;
     const cols = computed(() => cfg.value.columns.filter((col) => !col.hidden).map((col) => { const items = rows.value.filter((c) => c.column === col.id).sort(SORTS[colSort[col.id]] || order);
-      return { ...col, items, sum: items.reduce((a, c) => a + (+c.grand_total || 0), 0), late: items.filter(isLate).length }; }));
+      // work columns show the value in progress (and what was paid ahead); the delivery column shows what is still owed
+      const sum = items.reduce((a, c) => a + (+c.grand_total || 0), 0), paid = items.reduce((a, c) => a + (+c.paid || 0), 0);
+      const owed = items.reduce((a, c) => a + Math.max(0, (+c.grand_total || 0) - (+c.paid || 0)), 0);
+      return { ...col, items, sum, paid, owed, late: items.filter(isLate).length, unpriced: items.filter((c) => c.price_pending).length }; }));
+    const flash = ref(null);  // {col, kind}: briefly marks the late or unpriced cards of one column
+    const flashCards = (col, kind) => { flash.value = { col, kind }; setTimeout(() => (flash.value = null), 2200); };
     const hiddenCols = computed(() => cfg.value.columns.filter((c) => c.hidden));
     // column menu
     const colMenu = ref(null), colName = ref(""), colMove = ref(false);
@@ -1545,7 +1548,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -1626,16 +1629,21 @@ const Board = {
         <h2 class="tb-ch"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
           <span class="bd-n" :class="{over: c.limit && c.items.length > c.limit}">{{ c.items.length }}<template v-if="c.limit"> / {{ c.limit }}<template v-if="c.items.length > c.limit"> !</template></template></span>
           <button type="button" class="tb-cdots" :aria-label="'خيارات العمود ' + c.name" :aria-expanded="colMenu && colMenu.col.id === c.id" @click.stop="openColMenu(c, $event)"><Icon name="more" :size="16"/></button></h2>
-        <div v-if="(c.sum && !s.data.worker) || c.late || colSort[c.id]" class="tb-cstat"><span v-if="c.sum && !s.data.worker" class="num">{{ money(c.sum) }}</span><span v-if="c.late" class="late">{{ c.late }} متأخرة</span>
+        <div v-if="(c.sum && !s.data.worker) || c.late || c.unpriced || colSort[c.id]" class="tb-cstat">
+          <template v-if="!s.data.worker && c.items.length"><template v-if="c.deliver"><span v-if="c.owed > 0.005" class="tb-owed" title="ما سُلّم ولم يُدفع: دين على العملاء">لم يُحصَّل <b class="num">{{ money(c.owed) }}</b></span><span v-else-if="c.sum" class="tb-ok">✓ محصّل بالكامل</span></template>
+            <template v-else-if="c.sum"><span class="num" title="قيمة الأعمال الجارية في هذا العمود"><b>{{ money(c.sum) }}</b></span><span v-if="c.paid > 0.005" class="m" title="ما دفعه العملاء مقدمًا">مُسبَّق {{ money(c.paid) }}</span></template></template>
+          <button v-if="c.unpriced && !s.data.worker" type="button" class="tb-cchip warn" title="طلبات بلا سعر: اضغط لإبرازها" @click="flashCards(c.id, 'unpriced')">{{ c.unpriced }} بلا سعر</button>
+          <button v-if="c.late" type="button" class="tb-cchip late" title="اضغط لإبراز المتأخرة" @click="flashCards(c.id, 'late')"><Icon name="clock" :size="12"/>{{ c.late }} متأخرة</button>
           <span v-if="colSort[c.id]" class="m">مرتّبة {{ {due: 'بالموعد', created: 'بالأحدث', amount: 'بالمبلغ'}[colSort[c.id]] }}</span></div>
         <TransitionGroup name="tcm" tag="div" class="tb-list">
           <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :statuses="cfg.statuses" :busy="busy === card.name" :drop-before="before === card.name"
+            :class="{'tc-flash': flash && flash.col === c.id && (flash.kind === 'late' ? isLate(card) : card.price_pending)}"
             @open="open = card.name" @drag="dragging = $event" @dropon="dropOn" @menu="openMenu" @status="openStatus" @hover="hovered = $event"/>
         </TransitionGroup>
         <button v-if="c.deliver && paidCount(c)" type="button" class="tb-addbtn" @click="archivePaid(c.id)">أرشفة المدفوع كله ({{ paidCount(c) }})</button>
         <template v-if="!c.deliver">
           <form v-if="adding === c.id" class="tb-add" @submit.prevent="addCard(c.id)">
-            <textarea :id="'add-' + c.id" class="input" v-model="newTitle" rows="2" placeholder="عنوان البطاقة…" aria-label="عنوان البطاقة" @keydown.enter.prevent="addCard(c.id)" @keydown.esc="adding = null"></textarea>
+            <textarea :id="'add-' + c.id" class="input tb-addin" v-model="newTitle" rows="1" placeholder="عنوان البطاقة…" aria-label="عنوان البطاقة" @keydown.enter.prevent="addCard(c.id)" @keydown.esc="adding = null"></textarea>
             <div class="row" style="gap:6px"><button type="submit" class="btn primary sm">إضافة</button><button type="button" class="btn ghost sm" @click="adding = null">إلغاء</button></div></form>
           <button v-else-if="state.boot.can.order" type="button" class="tb-addbtn" @click="startAdd(c.id)">+ إضافة بطاقة</button>
         </template>
