@@ -1898,7 +1898,7 @@ const SimpleCustomers = {
     const pay = () => (state.sheet = { type: "payment", customer: { name: d.value.name, customer_name: d.value.customer_name } });
     // profile
     const pmenu = ref(false), merging = ref(null), editNote = ref(false), note = ref(""), remind = ref(null);
-    const closeMenus = () => { pmenu.value = false; more.value = false; stOpen.value = false; };
+    const closeMenus = () => { pmenu.value = false; more.value = false; stOpen.value = false; fmenu.value = null; };
     onMounted(() => window.addEventListener("click", closeMenus));
     onBeforeUnmount(() => window.removeEventListener("click", closeMenus));
     const startNote = () => { note.value = d.value.note; editNote.value = true; };
@@ -2016,6 +2016,10 @@ const SimpleCustomers = {
     });
     const shownGroups = computed(() => fileGroups.value.filter((G) => G.rows.length && (!fsel.value || G.key === fsel.value)));
     const setKind = async (x, kind) => { try { await call("set_file_kind", { name: x.name, kind }, true); x.atelier_kind = kind; toast("تغيّر نوع الملف"); } catch (e) { toast(e.message, "error"); } };
+    const fmenu = ref(null);
+    const KIND_LABEL = Object.fromEntries(FILE_KINDS);
+    const delCustFile = async (x) => { fmenu.value = null; if (!confirm(`حذف «${x.file_name}» نهائيًا؟`)) return;
+      try { await call("delete_customer_file", { file: x.name }, true); toast("حُذف الملف"); await open(d.value.name, true); } catch (e) { toast(e.message, "error"); } };
     const fileSize = (b) => (!b ? "" : b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB");
     const viewFile = (x) => { if (isImg(x)) viewer.value = { list: [{ url: x.file_url, name: x.file_name, o: {} }], i: 0 }; else window.open(x.file_url, "_blank", "noopener"); };
     const allFiles = () => { hview.value = "files"; fsel.value = null; nextTick(() => document.querySelector(".cp-hist")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
@@ -2037,7 +2041,7 @@ const SimpleCustomers = {
       kpi, quick, open, bal, lastWord, exportList, newOrderFor, pay, pmenu, merging, editNote, note, startNote, saveExtra, remind, startRemind, sendRemind, toggleDisabled,
       doMerge, exportOrders, reorder, uploading, onFile, copyText, LOG_KINDS, logKind, logText, addLog, months6, maxMonth, stFrom, stTo, statementUrl, sendStatement, STATE_DOT,
       owesNow, TABS, labelStyle, isImg, waLink, money, fig, date, ago, state, go, t,
-      account, remaining, showNote, chips, gGroup, gSort, gAll, groupOf, galleryJobs, gGroups, gallery2, specOf, unitOf, coverOf, fk, fq, fsel, verOpen, FILE_KINDS, kindOf, verOf, kindCount, fileGroups, shownGroups, setKind, fileSize, viewFile, allFiles, extOf, jf, jobChips, stOpen, logAll, filesAll, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
+      account, remaining, showNote, chips, gGroup, gSort, gAll, groupOf, galleryJobs, gGroups, gallery2, specOf, unitOf, coverOf, fk, fq, fsel, verOpen, FILE_KINDS, kindOf, verOf, kindCount, fileGroups, shownGroups, setKind, fmenu, KIND_LABEL, delCustFile, fileSize, viewFile, allFiles, extOf, jf, jobChips, stOpen, logAll, filesAll, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
   },
   template: `
   <div class="cl">
@@ -2173,7 +2177,7 @@ const SimpleCustomers = {
               <button v-for="G in fileGroups" :key="G.key" type="button" :aria-pressed="fsel === G.key" :class="{id: G.key === '__id'}" @click="fsel = G.key"><span class="ellipsis">{{ G.title }}</span><i>{{ G.n }}</i></button>
               <label v-if="d.can_edit" class="cl-btn sm cpf-up">{{ uploading ? 'جارٍ الرفع…' : 'رفع شعار أو هوية العميل' }}<input type="file" multiple class="sr-only" @change="onFile"></label></nav>
             <div class="cpf-body">
-              <div class="cpf-help">كل ملفات العميل في مكان واحد، مرتبة حسب العمل. <b>الهوية</b> = ملفات ثابتة للعميل (شعار، ألوان، خطوط) تُستعمل في كل أعماله. غيّر نوع أي ملف من القائمة بجانبه.</div>
+              <div class="cpf-help">الملفات مرتبة حسب العمل. <b>الهوية</b>: ملفات ثابتة للعميل مثل الشعار. لتغيير نوع ملف أو حذفه اضغط <b>⋯</b> بجانبه.</div>
               <div v-if="!shownGroups.length" class="muted cp-pad">{{ d.card_files.length ? 'لا ملفات تطابق التصفية.' : 'لا ملفات بعد. ما يُرفق في البطاقات يظهر هنا مرتبًا حسب العمل.' }}</div>
               <section v-for="G in shownGroups" :key="G.key" class="cpf-grp">
                 <div class="cpf-gh"><b class="ellipsis">{{ G.title }}</b><span class="muted">{{ G.sub }}</span><button v-if="G.order" type="button" class="cl-link" @click="openCard(G.order)">فتح البطاقة</button>
@@ -2182,14 +2186,19 @@ const SimpleCustomers = {
                   <div class="cpf-row">
                     <span class="cpf-ic" :class="'k-' + kindOf(r.main)"><img v-if="isImg(r.main)" :src="r.main.file_url" alt="" loading="lazy"><template v-else>{{ extOf(r.main).slice(0, 4).toUpperCase() || '?' }}</template></span>
                     <button type="button" class="cpf-n" :title="r.main.file_name" @click="viewFile(r.main)"><b class="ellipsis">{{ r.main.file_name }}</b><span class="muted">{{ ago(r.main.creation) }}<template v-if="r.main.file_size"> · {{ fileSize(r.main.file_size) }}</template><template v-if="verOf(r.main)"> · v{{ verOf(r.main) }}</template></span></button>
-                    <select class="cpf-kind" :class="'k-' + kindOf(r.main)" :value="kindOf(r.main)" :disabled="!d.can_edit" aria-label="نوع الملف" @change="setKind(r.main, $event.target.value)"><option v-for="k in FILE_KINDS" :key="k[0]" :value="k[0]">{{ k[1] }}</option></select>
-                    <span class="btn-row cpf-acts"><a class="cl-btn sm" :href="r.main.file_url" download>تنزيل</a></span>
+                    <span class="cpf-badge" :class="'k-' + kindOf(r.main)">{{ KIND_LABEL[kindOf(r.main)] }}</span>
+                    <span class="btn-row cpf-acts"><a class="cl-btn sm" :href="r.main.file_url" download>تنزيل</a>
+                      <span v-if="d.can_edit" class="cl-pop-host"><button type="button" class="cl-btn icon sm" aria-label="خيارات الملف" :aria-expanded="fmenu === r.main.name" @click.stop="fmenu = fmenu === r.main.name ? null : r.main.name"><Icon name="more" :size="16"/></button>
+                        <div v-if="fmenu === r.main.name" class="cl-pop cl-menu cpf-menu" @click.stop>
+                          <span class="cpf-mh">نوع الملف</span>
+                          <button v-for="k in FILE_KINDS" :key="k[0]" type="button" :aria-pressed="kindOf(r.main) === k[0]" @click="setKind(r.main, k[0]); fmenu = null"><i class="cpf-dot" :class="'k-' + k[0]"></i>{{ k[1] }}</button>
+                          <hr><button type="button" class="bad" @click="delCustFile(r.main)">حذف الملف</button></div></span></span>
                   </div>
                   <button v-if="r.older.length" type="button" class="cpf-ver" @click="verOpen[r.main.name] = !verOpen[r.main.name]">{{ verOpen[r.main.name] ? 'إخفاء' : 'النسخ السابقة' }} ({{ r.older.length }}) <Icon :name="verOpen[r.main.name] ? 'up' : 'down'" :size="12"/></button>
                   <template v-if="verOpen[r.main.name]"><div v-for="x in r.older" :key="x.name" class="cpf-row old">
                     <span class="cpf-ic">{{ extOf(x).slice(0, 4).toUpperCase() }}</span>
-                    <button type="button" class="cpf-n" @click="viewFile(x)"><b class="ellipsis">{{ x.file_name }}</b><span class="muted">{{ ago(x.creation) }}</span></button><span></span>
-                    <span class="btn-row cpf-acts"><a class="cl-btn sm" :href="x.file_url" download>تنزيل</a></span></div></template>
+                    <button type="button" class="cpf-n" @click="viewFile(x)"><b class="ellipsis">{{ x.file_name }}</b><span class="muted">{{ ago(x.creation) }}</span></button><span class="cpf-badge">نسخة سابقة</span>
+                    <span class="btn-row cpf-acts"><a class="cl-btn sm" :href="x.file_url" download>تنزيل</a><button v-if="d.can_edit" type="button" class="cl-btn sm" @click="delCustFile(x)">حذف</button></span></div></template>
                 </template>
               </section>
             </div>

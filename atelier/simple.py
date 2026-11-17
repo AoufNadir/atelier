@@ -2493,3 +2493,17 @@ def set_file_kind(name, kind=""):
 		frappe.get_doc(f.attached_to_doctype, f.attached_to_name).check_permission("write")
 	frappe.db.set_value("File", name, "atelier_kind", kind)
 	return True
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_customer_file(file):
+	"""Customer files tab: delete a file uploaded by mistake (on the customer or on one of its cards)."""
+	f = frappe.get_doc("File", file)
+	if f.attached_to_doctype == "Sales Order":
+		delete_file(f.attached_to_name, file)
+		return True
+	if f.attached_to_doctype != "Customer":
+		frappe.throw(_("هذا الملف ليس من ملفات العميل"))
+	frappe.get_doc("Customer", f.attached_to_name).check_permission("write")
+	f.delete(ignore_permissions=True)
+	return True
