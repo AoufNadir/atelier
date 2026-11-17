@@ -1417,7 +1417,7 @@ const Board = {
     watch(colSort, (v) => { try { localStorage.setItem("atelier.colsort", JSON.stringify(v)); } catch { /* private mode */ } });
     const SORTS = { due: (a, b) => String(a.due || "9").localeCompare(String(b.due || "9")), created: (a, b) => String(b.name).localeCompare(String(a.name)), amount: (a, b) => (+b.grand_total || 0) - (+a.grand_total || 0) };
     const isLate = (c) => c.due && c.per_delivered < 100 && daysFromToday(c.due) < 0;
-    const cols = computed(() => cfg.value.columns.filter((col) => !col.hidden).map((col) => { const items = rows.value.filter((c) => c.column === col.id).sort(SORTS[colSort[col.id]] || order);
+    const cols = computed(() => cfg.value.columns.filter((col) => !col.hidden).sort((a, b) => (liveOrder.value ? liveOrder.value.indexOf(a.id) - liveOrder.value.indexOf(b.id) : 0)).map((col) => { const items = rows.value.filter((c) => c.column === col.id).sort(SORTS[colSort[col.id]] || order);
       // work columns show the value in progress (and what was paid ahead); the delivery column shows what is still owed
       const sum = items.reduce((a, c) => a + (+c.grand_total || 0), 0), paid = items.reduce((a, c) => a + (+c.paid || 0), 0);
       const owed = items.reduce((a, c) => a + Math.max(0, (+c.grand_total || 0) - (+c.paid || 0)), 0);
@@ -1436,16 +1436,73 @@ const Board = {
     const setColColor = async (color) => { const m = colMenu.value; if (!m) return; m.col.color = color; await editCol(m.col.id, { color }); };
     const hideCol = async (on, id) => { colMenu.value = null; more.value = false; await editCol(id, on ? { hidden: 1 } : { hidden: 0 }); };
     // drag a column by its title to change the order (manager)
-    const colDrag = ref(null), colOver = ref(null);
-    const colIdx = (id) => (cfg.value?.columns || []).findIndex((x) => x.id === id);
-    const colDragStart = (c, e) => { if (!s.data?.manager) return; colDrag.value = c.id; colOver.value = c.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "col:" + c.id);
-      const sec = e.target.closest(".tb-col"); if (sec) { const r = sec.getBoundingClientRect(); try { e.dataTransfer.setDragImage(sec, e.clientX - r.left, e.clientY - r.top); } catch { /* ok */ } } };
-    const colDrop = async (target) => {
-      const from = colDrag.value; colDrag.value = null; colOver.value = null; if (!from || from === target.id) return;
-      const list = cfg.value.columns.map((c) => ({ ...c })), a = list.findIndex((c) => c.id === from), b = list.findIndex((c) => c.id === target.id);
-      const [m] = list.splice(a, 1); list.splice(b, 0, m); cfg.value.columns.splice(0, cfg.value.columns.length, ...list);
+    // pointer-driven (not HTML drag): the column lifts, follows the cursor, the others slide aside live
+    const colDrag = ref(null), colOver = ref(null), liveOrder = ref(null);
+    const colIdx = (id) => (liveOrder.value || (cfg.value?.columns || []).map((x) => x.id)).indexOf(id);
+    const colEls = () => [...document.querySelectorAll(".cb .tb-col[data-col]")];
+    const flipCols = (mutate) => {
+      const before = new Map(colEls().map((e) => [e.dataset.col, e.getBoundingClientRect().left]));
+      mutate();
+      nextTick(() => colEls().forEach((e) => { const b = before.get(e.dataset.col); if (b === undefined || e.dataset.col === colDrag.value) return;
+        const dx = b - e.getBoundingClientRect().left; if (Math.abs(dx) < 1) return;
+        e.style.transition = "none"; e.style.transform = `translateX(${dx}px)`;
+        requestAnimationFrame(() => { e.style.transition = "transform .22s cubic-bezier(.2,.8,.2,1)"; e.style.transform = ""; }); }));
+    };
+    let cd = null;
+    const colPointer = (c, e) => {
+      if (!s.data?.manager || e.button !== 0 || e.target.closest("button, input, a")) return;
+      cd = { id: c.id, x: e.clientX, y: e.clientY, started: false, ghost: null, ox: 0, oy: 0, scroller: e.target.closest(".tb-cols, .cb-cols, .tb-board") || document.scrollingElement, raf: 0, px: 0 };
+      window.addEventListener("pointermove", colPMove); window.addEventListener("pointerup", colUp); window.addEventListener("keydown", colKey);
+    };
+    const colStart = (e) => {
+      const sec = document.querySelector(`.cb .tb-col[data-col="${CSS.escape(cd.id)}"]`); if (!sec) return false;
+      const r = sec.getBoundingClientRect(); cd.ox = e.clientX - r.left; cd.oy = e.clientY - r.top;
+      const g = sec.cloneNode(true); g.classList.add("tb-col-ghost"); g.removeAttribute("data-col");
+      Object.assign(g.style, { width: r.width + "px", height: Math.min(r.height, window.innerHeight - 40) + "px", left: r.left + "px", top: r.top + "px" });
+      document.body.appendChild(g); cd.ghost = g; cd.started = true; cd.from = colIdx(cd.id);
+      liveOrder.value = cols.value.map((x) => x.id); colDrag.value = cd.id; document.body.classList.add("col-dragging");
+      return true;
+    };
+    const edgeScroll = () => { if (!cd || !cd.started) return; const el = cd.scroller, w = window.innerWidth, m = 80;
+      const v = cd.px < m ? -(m - cd.px) / 4 : cd.px > w - m ? (cd.px - (w - m)) / 4 : 0;
+      if (v && el) el.scrollLeft += v; cd.raf = v ? requestAnimationFrame(edgeScroll) : 0; };
+    const colPMove = (e) => {
+      if (!cd) return;
+      if (!cd.started) { if (Math.hypot(e.clientX - cd.x, e.clientY - cd.y) < 6 || !colStart(e)) return; }
+      e.preventDefault(); cd.px = e.clientX;
+      cd.ghost.style.transform = `translate(${e.clientX - cd.x}px, ${e.clientY - cd.y}px) rotate(2deg)`;
+      if (!cd.raf) cd.raf = requestAnimationFrame(edgeScroll);
+      // the slot under the cursor: compare with the middle of each other column
+      const others = colEls().filter((el) => el.dataset.col !== cd.id);
+      let target = null;
+      for (const el of others) { const r = el.getBoundingClientRect(); if (e.clientX >= r.left && e.clientX <= r.right) { target = { id: el.dataset.col, mid: r.left + r.width / 2 }; break; } }
+      if (!target) return;
+      const order = liveOrder.value.filter((x) => x !== cd.id), ti = order.indexOf(target.id);
+      const rtl = getComputedStyle(document.documentElement).direction === "rtl";
+      const after = rtl ? e.clientX < target.mid : e.clientX > target.mid;
+      order.splice(ti + (after ? 1 : 0), 0, cd.id);
+      if (order.join() !== liveOrder.value.join()) flipCols(() => { liveOrder.value = order; });
+      colOver.value = target.id;
+    };
+    const colEnd = () => { window.removeEventListener("pointermove", colPMove); window.removeEventListener("pointerup", colUp); window.removeEventListener("keydown", colKey);
+      if (cd?.raf) cancelAnimationFrame(cd.raf); document.body.classList.remove("col-dragging"); };
+    const colUp = async () => {
+      const d = cd; colEnd(); cd = null; if (!d || !d.started) return;
+      const sec = document.querySelector(`.cb .tb-col[data-col="${CSS.escape(d.id)}"]`), g = d.ghost;
+      if (sec && g) { const r = sec.getBoundingClientRect(); g.style.transition = "transform .18s ease, left .18s ease, top .18s ease, opacity .18s";
+        g.style.transform = "none"; g.style.left = r.left + "px"; g.style.top = r.top + "px"; setTimeout(() => g.remove(), 190); } else if (g) g.remove();
+      const order = liveOrder.value; const changed = order && order.indexOf(d.id) !== d.from;
+      setTimeout(() => { colDrag.value = null; colOver.value = null; }, 180);
+      if (!changed) { liveOrder.value = null; return; }
+      // visible columns take the new order; hidden ones keep their places
+      const all = cfg.value.columns.map((c) => ({ ...c })); const vis = order.map((id) => all.find((c) => c.id === id)); let k = 0;
+      const list = all.map((c) => (c.hidden ? c : vis[k++]));
+      cfg.value.columns.splice(0, cfg.value.columns.length, ...list); liveOrder.value = null;
       await saveCols(list); toast("تغيّر ترتيب الأعمدة");
     };
+    const colKey = (e) => { if (e.key !== "Escape" || !cd) return; const d = cd; colEnd(); cd = null; d.ghost?.remove(); flipCols(() => { liveOrder.value = null; }); colDrag.value = null; colOver.value = null; };
+    onBeforeUnmount(() => { if (cd) { cd.ghost?.remove(); colEnd(); cd = null; } });
+    const colDrop = () => {};
     const sortCol = (id, k) => { if (k) colSort[id] = k; else delete colSort[id]; colMenu.value = null; };
     const moveAll = async (from, to) => {
       colMenu.value = null; const list = (s.data?.cards || []).filter((c) => c.column === from.id); if (!list.length) return;
@@ -1481,7 +1538,6 @@ const Board = {
     }
     const drop = (col) => { const c = dragging.value; dragging.value = null; over.value = null; before.value = null; if (c) moveTo(c, col, null); };
     const dropOn = (target, done) => {
-      if (colDrag.value) { const col = cols.value.find((x) => x.items.some((i) => i.name === target.name)); if (col) { if (done) colDrop(col); else colOver.value = col.id; } return; }
       if (!dragging.value || dragging.value.name === target.name) return;
       over.value = target.column; before.value = target.name;
       if (done) { const c = dragging.value; dragging.value = null; over.value = null; before.value = null; moveTo(c, target.column, target.name); }
@@ -1625,7 +1681,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { colDrag, colOver, colIdx, colDragStart, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -1701,10 +1757,9 @@ const Board = {
     </div>
 
     <div v-else class="tb-cols">
-      <section v-for="c in cols" :key="c.id" class="tb-col" :class="{over: over === c.id, 'col-moving': colDrag === c.id, 'col-target': colDrag && colOver === c.id && colDrag !== c.id, 'col-after': colDrag && colOver === c.id && colIdx(colDrag) < colIdx(c.id), deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name" :style="{'--cc': c.color}"
-        @dragover.prevent="colDrag ? (colOver = c.id) : dragging && (over = c.id, before = null)" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="colDrag ? colDrop(c) : drop(c.id)">
-        <h2 class="tb-ch" :draggable="!!s.data.manager" :class="{'col-drag': colDrag === c.id, 'col-drop': colOver === c.id && colDrag && colDrag !== c.id}"
-          @dragstart.stop="colDragStart(c, $event)" @dragend="colDrag = null; colOver = null" ><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
+      <section v-for="c in cols" :key="c.id" class="tb-col" :data-col="c.id" :class="{over: over === c.id, 'col-moving': colDrag === c.id, deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name" :style="{'--cc': c.color}"
+        @dragover.prevent="dragging && (over = c.id, before = null)" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="drop(c.id)">
+        <h2 class="tb-ch" :class="{'col-grab': s.data.manager}" :title="s.data.manager ? 'اسحب العنوان لتغيير ترتيب العمود' : null" @pointerdown="colPointer(c, $event)"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
           <span class="bd-n" :class="{over: c.limit && c.items.length > c.limit}">{{ c.items.length }}<template v-if="c.limit"> / {{ c.limit }}<template v-if="c.items.length > c.limit"> !</template></template></span>
           <button type="button" class="tb-cdots" :aria-label="'خيارات العمود ' + c.name" :aria-expanded="colMenu && colMenu.col.id === c.id" @click.stop="openColMenu(c, $event)"><Icon name="more" :size="16"/></button></h2>
         <div v-if="(c.sum && !s.data.worker) || c.late || c.unpriced || colSort[c.id]" class="tb-cstat">
