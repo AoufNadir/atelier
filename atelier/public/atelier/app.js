@@ -879,26 +879,27 @@ const BoardPanel = {
               <span v-for="tp in tpls" :key="tp.id" class="od-tpl" :class="{on: tplOn === tp.id}"><button type="button" :aria-pressed="tplOn === tp.id" @click="useTpl(tp)">{{ tp.title }}<span class="m">{{ (tp.lines || []).length }} بند<template v-if="(tp.checklist || []).length"> · {{ tp.checklist.length }} مهام</template></span></button>
                 <button type="button" class="od-tpl-x" :aria-label="'حذف القالب ' + tp.title" @click="dropTpl(tp)">×</button></span>
               <button v-if="tplOn" type="button" class="cl-link" @click="clearTpl">طلب فارغ</button></div>
-            <div class="od-tw"><table class="od-tbl">
-              <thead><tr><th class="od-c-desc">الوصف</th><th>الوحدة</th><th>المقاس</th><th>الكمية</th><th>السعر (دج)</th><th class="n">المجموع</th><th><span class="sr-only">حذف</span></th></tr></thead>
-              <tbody><tr v-for="(l, i) in f.lines" :key="i">
-                <td class="od-c-desc"><div class="ol2-desc"><textarea class="input od-f od-strong od-desc" rows="1" v-model="l.text" @input="lineInput(l)" @focus="l.focus = true" @blur="blurLine(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="لافتة، بطاقات، تصميم…" autocomplete="off"></textarea>
+            <div class="lb-list">
+              <div v-for="(l, i) in f.lines" :key="i" class="lb">
+                <div class="lb-top"><span class="lb-no">{{ i + 1 }}</span>
+                  <div class="ol2-desc"><textarea class="input lb-desc" rows="1" v-model="l.text" @input="lineInput(l)" @focus="l.focus = true" @blur="blurLine(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="الوصف: بطاقات زيارة 350 غ وجهان…" autocomplete="off"></textarea>
                     <div v-if="l.focus && sugg(l).length" class="ol2-sug"><span class="m">من قائمة الأسعار</span>
                       <button v-for="it in sugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="pick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b>
                         <span class="m" style="display:block">{{ [it.atelier_category, uom(it.stock_uom), priceOf(it) !== '' ? fig(priceOf(it)) + ' دج' : 'بلا سعر'].filter(Boolean).join(' · ') }}</span></span></button></div></div>
-                  <div class="od-calc"><span>{{ lineCalc(l) || ' ' }}</span>
-                    <button v-if="l.text.trim() && !l.item_code && state.boot.can.prices" type="button" class="cl-link od-tolist" @click="addToList(l)">+ إلى قائمة الأسعار</button></div></td>
-                <td><select class="input od-f od-unit" v-model="l.unit" :aria-label="'وحدة البند ' + (i + 1)"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></td>
-                <td><div v-if="calcOf(l) === 'area'" class="od-size"><input class="input od-f num" :class="{miss: !(+l.width > 0)}" inputmode="decimal" v-model="l.width" placeholder="العرض" :aria-label="'العرض ' + (i + 1)"><span>×</span><input class="input od-f num" :class="{miss: !(+l.height > 0)}" inputmode="decimal" v-model="l.height" placeholder="الارتفاع" :aria-label="'الارتفاع ' + (i + 1)"><span class="m">{{ sym(l) }}</span></div>
-                  <div v-else-if="calcOf(l) === 'length'" class="od-size"><input class="input od-f num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"><span class="m">{{ sym(l) }}</span></div>
-                  <span v-else class="od-none">—</span></td>
-                <td><input class="input od-f num od-qty" inputmode="decimal" v-model="l.qty" :aria-label="(calcOf(l) === 'count' ? 'الكمية ' : 'القطع ') + (i + 1)"></td>
-                <td><input class="input od-f num od-rate" inputmode="decimal" v-model="l.rate" @input="l.auto = false" placeholder="لاحقًا" :aria-label="'سعر البند ' + (i + 1)"></td>
-                <td class="n od-tot"><template v-if="lineTotal(l) !== null">{{ fig(lineTotal(l)) }}</template>
-                  <span v-else-if="l.text.trim() && l.rate !== '' && calcOf(l) !== 'count'" class="od-pending">أدخل {{ calcOf(l) === 'area' ? 'المقاس' : 'الطول' }}</span>
-                  <span v-else-if="l.text.trim()" class="od-pending">بلا سعر</span></td>
-                <td><button v-if="f.lines.length > 1" type="button" class="od-del" :aria-label="'حذف البند ' + (i + 1)" @click="dropLine(i)"><Icon name="x" :size="16"/></button></td>
-              </tr></tbody></table></div>
+                  <button v-if="f.lines.length > 1" type="button" class="lb-del" :aria-label="'حذف البند ' + (i + 1)" @click="dropLine(i)"><Icon name="x" :size="14"/></button></div>
+                <div class="lb-f">
+                  <label class="lb-c"><span>الوحدة</span><select class="input lb-in" v-model="l.unit"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></label>
+                  <div class="lb-c"><span>{{ calcOf(l) === 'count' ? 'المقاس' : 'المقاس (' + sym(l) + ')' }}</span>
+                    <div v-if="calcOf(l) === 'area'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.width > 0)}" inputmode="decimal" v-model="l.width" placeholder="العرض" :aria-label="'العرض ' + (i + 1)"><span>×</span><input class="input lb-in num" :class="{miss: !(+l.height > 0)}" inputmode="decimal" v-model="l.height" placeholder="الارتفاع" :aria-label="'الارتفاع ' + (i + 1)"></div>
+                    <div v-else-if="calcOf(l) === 'length'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"></div>
+                    <span v-else class="lb-none">—</span></div>
+                  <label class="lb-c"><span>{{ calcOf(l) === 'count' ? 'الكمية' : 'عدد القطع' }}</span><input class="input lb-in num" inputmode="decimal" v-model="l.qty"></label>
+                  <label class="lb-c"><span>سعر الوحدة</span><input class="input lb-in num" inputmode="decimal" v-model="l.rate" @input="l.auto = false" placeholder="لاحقًا"></label>
+                  <div class="lb-c lb-t"><span>المجموع</span><b v-if="lineTotal(l) !== null">{{ fig(lineTotal(l)) }}</b><em v-else-if="l.text.trim()" class="od-pending">{{ l.rate !== '' && calcOf(l) !== 'count' ? (calcOf(l) === 'area' ? 'أدخل المقاس' : 'أدخل الطول') : 'بلا سعر' }}</em></div>
+                </div>
+                <div v-if="lineCalc(l) || (l.text.trim() && !l.item_code && state.boot.can.prices)" class="lb-calc"><span>{{ lineCalc(l) }}</span>
+                  <button v-if="l.text.trim() && !l.item_code && state.boot.can.prices" type="button" class="cl-link od-tolist" @click="addToList(l)">+ إلى قائمة الأسعار</button></div>
+              </div></div>
             <div class="od-add"><button type="button" class="od-addb" @click="addLine"><Icon name="plus" :size="16"/>بند جديد</button><span class="spacer"></span>
               <template v-if="popular.length"><span class="m">الأكثر طلبًا:</span><button v-for="it in popular" :key="it.item_code" type="button" class="od-sug" @click="addFrom(it)">{{ it.item_name }}</button></template></div>
             <div class="od-totals"><div class="od-tbox">
@@ -1397,21 +1398,24 @@ const CardModal = {
             </div>
 
             <div v-else class="ln-rows">
-              <table class="od-tbl ln-tbl">
-                <thead><tr><th>الوحدة</th><th>المقاس</th><th>الكمية</th><th>السعر</th><th class="n">المجموع</th><th><span class="sr-only">حذف</span></th></tr></thead>
-                <tbody><template v-for="(l, i) in edLines" :key="i"><tr class="ln-dr">
-                  <td colspan="6" class="od-c-desc"><div class="ol2-desc"><textarea class="input od-f od-strong od-desc" rows="1" v-model="l.text" @input="lnInput(l)" @focus="l.focus = true" @blur="lnBlur(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="لافتة، بطاقات، تصميم…" autocomplete="off"></textarea>
+              <div class="lb-list">
+              <div v-for="(l, i) in edLines" :key="i" class="lb">
+                <div class="lb-top"><span class="lb-no">{{ i + 1 }}</span>
+                  <div class="ol2-desc"><textarea class="input lb-desc" rows="1" v-model="l.text" @input="lnInput(l)" @focus="l.focus = true" @blur="lnBlur(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="الوصف: بطاقات زيارة 350 غ وجهان…" autocomplete="off"></textarea>
                     <div v-if="l.focus && lnSugg(l).length" class="ol2-sug"><span class="m">من قائمة الأسعار</span>
-                      <button v-for="it in lnSugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="lnPick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b></span></button></div></div></td></tr>
-                  <tr class="ln-nr"><td><select class="input od-f od-unit" v-model="l.unit" :aria-label="'وحدة البند ' + (i + 1)"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></td>
-                  <td><div v-if="lnCalc(l) === 'area'" class="od-size"><input class="input od-f num" :class="{miss: !(+l.width > 0)}" inputmode="decimal" v-model="l.width" placeholder="العرض" :aria-label="'العرض ' + (i + 1)"><span>×</span><input class="input od-f num" :class="{miss: !(+l.height > 0)}" inputmode="decimal" v-model="l.height" placeholder="الارتفاع" :aria-label="'الارتفاع ' + (i + 1)"><span class="m">{{ lnSym(l) }}</span></div>
-                    <div v-else-if="lnCalc(l) === 'length'" class="od-size"><input class="input od-f num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"><span class="m">{{ lnSym(l) }}</span></div>
-                    <span v-else class="od-none">—</span></td>
-                  <td><input class="input od-f num od-qty" inputmode="decimal" v-model="l.qty" :aria-label="'الكمية ' + (i + 1)"></td>
-                  <td><input class="input od-f num od-rate" inputmode="decimal" v-model="l.rate" :placeholder="d.docstatus === 1 ? 'مطلوب' : 'لاحقًا'" :aria-label="'سعر البند ' + (i + 1)"></td>
-                  <td class="n od-tot"><template v-if="lnTotal(l) !== null">{{ fig(lnTotal(l)) }}</template><span v-else-if="l.text.trim()" class="od-pending">{{ l.rate !== '' && lnCalc(l) !== 'count' ? 'أدخل المقاس' : 'بلا سعر' }}</span></td>
-                  <td><button v-if="edLines.length > 1" type="button" class="od-del" :aria-label="'حذف البند ' + (i + 1)" @click="edLines.splice(i, 1)"><Icon name="x" :size="16"/></button></td>
-                </tr></template></tbody></table>
+                      <button v-for="it in lnSugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="lnPick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b></span></button></div></div>
+                  <button v-if="edLines.length > 1" type="button" class="lb-del" :aria-label="'حذف البند ' + (i + 1)" @click="edLines.splice(i, 1)"><Icon name="x" :size="14"/></button></div>
+                <div class="lb-f">
+                  <label class="lb-c"><span>الوحدة</span><select class="input lb-in" v-model="l.unit"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></label>
+                  <div class="lb-c"><span>{{ lnCalc(l) === 'count' ? 'المقاس' : 'المقاس (' + lnSym(l) + ')' }}</span>
+                    <div v-if="lnCalc(l) === 'area'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.width > 0)}" inputmode="decimal" v-model="l.width" placeholder="العرض" :aria-label="'العرض ' + (i + 1)"><span>×</span><input class="input lb-in num" :class="{miss: !(+l.height > 0)}" inputmode="decimal" v-model="l.height" placeholder="الارتفاع" :aria-label="'الارتفاع ' + (i + 1)"></div>
+                    <div v-else-if="lnCalc(l) === 'length'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"></div>
+                    <span v-else class="lb-none">—</span></div>
+                  <label class="lb-c"><span>{{ lnCalc(l) === 'count' ? 'الكمية' : 'عدد القطع' }}</span><input class="input lb-in num" inputmode="decimal" v-model="l.qty"></label>
+                  <label class="lb-c"><span>سعر الوحدة</span><input class="input lb-in num" inputmode="decimal" v-model="l.rate" :placeholder="d.docstatus === 1 ? 'مطلوب' : 'لاحقًا'"></label>
+                  <div class="lb-c lb-t"><span>المجموع</span><b v-if="lnTotal(l) !== null">{{ fig(lnTotal(l)) }}</b><em v-else-if="l.text.trim()" class="od-pending">{{ l.rate !== '' && lnCalc(l) !== 'count' ? 'أدخل المقاس' : 'بلا سعر' }}</em></div>
+                </div>
+              </div></div>
               <div class="od-add"><button type="button" class="od-addb" @click="edLines.push(newLine())"><Icon name="plus" :size="16"/>بند جديد</button></div>
               <div class="ln-sum"><span v-if="d.docstatus === 1" class="m">الطلب مؤكَّد: يلزم سعر لكل بند.</span><span class="spacer"></span><span>المجموع <b>{{ money(edTotal) }}</b></span></div>
             </div>
