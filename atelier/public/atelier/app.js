@@ -2845,6 +2845,11 @@ const TeamPage = {
     const rows = ref((state.boot.team_members || []).map((m) => ({ ...m })));
     const saving = ref(false), err = ref(null);
     if (!rows.value.length) rows.value.push({ name: "", role: "", user: "" });
+    // logins to link to, picked from a list so an email can never be mistyped
+    const accounts = ref([]);
+    call("team_accounts").then((a) => (accounts.value = a)).catch(() => {});
+    const missing = (r) => r.user && !accounts.value.some((a) => a.name === r.user);
+    watch(() => state.boot.team_members, (v) => { rows.value = (v || []).map((m) => ({ ...m })); if (!rows.value.length) rows.value.push({ name: "", role: "", user: "" }); });
     const save = async () => {
       saving.value = true; err.value = null;
       try {
@@ -2853,7 +2858,7 @@ const TeamPage = {
         rows.value = out.map((m) => ({ ...m })); toast("حُفظ الفريق");
       } catch (e) { err.value = e.message; } finally { saving.value = false; }
     };
-    return { rows, saving, err, save, t };
+    return { rows, saving, err, save, t, accounts, missing };
   },
   template: `
   <div :class="embedded ? '' : 'page'">
@@ -2862,7 +2867,9 @@ const TeamPage = {
       <div v-for="(r, i) in rows" :key="i" class="team-row">
         <input class="input" v-model="r.name" :aria-label="'الاسم ' + (i+1)" placeholder="الاسم">
         <input class="input" v-model="r.role" list="role-list" :aria-label="'الدور ' + (i+1)" placeholder="الدور (مصمم، طابع…)">
-        <input class="input" v-model="r.user" dir="ltr" type="email" :aria-label="'حساب الدخول ' + (i+1)" placeholder="بريد حساب الدخول">
+        <select class="input" v-model="r.user" :aria-label="'حساب الدخول ' + (i+1)"><option value="">بلا حساب دخول</option>
+          <option v-if="missing(r)" :value="r.user">{{ r.user }} (غير موجود)</option>
+          <option v-for="a in accounts" :key="a.name" :value="a.name">{{ a.full_name }} — {{ a.name }}</option></select>
         <button type="button" class="btn sm ghost icon-btn danger" :aria-label="'حذف ' + (r.name || 'السطر')" @click="rows.splice(i, 1)"><Icon name="trash" :size="16"/></button>
       </div>
       <RoleOptions/>
@@ -3042,6 +3049,10 @@ const SettingsPage = {
       if (!u) { link.value = { email: nu.email, url: r.link }; nu.email = ""; nu.full_name = ""; }
       await load();
     }, u ? "حُفظ الحساب" : "أُنشئ الحساب");
+    const addToTeam = (u) => run("team", async () => {
+      const team = await call("add_to_team", { email: u.name }, true);
+      state.boot.team_members = team; state.boot.team = team.map((m) => m.name); await load();
+    }, "أُضيف إلى الفريق");
     const resetLink = (u) => run("link", async () => { link.value = { email: u.name, url: await call("reset_link", { email: u.name }, true) }; });
     const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast("نُسخ الرابط"); } catch { /* user can select it */ } };
     // funds
@@ -3073,7 +3084,7 @@ const SettingsPage = {
       mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], folders: ["المجلدات", "مجلد لكل عميل ولكل بطاقة على هذا الحاسوب", saveFolders], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"] };
     const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
     return { fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
-      LIST_DEFS, renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
+      LIST_DEFS, addToTeam, renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
   },
   template: `
   <div class="cl st2">
@@ -3130,7 +3141,8 @@ const SettingsPage = {
               <div class="st2-fields">
                 <table class="cl-table st2-table"><thead><tr><th>الاسم</th><th>الصلاحية</th><th>الحالة</th><th></th></tr></thead><tbody>
                   <tr v-for="u in s.data.users" :key="u.name" style="cursor:default"><td><span class="cl-name">{{ u.full_name }}</span><span class="muted" style="display:block" dir="ltr">{{ u.name }}</span>
-                      <span class="muted" style="display:block">{{ u.member ? 'في الفريق باسم «' + u.member + '»' : 'غير مربوط باسم في الفريق' }}<template v-if="u.last_login"> · آخر دخول {{ ago(u.last_login) }}</template></span></td>
+                      <span class="muted" style="display:block">{{ u.member ? 'في الفريق باسم «' + u.member + '»' : 'غير مربوط باسم في الفريق' }}<template v-if="u.last_login"> · آخر دخول {{ ago(u.last_login) }}</template>
+                        <button v-if="!u.member" type="button" class="cl-link" style="margin-inline-start:6px" :disabled="!!busy" @click="addToTeam(u)">إضافة إلى الفريق</button></span></td>
                     <td><select class="input" style="width:auto;min-height:34px" v-model="u.role" :aria-label="'صلاحية ' + u.full_name"><option value="manager">مدير</option><option value="sales">بائع</option><option value="designer">مصمم</option><option value="printer">طباعة</option></select></td>
                     <td><label class="st2-check"><input type="checkbox" :checked="!!u.enabled" @change="u.enabled = $event.target.checked ? 1 : 0"><span>مفعّل</span></label></td>
                     <td class="n"><button type="button" class="cl-btn sm" :disabled="!!busy" @click="saveUser(u)">حفظ</button> <button type="button" class="cl-btn sm ghost" :disabled="!!busy" @click="resetLink(u)">رابط كلمة السر</button></td></tr>

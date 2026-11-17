@@ -317,7 +317,7 @@ def save_team(members):
 		name = (m.get("name") or "").strip()[:80]
 		if name and name not in seen:
 			seen.add(name)
-			out.append({"name": name, "role": (m.get("role") or "").strip()[:80], "user": (m.get("user") or "").strip()[:140]})
+			out.append({"name": name, "role": (m.get("role") or "").strip()[:80], "user": (m.get("user") or "").strip().lower()[:140]})
 	frappe.db.set_default("atelier_team", json.dumps(out, ensure_ascii=False))
 	return out
 
@@ -384,3 +384,22 @@ def demo_team_tags():
 		set_tags(name, json.dumps(tags, ensure_ascii=False))
 	frappe.db.commit()
 	return names
+
+
+def link_member(user, full_name=None):
+	"""Put a login in the team: link a same-named unlinked person, or add one. Does nothing if already linked."""
+	team = _team()
+	if any((m.get("user") or "").lower() == user.lower() for m in team):
+		return team
+	name = (full_name or frappe.utils.get_fullname(user) or user).strip()[:80]
+	same = next((m for m in team if m["name"].lower() == name.lower() and not m.get("user")), None)
+	if same:
+		same["user"] = user
+	else:
+		taken = {m["name"] for m in team}
+		base, n = name, 2
+		while name in taken:
+			name, n = f"{base} {n}", n + 1
+		team.append({"name": name, "role": "", "user": user})
+	frappe.db.set_default("atelier_team", json.dumps(team, ensure_ascii=False))
+	return team

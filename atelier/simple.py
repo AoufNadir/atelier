@@ -1613,7 +1613,29 @@ def save_user(email, full_name, role="sales", enabled=1):
 	user.save(ignore_permissions=True)
 	frappe.db.set_default("atelier_role", role, parent=user.name)
 	link = user._reset_password(send_email=False) if new else None
+	if new:
+		from atelier.production import link_member
+		link_member(user.name, user.full_name)
 	return {"name": user.name, "link": link}
+
+
+@frappe.whitelist(methods=["POST"])
+def add_to_team(email):
+	"""One click from Settings: the login becomes a person in the team, linked to it."""
+	_manager_only()
+	if not frappe.db.exists("User", email):
+		frappe.throw(_("الحساب غير موجود"))
+	from atelier.production import link_member
+	return link_member(email)
+
+
+@frappe.whitelist()
+def team_accounts():
+	"""Logins a team member can be linked to."""
+	if not frappe.has_permission("Project", "write"):
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	return frappe.get_all("User", filters={"user_type": "System User", "enabled": 1, "name": ["not in", ["Administrator", "Guest"]]},
+		fields=["name", "full_name"], order_by="full_name asc")
 
 
 @frappe.whitelist(methods=["POST"])

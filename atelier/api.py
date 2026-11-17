@@ -1262,3 +1262,4 @@ from atelier.folders import pull_files, save_settings as save_folders, sync_all 
 from atelier.calculator import calc_data, calc_order, delete_calc, get_calc, save_calc, save_margins  # noqa: E402, F401
 from atelier.simple import card_templates, save_card_template, delete_card_template  # noqa: E402, F401
 from atelier.simple import set_ui_scale, ui_scale  # noqa: E402, F401
+from atelier.simple import add_to_team, team_accounts  # noqa: E402, F401
