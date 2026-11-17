@@ -2372,3 +2372,23 @@ def delete_card_template(id):
 	items = [t for t in _card_templates() if t.get("id") != id]
 	frappe.db.set_default("atelier_card_templates", json.dumps(items, ensure_ascii=False))
 	return items
+
+
+# ---------------------------------------------------------------- display size (per user)
+UI_SCALES = ("0.85", "0.9", "1", "1.1")
+DEFAULT_UI_SCALE = "0.9"
+
+
+def ui_scale(user=None):
+	v = frappe.db.get_default("atelier_ui_scale", parent=user or frappe.session.user)
+	return float(v if v in UI_SCALES else DEFAULT_UI_SCALE)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_ui_scale(scale):
+	"""Each user picks the app's size for themselves; it follows them to any computer."""
+	v = str(scale).rstrip("0").rstrip(".") if "." in str(scale) else str(scale)
+	if v not in UI_SCALES:
+		frappe.throw(_("حجم غير صالح"))
+	frappe.defaults.set_user_default("atelier_ui_scale", v)
+	return float(v)

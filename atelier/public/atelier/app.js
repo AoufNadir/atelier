@@ -30,6 +30,12 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch { /* storage unavailable */ } },
 };
 
+// ------------------------------------------------------------------ display size (per user, saved on the server)
+const SCALES = [[0.85, "85%"], [0.9, "90%"], [1, "100%"], [1.1, "110%"]];
+const zoomOf = () => +document.documentElement.style.zoom || 1;
+function applyScale(z) { if (!SCALES.some((x) => x[0] === +z)) return; document.documentElement.style.zoom = z; document.documentElement.style.setProperty("--zoom", z); store.set("atelier.zoom", +z); }
+applyScale(store.get("atelier.zoom") ?? 0.9);
+
 // ------------------------------------------------------------------ API
 function serverMessage(data) {
   try {
@@ -1612,10 +1618,21 @@ const Board = {
     const paidCount = (col) => col.items.filter((c) => c.per_delivered >= 100 && c.paid >= c.grand_total - 0.005).length;
     // card menu
     const menu = ref(null), photoInput = ref(null);
-    const place = (ev, w) => { const r = ev.currentTarget.getBoundingClientRect(); return { top: Math.min(r.bottom + 6, window.innerHeight - 340), left: Math.min(Math.max(8, r.right - w), window.innerWidth - w - 8) }; };
-    const openMenu = (c, ev) => { stMenu.value = null; menu.value = { c, ...place(ev, 230) }; };
+    // menus are position:fixed inside a zoomed page: work in page pixels (screen pixels ÷ zoom)
+    const box = (el) => { const z = zoomOf(), r = el.getBoundingClientRect(); return { z, top: r.top / z, bottom: r.bottom / z, right: r.right / z, vh: window.innerHeight / z, vw: window.innerWidth / z }; };
+    const place = (ev, w) => { const r = box(ev.currentTarget); return { top: Math.min(r.bottom + 6, r.vh - 340), left: Math.min(Math.max(8, r.right - w), r.vw - w - 8) }; };
+    // after it renders, keep the menu on screen: below the button if it fits, else above, else pinned with its own scroll
+    const fitPop = (m, ev) => {
+      const r = box(ev.currentTarget);
+      nextTick(() => {
+        const el = document.querySelector(".tb-menu"); if (!el || !m.value) return;
+        const h = Math.min(el.scrollHeight, r.vh - 16), below = r.vh - r.bottom - 8, above = r.top - 8;
+        m.value.top = h <= below ? r.bottom + 6 : h <= above ? r.top - 6 - h : Math.max(8, r.vh - 8 - h);
+      });
+    };
+    const openMenu = (c, ev) => { stMenu.value = null; menu.value = { c, ...place(ev, 230) }; fitPop(menu, ev); };
     const stMenu = ref(null);
-    const openStatus = (c, ev) => { menu.value = null; stMenu.value = { c, ...place(ev, 230) }; };
+    const openStatus = (c, ev) => { menu.value = null; stMenu.value = { c, ...place(ev, 230) }; fitPop(stMenu, ev); };
     const pickStatus = async (list) => {
       const c = stMenu.value?.c; if (!c) return;
       const before = c.status; c.status = list;
@@ -1764,7 +1781,7 @@ const Board = {
       <button v-if="!s.data.worker" type="button" class="tm-pop-row" @click="act('template')"><Icon name="grid" :size="15"/>حفظ كقالب</button>
       <button type="button" class="tm-pop-row" @click="act('archive')"><Icon name="box" :size="15"/>أرشفة</button>
       <hr class="tm2-hr"><b>نقل إلى</b>
-      <button v-for="col in cfg.columns.filter(x => x.id !== menu.c.column)" :key="col.id" type="button" class="tm-pop-row" @click="act('move', col.id)"><i class="st-sw" :style="{background: col.color}"></i>{{ col.name }}</button>
+      <div class="tb-moves"><button v-for="col in cfg.columns.filter(x => x.id !== menu.c.column)" :key="col.id" type="button" class="tm-pop-row" @click="act('move', col.id)"><i class="st-sw" :style="{background: col.color}"></i><span class="ellipsis">{{ col.name }}</span></button></div>
       <template v-if="state.boot.can.order"><hr class="tm2-hr">
         <button v-if="!(menu.c.paid > 0.005) && !(menu.c.per_delivered > 0)" type="button" class="tm-pop-row tm3-danger" @click="act('delete')"><Icon name="trash" :size="15"/>حذف البطاقة</button>
         <span v-else class="m tm3-hint">عليها دفعة أو تسليم: أرشفها بدل الحذف.</span></template>
@@ -3660,7 +3677,7 @@ const App = {
     const bootErr = ref(null);
     const loadBoot = async () => {
       bootErr.value = null;
-      try { state.boot = await call("boot"); } catch (e) { bootErr.value = e.message; }
+      try { state.boot = await call("boot"); applyScale(state.boot.ui_scale); } catch (e) { bootErr.value = e.message; }
       call("orders").then((l) => (state.openOrders = l.length)).catch(() => {});
     };
     onMounted(async () => {
@@ -3679,7 +3696,12 @@ const App = {
       try { localStorage.removeItem("atelier.remember"); } catch { /* private mode */ }
       location.href = "/atelier-login";
     };
-    return { logout, state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials };
+    const sizeOpen = ref(false), zoom = ref(zoomOf());
+    const setScale = async (z) => { applyScale(z); zoom.value = z; try { await call("set_ui_scale", { scale: z }, true); } catch (e) { toast(e.message, "error"); } };
+    const closeSize = () => (sizeOpen.value = false);
+    onMounted(() => document.addEventListener("click", closeSize)); onBeforeUnmount(() => document.removeEventListener("click", closeSize));
+    watch(() => state.boot?.ui_scale, (v) => { if (v) zoom.value = v; });
+    return { logout, state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials, sizeOpen, zoom, setScale, SCALES };
   },
   template: `
   <div v-if="bootErr" class="page"><div class="alert error" role="alert"><span style="flex:1">{{ bootErr }}</span><button class="btn sm" @click="loadBoot">{{ t('retry') }}</button></div></div>
@@ -3700,6 +3722,10 @@ const App = {
       <div class="spacer"></div>
       <a v-if="state.boot.can.prices" class="nav" :class="{active: route.name==='settings'}" href="/atelier/settings" @click.prevent="go('/settings')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
       <div class="who-row"><span class="who-av">{{ initials(state.boot.full_name) }}</span><span class="who-txt"><span class="who-name">{{ state.boot.full_name }}</span><span class="who-role">{{ state.boot.can.prices ? t('role_manager') : 'موظف' }}</span></span>
+        <button type="button" class="who-out who-size" aria-label="حجم العرض" title="حجم العرض" :aria-expanded="sizeOpen" @click.stop="sizeOpen = !sizeOpen">Aa</button>
+        <div v-if="sizeOpen" class="who-pop" role="group" aria-label="حجم العرض" @click.stop><b>حجم العرض</b>
+          <div class="who-seg"><button v-for="x in SCALES" :key="x[0]" type="button" dir="ltr" :aria-pressed="zoom === x[0]" @click="setScale(x[0])">{{ x[1] }}</button></div>
+          <span class="m">خاص بك، ويبقى معك على أي حاسوب.</span></div>
         <button type="button" class="who-out" aria-label="تسجيل الخروج" title="تسجيل الخروج" @click="logout"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></button></div>
     </nav>
 

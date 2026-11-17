@@ -99,7 +99,7 @@ def boot():
 			"cost": _can("Cost Estimate", "read"),
 			"stock": _can("Bin", "read") and role != "designer",
 		},
-		"role": role, "worker": worker,
+		"role": role, "worker": worker, "ui_scale": ui_scale(),
 	}
 
 
@@ -1261,3 +1261,4 @@ from atelier.simple import money as money_simple  # noqa: E402, F401
 from atelier.folders import pull_files, save_settings as save_folders, sync_all as sync_folders  # noqa: E402, F401
 from atelier.calculator import calc_data, calc_order, delete_calc, get_calc, save_calc, save_margins  # noqa: E402, F401
 from atelier.simple import card_templates, save_card_template, delete_card_template  # noqa: E402, F401
+from atelier.simple import set_ui_scale, ui_scale  # noqa: E402, F401
