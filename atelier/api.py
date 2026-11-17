@@ -879,8 +879,15 @@ def stock():
 		order_by="posting_date desc, creation desc", limit=20,
 	)
 	names = {i["item_code"]: i["item_name"] for i in items.values()}
+	# an issue made for an order carries that order's project: show the order next to the move
+	entries = list({m.voucher_no for m in moves if m.voucher_type == "Stock Entry"}) or [""]
+	projects = dict(frappe.db.sql("select name, project from `tabStock Entry` where name in %s", [entries]))
+	orders = {r.project: r for r in frappe.get_all("Sales Order", filters={"project": ["in", [p for p in projects.values() if p] or [""]]},
+		fields=["name", "project", "atelier_subject"])}
 	for m in moves:
 		m.item_name = names.get(m.item_code, m.item_code)
+		so = orders.get(projects.get(m.voucher_no)) if m.voucher_type == "Stock Entry" else None
+		m.order, m.order_title = (so.name, so.atelier_subject or so.name) if so else (None, None)
 	return {"items": list(items.values()), "moves": moves, "can_value": _can("GL Entry"),
 		"can_buy": _can("Purchase Invoice", "create"), "can_issue": _can("Stock Entry", "create")}
 

@@ -3765,8 +3765,16 @@ const StockPage = {
     const { s, load } = useLoad(() => call("stock"));
     onMounted(load);
     const busy = ref(false), err = ref(null), q = ref(""), sheet = ref(null), orders = ref([]);
-    const items = computed(() => (s.data?.items || []).filter((i) => i.item_name.toLowerCase().includes(q.value.trim().toLowerCase())));
+    const onlyLow = ref(false), rowMenu = ref(null);
+    const items = computed(() => (s.data?.items || []).filter((i) => i.item_name.toLowerCase().includes(q.value.trim().toLowerCase()) && (!onlyLow.value || i.low)));
     const low = computed(() => (s.data?.items || []).filter((i) => i.low));
+    const totalValue = computed(() => (s.data?.items || []).reduce((a, i) => a + (+i.value || 0), 0));
+    // level bar: full at twice the minimum (or any stock when there is no minimum)
+    const level = (i) => Math.max(0, Math.min(100, i.safety_stock ? (i.qty / (2 * i.safety_stock)) * 100 : i.qty > 0 ? 100 : 0));
+    const shortBy = (i) => +(i.safety_stock - i.qty).toFixed(3);
+    const closeRow = () => (rowMenu.value = null);
+    onMounted(() => document.addEventListener("click", closeRow)); onBeforeUnmount(() => document.removeEventListener("click", closeRow));
+    const MOVE_TAG = { "Purchase Invoice": "st-buy", "Stock Entry": "st-out", "Stock Reconciliation": "st-cnt" };
     const units = computed(() => state.boot.units || []);
     const suppliers = computed(() => state.boot.suppliers || []);
     const open = async (kind, item) => {
@@ -3792,21 +3800,37 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom };
+    return { s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
-    <div class="row" style="gap:10px;padding:20px 28px 12px;flex-wrap:wrap"><h1 style="margin:0;font-size:24px">المخزون</h1><span style="flex:1"></span>
-      <input class="input" style="max-width:260px" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><button type="button" class="cl-btn primary" @click="open('add')"><Icon name="plus" :size="16"/>مادة جديدة</button></div>
+    <div class="stk-head"><h1>المخزون</h1><span class="spacer"></span>
+      <input class="input stk-q" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><button type="button" class="cl-btn primary" @click="open('add')"><Icon name="plus" :size="16"/>مادة جديدة</button></div>
     <div v-if="s.error" class="alert error" style="margin:0 28px 12px">{{ s.error }}</div>
-    <div v-if="low.length" class="alert error" style="margin:0 28px 12px">مواد تحت الحد الأدنى: {{ low.map((i) => i.item_name).join('، ') }}</div>
-    <div v-if="s.data" class="stock-body">
-      <section class="mn-card"><table class="cl-table mn-table"><thead><tr><th>المادة</th><th class="n">الكمية</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th>إجراء</th></tr></thead>
-        <tbody><tr v-for="i in items" :key="i.item_code"><td><b>{{ i.item_name }}</b></td><td class="n" :class="{'bd-late': i.low}">{{ i.qty }} {{ uom(i.uom) }}</td><td class="n">{{ i.safety_stock || '—' }}</td><td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
-          <td><div class="row" style="gap:4px;flex-wrap:wrap"><button v-if="s.data.can_buy" type="button" class="cl-btn sm" @click="open('buy', i)">شراء</button><button v-if="s.data.can_issue" type="button" class="cl-btn sm" :disabled="i.qty <= 0" @click="open('issue', i)">صرف</button><button type="button" class="cl-btn sm" @click="open('count', i)">جرد</button><button type="button" class="cl-btn sm" @click="open('edit', i)">تعديل</button><button type="button" class="cl-btn sm" @click="remove(i)">حذف</button></div></td></tr>
-          <tr v-if="!items.length"><td colspan="5" class="muted" style="text-align:center;padding:24px">لا مواد بعد. أضف مادة ثم سجّل رصيدها بالجرد أو الشراء.</td></tr></tbody></table></section>
+    <div v-if="s.data" class="stock-body stk">
+      <div class="stk-kpis">
+        <div class="stk-kpi"><span>عدد المواد</span><b>{{ s.data.items.length }}</b></div>
+        <div v-if="s.data.can_value" class="stk-kpi"><span>قيمة المخزون</span><b class="money">{{ money(totalValue) }}</b></div>
+        <button type="button" class="stk-kpi" :class="{warn: low.length}" :aria-pressed="onlyLow" @click="onlyLow = !onlyLow"><span>تحت الحد الأدنى{{ low.length ? ' — اضغط للعرض' : '' }}</span><b>{{ low.length }}</b></button>
+      </div>
+      <div class="stk-bar"><div class="cal2-seg" role="group" aria-label="تصفية"><button type="button" :aria-pressed="!onlyLow" @click="onlyLow = false">الكل</button><button type="button" :aria-pressed="onlyLow" @click="onlyLow = true">تحت الحد الأدنى<span v-if="low.length" class="stk-n">{{ low.length }}</span></button></div></div>
+      <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>المادة</th><th class="n">الكمية</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n">إجراء</th></tr></thead>
+        <tbody><tr v-for="i in items" :key="i.item_code" :class="{low: i.low}">
+          <td><b>{{ i.item_name }}</b><span class="m stk-sub">{{ uom(i.uom) }}<template v-if="i.low"> · ينقص {{ num(shortBy(i)) }}</template></span></td>
+          <td class="n"><div class="stk-lvl"><span class="stk-meter" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><b class="stk-qty">{{ num(i.qty) }}</b></div></td>
+          <td class="n"><span class="m">{{ i.safety_stock ? num(i.safety_stock) : '—' }}</span></td>
+          <td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
+          <td class="n"><div class="btn-row stk-acts"><button v-if="s.data.can_buy" type="button" class="cl-btn sm" @click="open('buy', i)">شراء</button><button v-if="s.data.can_issue" type="button" class="cl-btn sm" :disabled="i.qty <= 0" @click="open('issue', i)">صرف</button>
+            <button type="button" class="cl-btn sm" :aria-label="'إجراءات أخرى لـ ' + i.item_name" :aria-expanded="rowMenu === i.item_code" @click.stop="rowMenu = rowMenu === i.item_code ? null : i.item_code">▾</button>
+            <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop><button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></div></div></td></tr>
+          <tr v-if="!items.length"><td :colspan="s.data.can_value ? 5 : 4" class="muted" style="text-align:center;padding:24px">{{ onlyLow ? 'لا مواد تحت الحد الأدنى.' : 'لا مواد بعد. أضف مادة ثم سجّل رصيدها بالجرد أو الشراء.' }}</td></tr></tbody></table></section>
       <RecipesCard/>
-      <section v-if="s.data.moves.length" class="mn-card"><div class="mn-card-h"><b>آخر الحركات</b></div><table class="cl-table mn-table"><tbody><tr v-for="m in s.data.moves" :key="m.voucher_no + m.item_code"><td>{{ m.item_name }}</td><td>{{ MOVE[m.voucher_type] || m.voucher_type }}</td><td class="n" dir="ltr">{{ m.actual_qty }}</td><td class="n">{{ date(m.posting_date) }}</td></tr></tbody></table></section>
+      <section v-if="s.data.moves.length" class="mn-card stk-card"><div class="mn-card-h"><b>آخر الحركات</b></div><table class="cl-table stk-table">
+        <thead><tr><th>المادة</th><th>النوع</th><th class="n">الكمية</th><th>الطلب</th><th>التاريخ</th></tr></thead>
+        <tbody><tr v-for="m in s.data.moves" :key="m.voucher_no + m.item_code"><td>{{ m.item_name }}</td><td><span class="stk-tag" :class="MOVE_TAG[m.voucher_type]">{{ MOVE[m.voucher_type] || m.voucher_type }}</span></td>
+          <td class="n" :class="m.voucher_type === 'Stock Reconciliation' ? '' : m.actual_qty < 0 ? 'stk-minus' : 'stk-plus'" dir="ltr">{{ m.voucher_type === 'Stock Reconciliation' ? num(m.actual_qty) : (m.actual_qty < 0 ? '−' : '+') + num(Math.abs(m.actual_qty)) }}</td>
+          <td><a v-if="m.order" class="cl-link" :href="'/atelier/orders/' + m.order" @click.prevent="go('/orders/' + encodeURIComponent(m.order))">{{ m.order_title }}</a><span v-else class="m">—</span></td>
+          <td><span class="m">{{ date(m.posting_date) }}</span></td></tr></tbody></table></section>
     </div>
     <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><h2>{{ TITLES[sheet.kind] }}<template v-if="sheet.item"> · {{ sheet.item.item_name }}</template></h2></div>
       <div v-if="err" class="alert error">{{ err }}</div>
