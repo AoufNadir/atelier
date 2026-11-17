@@ -1812,18 +1812,18 @@ const Board = {
       <select class="input" :class="{on: fCust}" v-model="fCust" aria-label="العميل"><option value="">كل العملاء</option><option v-for="o in custOpts" :key="o[0]" :value="o[0]">{{ o[1] }}</option></select>
       <select v-if="memberOpts.length" class="input" :class="{on: fMember}" v-model="fMember" aria-label="العضو"><option value="">كل الأعضاء</option><option v-for="m in memberOpts" :key="m" :value="m">{{ m }}</option></select>
       <select class="input" :class="{on: label}" v-model="label" aria-label="الحالة أو الوسم"><option value="">كل الحالات والوسوم</option><optgroup label="الحالة"><option v-for="l in cfg.statuses" :key="l.id" :value="l.id">{{ l.name }}</option></optgroup><optgroup v-if="cfg.labels.length" label="الوسوم"><option v-for="l in cfg.labels" :key="l.id" :value="l.id">{{ l.name }}</option></optgroup></select>
-      <span class="tb-fsep"></span>
-      <button v-for="w in [['late','متأخرة'],['today','اليوم'],['week','هذا الأسبوع']]" :key="w[0]" type="button" class="tb-fchip" :class="w[0]" :aria-pressed="when === w[0]" @click="when = when === w[0] ? '' : w[0]">{{ w[1] }}</button>
+      <template v-if="view !== 'calendar'"><span class="tb-fsep"></span><button v-for="w in [['late','متأخرة'],['today','اليوم'],['week','هذا الأسبوع']]" :key="w[0]" type="button" class="tb-fchip" :class="w[0]" :aria-pressed="when === w[0]" @click="when = when === w[0] ? '' : w[0]">{{ w[1] }}</button></template>
       <button v-if="memberOpts.includes(me)" type="button" class="tb-fchip" :aria-pressed="mine" @click="mine = !mine">بطاقاتي</button>
       <button v-if="filtersOn" type="button" class="cl-link" @click="clearFilters">مسح التصفية</button>
+      <template v-if="view === 'calendar'"><span class="spacer"></span>
+        <b class="cal2-range">{{ calMode === 'week' ? date(days[0].iso) + ' — ' + date(days[6].iso, true) : monthTitle }}</b>
+        <div class="cal2-seg" role="group" aria-label="العرض"><button type="button" :aria-pressed="calMode === 'week'" @click="calMode = 'week'">أسبوع</button><button type="button" :aria-pressed="calMode === 'month'" @click="calMode = 'month'">شهر</button></div>
+        <div class="btn-row cal2-nav"><button type="button" class="cl-btn sm" aria-label="السابق" title="السابق" @click="calPrev">‹</button><button type="button" class="cl-btn sm" :class="{on: !weekStart && !monthOff}" @click="calToday">اليوم</button><button type="button" class="cl-btn sm" aria-label="التالي" title="التالي" @click="calNext">›</button></div></template>
     </div>
     <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
     <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
 
     <div v-else-if="view === 'calendar'" class="tb-cal cal2">
-      <div class="cal2-head"><b class="cal2-range">{{ calMode === 'week' ? date(days[0].iso) + ' — ' + date(days[6].iso, true) : monthTitle }}</b><span class="spacer"></span>
-        <div class="cal2-seg" role="group" aria-label="العرض"><button type="button" :aria-pressed="calMode === 'week'" @click="calMode = 'week'">أسبوع</button><button type="button" :aria-pressed="calMode === 'month'" @click="calMode = 'month'">شهر</button></div>
-        <div class="btn-row"><button type="button" class="cl-btn sm" @click="calPrev">‹ السابق</button><button type="button" class="cl-btn sm" :class="{on: !weekStart && !monthOff}" @click="calToday">اليوم</button><button type="button" class="cl-btn sm" @click="calNext">التالي ›</button></div></div>
       <div class="cal2-body"><div class="cal2-main">
         <section v-if="lateRows.length" class="cal2-late" aria-label="متأخرة"><h3>متأخرة <span class="cal2-n">{{ lateRows.length }}</span><span class="m">— اسحبها إلى يوم جديد</span></h3>
           <div class="cal2-late-row"><button v-for="c in lateRows" :key="c.name" type="button" class="cal2-ev" draggable="true" :style="{'--c': colOf(c).color}" @dragstart="dragging = c" @click="open = c.name">

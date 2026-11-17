@@ -2343,3 +2343,21 @@ button.stk-kpi { cursor: pointer; } button.stk-kpi:focus-visible { outline: 3px 
 .stk-tag { font-size: 12px; font-weight: 700; border-radius: 6px; padding: 1px 8px; }
 .st-buy { background: #ECFDF3; color: #067647; } .st-out { background: #FEF3F2; color: #B42318; } .st-cnt { background: #EFF8FF; color: #175CD3; }
 .stk-plus { color: #067647; font-weight: 700; } .stk-minus { color: #B42318; font-weight: 700; }
+
+/* ==== compact page bars: one header row, one filter row (orders page first) ==== */
+.cb .tb-head { padding: 10px 20px; gap: 8px; min-height: 54px; }
+.cb .tb-head h1 { font-size: 18px; } .cb .tb-head .cl-count { font-size: 12px; }
+.cb .cb-views button { height: 30px; font-size: 13px; padding: 0 10px; }
+.cb .cl-search { height: 32px; width: 260px; font-size: 13px; }
+.cb .tb-head .cl-btn { min-height: 32px; height: 32px; font-size: 13px; }
+.cb .tb-head .cl-btn.icon { width: 32px; padding: 0; justify-content: center; }
+.cb .tb-filters { padding: 8px 20px; gap: 6px; overflow: visible; }
+.cb .tb-filters select.input { height: 30px; min-height: 30px; font-size: 12.5px; padding-block: 0; }
+.cb .tb-fchip { height: 28px; font-size: 12.5px; padding: 0 10px; }
+.cb .tb-filters .cal2-range { font-size: 13px; }
+.cb .tb-filters .cal2-seg button { height: 28px; font-size: 12.5px; }
+.cb .tb-filters .cal2-nav .cl-btn { height: 28px; min-height: 28px; }
+.cb .tb-filters .cal2-nav .cl-btn:not(.on) { width: 30px; padding: 0; justify-content: center; }
+.cb .tb-filters .cl-btn.on { background: #EEEAFF; border-color: #C4B8F3; color: var(--primary); font-weight: 700; }
+.cb .tb-cal { padding: 0 20px 20px; }
+.cb .tb-cols { padding-top: 4px; }
