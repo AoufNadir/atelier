@@ -1129,9 +1129,9 @@ const BoardPanel = {
                     <button type="button" class="cl-link" @click="cardSet({final: ed.final === x.file_url ? '' : x.file_url})">{{ ed.final === x.file_url ? '✓ نهائي' : 'نهائي' }}</button>
                     <button type="button" class="cl-link bad" @click="delFile(x)">حذف</button></span></div></div>
               <span v-if="(editing ? !files.length : !queued.length)" class="m">لا مرفقات. أضف الشعار أو ملف التصميم أو صورة من الهاتف.</span>
-              <div v-if="editing && ed" class="od-cover"><span class="m">لون الغلاف:</span><button v-for="c in COVER_COLORS" :key="c" type="button" class="bs-sw" :style="{background: c}" :aria-pressed="!ed.cover && ed.cover_color === c" :aria-label="'لون ' + c" @click="cardSet({cover: '', cover_color: c})"></button>
-                <button v-if="ed.cover || ed.cover_color" type="button" class="cl-link" @click="cardSet({cover: '', cover_color: ''})">بلا غلاف</button></div>
-              <div v-if="editing && ed && ed.folder" class="od-folder"><span class="m">المجلد:</span><code dir="ltr">{{ ed.folder }}</code><a class="cl-btn sm" :href="folderLink(ed.folder)" title="يفتح المجلد في مستكشف Windows" @click="folderHint"><Icon name="file" :size="14"/>فتح المجلد</a><button type="button" class="cl-link" @click="copyPath">نسخ المسار</button></div></div></section>
+              <div v-if="editing && ed" class="od-meta"><div class="od-cover"><span class="od-k">الغلاف</span><button v-for="c in COVER_COLORS" :key="c" type="button" class="bs-sw" :style="{background: c}" :aria-pressed="!ed.cover && ed.cover_color === c" :aria-label="'لون ' + c" @click="cardSet({cover: '', cover_color: c})"></button>
+                <button type="button" class="bs-sw none" :aria-pressed="!ed.cover && !ed.cover_color" title="بلا غلاف" aria-label="بلا غلاف" @click="cardSet({cover: '', cover_color: ''})"></button></div>
+              <div v-if="ed.folder" class="od-folder"><span class="od-k">المجلد</span><div class="od-path"><code dir="ltr" :title="ed.folder">{{ ed.folder }}</code><button type="button" class="od-pbtn" title="نسخ المسار" @click="copyPath">نسخ</button><a class="od-pbtn pri" :href="folderLink(ed.folder)" title="يفتح المجلد في مستكشف Windows" @click="folderHint">فتح المجلد</a></div></div></div></div></section>
 
           <section v-if="editing && ed && state.boot.can.finance && isOpen('cost')" class="od-card"><div class="od-ch"><Icon name="calc" :size="18"/><b>التكلفة</b><button type="button" class="od-fold" aria-label="طي التكلفة" title="طي" @click="secOpen.cost = false"><Icon name="x" :size="14"/></button><span class="m od-r">للمدير فقط</span></div>
             <div class="od-pad"><CostSection :name="ed.name" :key="ed.name"/></div></section>
@@ -1247,12 +1247,21 @@ const ago = (iso) => { const m = Math.round((Date.now() - new Date(String(iso).r
 
 const BoardCard = {
   props: ["c", "labels", "statuses", "busy", "dropBefore", "columns"], emits: ["open", "drag", "dropon", "menu", "status", "hover"], components: { Avatar, Icon },
-  setup(props) {
+  setup(props, { emit }) {
     const sts = computed(() => (props.statuses || []).filter((x) => (props.c.status || []).includes(x.id)));
-    return { sts, inkOn, labelStyle, dueWord, daysFromToday, money };
+    // a lifted, slightly tilted copy follows the pointer; the card left behind fades
+    const dragStart = (e) => {
+      const el = e.currentTarget, ghost = el.cloneNode(true), r = el.getBoundingClientRect();
+      ghost.classList.add("tc-ghost"); ghost.style.width = r.width + "px"; document.body.appendChild(ghost);
+      e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", props.c.name);
+      e.dataTransfer.setDragImage(ghost, Math.min(e.offsetX || 30, r.width - 10), 20);
+      setTimeout(() => { ghost.remove(); el.classList.add("is-dragging"); }, 0);
+      emit("drag", props.c);
+    };
+    return { dragStart, sts, inkOn, labelStyle, dueWord, daysFromToday, money };
   },
   template: `
-  <article class="tc tc2" :class="{busy, 'drop-before': dropBefore}" draggable="true" tabindex="0" @dragstart="$emit('drag', c)" @click="$emit('open', c)" @keydown.enter="$emit('open', c)"
+  <article class="tc tc2" :class="{busy, 'drop-before': dropBefore}" draggable="true" tabindex="0" @dragstart="dragStart($event)" @dragend="$el.classList.remove('is-dragging')" @click="$emit('open', c)" @keydown.enter="$emit('open', c)"
      @contextmenu.prevent.stop="$emit('menu', c, $event)" @mouseenter="$emit('hover', c)" @mouseleave="$emit('hover', null)" @focus="$emit('hover', c)"
     @dragover.prevent.stop="$emit('dropon', c, false)" @drop.prevent.stop="$emit('dropon', c, true)" :aria-label="c.title + ' — ' + c.customer_name">
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
@@ -1425,6 +1434,15 @@ const Board = {
     const renameCol = async () => { const v = colName.value.trim(), m = colMenu.value; if (!m || !v || v === m.col.name) return; colMenu.value = null; await editCol(m.col.id, { name: v }); toast("تغيّر اسم العمود"); };
     const setColColor = async (color) => { const m = colMenu.value; if (!m) return; m.col.color = color; await editCol(m.col.id, { color }); };
     const hideCol = async (on, id) => { colMenu.value = null; more.value = false; await editCol(id, on ? { hidden: 1 } : { hidden: 0 }); };
+    // drag a column by its title to change the order (manager)
+    const colDrag = ref(null), colOver = ref(null);
+    const colDragStart = (c, e) => { if (!s.data?.manager) return; colDrag.value = c.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "col:" + c.id); };
+    const colDrop = async (target) => {
+      const from = colDrag.value; colDrag.value = null; colOver.value = null; if (!from || from === target.id) return;
+      const list = cfg.value.columns.map((c) => ({ ...c })), a = list.findIndex((c) => c.id === from), b = list.findIndex((c) => c.id === target.id);
+      const [m] = list.splice(a, 1); list.splice(b, 0, m); cfg.value.columns.splice(0, cfg.value.columns.length, ...list);
+      await saveCols(list); toast("تغيّر ترتيب الأعمدة");
+    };
     const sortCol = (id, k) => { if (k) colSort[id] = k; else delete colSort[id]; colMenu.value = null; };
     const moveAll = async (from, to) => {
       colMenu.value = null; const list = (s.data?.cards || []).filter((c) => c.column === from.id); if (!list.length) return;
@@ -1603,7 +1621,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { colDrag, colOver, colDragStart, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -1680,8 +1698,9 @@ const Board = {
 
     <div v-else class="tb-cols">
       <section v-for="c in cols" :key="c.id" class="tb-col" :class="{over: over === c.id, deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name" :style="{'--cc': c.color}"
-        @dragover.prevent="over = c.id; before = null" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="drop(c.id)">
-        <h2 class="tb-ch"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
+        @dragover.prevent="dragging && (over = c.id, before = null)" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="drop(c.id)">
+        <h2 class="tb-ch" :draggable="!!s.data.manager" :class="{'col-drag': colDrag === c.id, 'col-drop': colOver === c.id && colDrag && colDrag !== c.id}"
+          @dragstart.stop="colDragStart(c, $event)" @dragend="colDrag = null; colOver = null" @dragover="colDrag && ($event.preventDefault(), colOver = c.id)" @drop.stop="colDrop(c)"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
           <span class="bd-n" :class="{over: c.limit && c.items.length > c.limit}">{{ c.items.length }}<template v-if="c.limit"> / {{ c.limit }}<template v-if="c.items.length > c.limit"> !</template></template></span>
           <button type="button" class="tb-cdots" :aria-label="'خيارات العمود ' + c.name" :aria-expanded="colMenu && colMenu.col.id === c.id" @click.stop="openColMenu(c, $event)"><Icon name="more" :size="16"/></button></h2>
         <div v-if="(c.sum && !s.data.worker) || c.late || c.unpriced || colSort[c.id]" class="tb-cstat">
@@ -1695,6 +1714,7 @@ const Board = {
             :class="{'tc-flash': flash && flash.col === c.id && (flash.kind === 'late' ? isLate(card) : card.price_pending)}"
             @open="open = card.name" @drag="dragging = $event" @dropon="dropOn" @menu="openMenu" @status="openStatus" @hover="hovered = $event"/>
         </TransitionGroup>
+        <div v-if="dragging && over === c.id && !before && dragging.column !== c.id" class="tb-ph" aria-hidden="true"></div>
         <button v-if="c.deliver && paidCount(c)" type="button" class="tb-addbtn" @click="archivePaid(c.id)">أرشفة المدفوع كله ({{ paidCount(c) }})</button>
         <template v-if="!c.deliver">
           <form v-if="adding === c.id" class="tb-add" @submit.prevent="addCard(c.id)">
