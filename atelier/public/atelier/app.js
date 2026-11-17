@@ -1,5 +1,5 @@
 // Atelier daily app — Vue 3 (vendored, no build step) on top of the ERPNext API (atelier.api).
-import { createApp, reactive, ref, computed, watch, onMounted, onBeforeUnmount, nextTick, h, TransitionGroup } from "./vendor/vue.esm-browser.prod.js";
+import { createApp, reactive, ref, computed, watch, onMounted, onBeforeUnmount, nextTick, h, TransitionGroup, provide, inject } from "./vendor/vue.esm-browser.prod.js";
 // Strings follow the app's cache-busting version (?v=…) so text updates are never stale.
 const { default: STR } = await import(`./i18n/ar.js${new URL(import.meta.url).search}`);
 
@@ -2663,7 +2663,8 @@ const TeamPage = {
         rows.value = out.map((m) => ({ ...m })); toast("حُفظ الفريق");
       } catch (e) { err.value = e.message; } finally { saving.value = false; }
     };
-    return { rows, saving, err, save, t, accounts, missing };
+    const form = useSettingsForm("team", () => rows.value, () => { rows.value = (state.boot.team_members || []).map((m) => ({ ...m })); if (!rows.value.length) rows.value.push({ name: "", role: "", user: "" }); }, async () => { await save(); return !err.value; });
+    return { rows, saving, err, save, t, accounts, missing, inSettings: !!form };
   },
   template: `
   <div :class="embedded ? '' : 'page'">
@@ -2680,7 +2681,7 @@ const TeamPage = {
       <RoleOptions/>
       <div v-if="err" class="alert error" role="alert">{{ err }}</div>
       <div class="row" style="gap:8px"><button type="button" class="btn chip dashed" @click="rows.push({name:'', role:'', user:''})">+ إضافة شخص</button><span class="spacer"></span>
-        <button type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? t('of_saving') : 'حفظ' }}</button></div>
+        <button v-if="!inSettings" type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? t('of_saving') : 'حفظ' }}</button></div>
     </div>
   </div>`,
 };
@@ -2691,7 +2692,8 @@ const BoardSettings = {
     const { s, load } = useLoad(() => call("board2"));
     onMounted(load);
     const tab = ref(props.only || "columns"), cols = ref([]), labels = ref([]), statuses = ref([]), moves = reactive({}), removed = ref([]), saving = ref(false), err = ref(null);
-    watch(() => s.data, (v) => { if (v) { cols.value = v.config.columns.map((c) => ({ ...c })); labels.value = v.config.labels.map((l) => ({ ...l })); statuses.value = (v.config.statuses || []).map((l) => ({ ...l })); removed.value = []; } });
+    const fill = (v) => { cols.value = v.config.columns.map((c) => ({ ...c })); labels.value = v.config.labels.map((l) => ({ ...l })); statuses.value = (v.config.statuses || []).map((l) => ({ ...l })); removed.value = []; };
+    watch(() => s.data, (v) => { if (v) { fill(v); nextTick(() => boardForm?.clean()); } });
     const count = (id) => (s.data?.cards || []).filter((c) => c.column === id).length;
     const lcount = (id) => (s.data?.cards || []).filter((c) => c.labels.includes(id) || (c.status || []).includes(id)).length;
     const up = (l, i, dir) => { const j = i + dir; if (j < 0 || j >= l.length) return; [l[i], l[j]] = [l[j], l[i]]; };
@@ -2714,7 +2716,12 @@ const BoardSettings = {
       try { const v = await call("save_calendar", { day_limit: cal.day_limit, off_days: JSON.stringify(cal.off_days) }, true); Object.assign(cal, v); toast("حُفظت إعدادات التقويم"); }
       catch (e) { err.value = e.message; } finally { saving.value = false; }
     };
-    return { statuses, s, tab, cols, labels, moves, removed, saving, err, count, lcount, up, delCol, setDeliver, save, BOARD_COLORS, COVER_COLORS, labelStyle, go, cal, CAL_DAYS, flipOff, saveCal };
+    const inSettings = !!inject("stForms", null);
+    const boardForm = props.only === "calendar"
+      ? useSettingsForm("calendar", () => cal, () => { const v = s.data?.calendar; if (v) Object.assign(cal, { day_limit: v.day_limit, off_days: [...v.off_days] }); }, async () => { await saveCal(); return !err.value; })
+      : props.only ? useSettingsForm("board:" + props.only, () => ({ c: cols.value, l: labels.value, s: statuses.value }), () => s.data && fill(s.data), async () => { await save(); return !err.value; }) : null;
+    watch(() => s.data?.calendar, () => nextTick(() => props.only === "calendar" && boardForm?.clean()));
+    return { inSettings, statuses, s, tab, cols, labels, moves, removed, saving, err, count, lcount, up, delCol, setDeliver, save, BOARD_COLORS, COVER_COLORS, labelStyle, go, cal, CAL_DAYS, flipOff, saveCal };
   },
   template: `
   <div class="page">
@@ -2767,16 +2774,27 @@ const BoardSettings = {
       <div class="cl-fgroup"><span>أيام العطلة</span><div class="bs-days"><label v-for="d in CAL_DAYS" :key="d[0]" class="st2-check"><input type="checkbox" :checked="cal.off_days.includes(d[0])" @change="flipOff(d[0])"><span>{{ d[1] }}</span></label></div>
         <span class="m">تظهر رمادية في التقويم. الأسبوع يبدأ السبت.</span></div>
       <div v-if="err" class="alert error" role="alert">{{ err }}</div>
-      <div class="row" style="justify-content:flex-end"><button type="button" class="btn primary" :disabled="saving" @click="saveCal">{{ saving ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
+      <div v-if="!inSettings" class="row" style="justify-content:flex-end"><button type="button" class="btn primary" :disabled="saving" @click="saveCal">{{ saving ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
     </div>
     <template v-if="tab !== 'team' && tab !== 'calendar' && s.data">
       <div v-if="err" class="alert error" role="alert" style="margin-top:12px">{{ err }}</div>
-      <div class="row" style="justify-content:flex-end;margin-top:16px"><button type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
+      <div v-if="!inSettings" class="row" style="justify-content:flex-end;margin-top:16px"><button type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
     </template>
   </div>`,
 };
 
 // ------------------------------------------------------------------ settings (/atelier/settings), manager only
+// one save bar for all settings: each form says when it differs from what was loaded, and how to save or undo
+function useSettingsForm(id, read, reset, save, own) {
+  const reg = own || inject("stForms", null); if (!reg) return null;
+  const snap = ref(JSON.stringify(read()));
+  const form = reactive({ id, dirty: computed(() => JSON.stringify(read()) !== snap.value),
+    clean: () => { snap.value = JSON.stringify(read()); },
+    save: async () => { const ok = await save(); if (ok !== false) snap.value = JSON.stringify(read()); return ok !== false; },
+    reset: async () => { await reset(); await nextTick(); snap.value = JSON.stringify(read()); } });
+  onMounted(() => reg.set(id, form)); onBeforeUnmount(() => reg.delete(id));
+  return form;
+}
 const SETTINGS_GROUPS = [
   ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"]]],
   ["العمل", [["team", "users", "الفريق والحسابات"], ["columns", "grid", "أعمدة اللوحة"], ["statuses", "tag", "الحالات والوسوم"], ["calendar", "calendar", "التقويم"],
@@ -2842,10 +2860,11 @@ const ListEditor = {
       try {
         const out = await call("save_list", { key: props.def.key, rows: JSON.stringify(rows.value) }, true);
         if (props.def.key === "units") state.boot.units = out; else state.boot.lists[props.def.key] = out;
-        rows.value = out.map((r) => ({ ...r })); toast("حُفظت القائمة");
-      } catch (e) { toast(e.message, "error"); } finally { busy.value = false; }
+        rows.value = out.map((r) => ({ ...r })); toast("حُفظت القائمة"); return true;
+      } catch (e) { toast(e.message, "error"); return false; } finally { busy.value = false; }
     };
-    return { rows, busy, add, shift, save };
+    const form = useSettingsForm("list:" + props.def.key, () => rows.value, () => { rows.value = current().map((r) => ({ ...r })); }, () => save());
+    return { rows, busy, add, shift, save, inSettings: !!form };
   },
   template: `
   <div class="st2-grp"><div class="st2-lbl"><b>{{ def.title }}</b><span>{{ def.hint }}</span></div>
@@ -2856,7 +2875,7 @@ const ListEditor = {
           <input v-else class="input" :type="c[2] === 'number' ? 'number' : 'text'" :min="c[2] === 'number' ? 0 : null" v-model="r[c[0]]" :aria-label="c[1]" :placeholder="c[1]"></template>
         <button type="button" class="cl-btn sm" :disabled="i === 0" :aria-label="'رفع ' + (i + 1)" @click="shift(i, -1)">↑</button>
         <button type="button" class="cl-btn sm" :aria-label="'حذف ' + (i + 1)" @click="rows.splice(i, 1)">×</button></div>
-      <div class="row" style="gap:8px"><button type="button" class="cl-btn sm" @click="add">+ إضافة</button><button type="button" class="cl-btn primary sm" :disabled="busy" @click="save">حفظ</button></div></div></div>`,
+      <div class="row" style="gap:8px"><button type="button" class="cl-btn sm" @click="add">+ إضافة</button><button v-if="!inSettings" type="button" class="cl-btn primary sm" :disabled="busy" @click="save">حفظ</button></div></div></div>`,
 };
 
 const SettingsPage = {
@@ -2864,13 +2883,15 @@ const SettingsPage = {
   setup(props) {
     const { s, load } = useLoad(() => call("settings"));
     onMounted(load);
+    const forms = reactive(new Map()); provide("stForms", forms);
+    const dirtyForms = computed(() => [...forms.values()].filter((x) => x.dirty));
     const tab = ref({ board: "columns" }[props.start || state.query.get("tab")] || props.start || state.query.get("tab") || "profile");
     const sq = ref("");
     const norm = (x) => String(x || "").toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     const sres = computed(() => { const q = norm(sq.value.trim()); if (!q) return [];
       const title = Object.fromEntries(SETTINGS_GROUPS.flatMap((g) => g[1].map((x) => [x[0], x[2]])));
       return SETTINGS_INDEX.filter((x) => norm(x[0] + " " + x[2]).includes(q)).slice(0, 6).map((x) => ({ tab: x[1], sec: x[2], page: title[x[1]] })); });
-    const goSearch = (x) => { tab.value = x.tab; sq.value = ""; nextTick(() => { const el = [...document.querySelectorAll(".st2-lbl b, .st2-body h3, .st2-body b")].find((b) => b.textContent.trim() === x.sec);
+    const goSearch = (x) => { sq.value = ""; if (dirtyForms.value.length && x.tab !== tab.value) { leaveTo.value = x.tab; return; } tab.value = x.tab; nextTick(() => { const el = [...document.querySelectorAll(".st2-lbl b, .st2-body h3, .st2-body b")].find((b) => b.textContent.trim() === x.sec);
       if (el) { el.scrollIntoView({ block: "center" }); const g = el.closest(".st2-grp") || el.parentElement; g?.classList.add("st2-hl"); setTimeout(() => g?.classList.remove("st2-hl"), 1800); g?.querySelector("input, select, textarea")?.focus(); } }); };
     // what a workshop still needs before official invoices
     const READY = [["name_ar", "الاسم"], ["phone", "الهاتف"], ["address", "العنوان"], ["logo", "الشعار"], ["rc", "RC"], ["nif", "NIF"]];
@@ -2932,7 +2953,21 @@ const SettingsPage = {
       lists: ["القوائم", "وحدات البيع والأوسام ومواعيد التسليم وأنواع التكلفة والأدوار"], funds: ["الدفع والصناديق", "أسماء الصناديق وطرق الدفع"], alerts: ["التنبيهات", "ما يصل إلى جرس كل عضو", saveAlerts],
       mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], folders: ["المجلدات", "مجلد لكل عميل ولكل بطاقة على هذا الحاسوب", saveFolders], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"] };
     const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
-    return { sq, sres, goSearch, ready, navFlag, fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
+    // own forms (profile, documents, alerts, mail, folders): clean once the settings load
+    const loaded = (v) => JSON.parse(JSON.stringify(v));
+    let base = {};
+    const own = [["profile", p, saveProfile], ["docs", docs, saveDocs], ["alerts", alerts, saveAlerts], ["mail", mail, saveMail], ["folders", fold, saveFolders]];
+    const ownForms = own.map(([id, obj, fn]) => useSettingsForm("own:" + id, () => obj, () => Object.assign(obj, base[id] || {}), async () => { await fn(); return !err.value; }, forms));
+    watch(() => s.data, () => nextTick(() => { own.forEach(([id, obj]) => (base[id] = loaded(obj))); ownForms.forEach((x) => x?.clean()); }));
+    const saving2 = ref(false);
+    const saveAll = async () => { saving2.value = true; try { for (const x of dirtyForms.value) { if (!(await x.save())) return false; } return true; } finally { saving2.value = false; } };
+    const undoAll = async () => { for (const x of dirtyForms.value) await x.reset(); };
+    const leaveTo = ref(null);
+    const switchTab = (t) => { if (t === tab.value) return; if (dirtyForms.value.length) { leaveTo.value = t; return; } tab.value = t; };
+    const leave = async (how) => { const t = leaveTo.value; leaveTo.value = null; if (how === "save" && !(await saveAll())) return; if (how === "drop") await undoAll(); tab.value = t; };
+    const onUnload = (e) => { if (dirtyForms.value.length) { e.preventDefault(); e.returnValue = ""; } };
+    onMounted(() => window.addEventListener("beforeunload", onUnload)); onBeforeUnmount(() => window.removeEventListener("beforeunload", onUnload));
+    return { dirtyForms, saveAll, undoAll, saving2, leaveTo, switchTab, leave, sq, sres, goSearch, ready, navFlag, fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
       LIST_DEFS, addToTeam, renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
   },
   template: `
@@ -2943,7 +2978,7 @@ const SettingsPage = {
         <span v-if="!sres.length" class="muted">لا نتيجة.</span></div>
       <template v-for="g in SETTINGS_GROUPS" :key="g[0]">
         <span class="st2-group">{{ g[0] }}</span>
-        <button v-for="x in g[1]" :key="x[0]" type="button" :aria-current="tab === x[0] ? 'page' : null" @click="tab = x[0]"><Icon :name="x[1]" :size="17"/>{{ x[2] }}
+        <button v-for="x in g[1]" :key="x[0]" type="button" :aria-current="tab === x[0] ? 'page' : null" @click="switchTab(x[0])"><Icon :name="x[1]" :size="17"/>{{ x[2] }}
           <span v-if="navFlag(x[0]) === 'dot'" class="st2-dot" title="يحتاج انتباهًا"></span><span v-else-if="navFlag(x[0])" class="st2-flag">{{ navFlag(x[0]) }}</span></button>
       </template>
     </nav>
@@ -2952,7 +2987,7 @@ const SettingsPage = {
         <div class="cl-head-row"><div style="min-width:0"><h1>{{ meta.title }}</h1><div class="muted">{{ meta.desc }}</div></div><span class="spacer"></span>
           <button v-if="tab === 'profile' || tab === 'docs'" type="button" class="cl-btn" @click="preview = true"><Icon name="file" :size="16"/>معاينة الفاتورة</button>
           <button v-if="tab === 'prices' && state.boot.can.prices" type="button" class="cl-btn primary" @click="state.sheet = {type: 'item'}"><Icon name="plus" :size="16"/>خدمة جديدة</button>
-          <button v-if="meta.save" type="button" class="cl-btn primary" :disabled="!!busy" @click="meta.save()">{{ busy ? 'جارٍ الحفظ…' : 'حفظ التغييرات' }}</button></div>
+</div>
       </header>
       <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
       <div v-else-if="s.error" class="alert error" style="margin:20px 32px">{{ s.error }}</div>
@@ -3101,6 +3136,11 @@ const SettingsPage = {
         </div>
       </div>
     </div>
+    <div v-if="dirtyForms.length" class="st2-savebar" role="status">لديك {{ dirtyForms.length === 1 ? 'تغيير غير محفوظ' : 'تغييرات غير محفوظة في ' + dirtyForms.length + ' أقسام' }}
+      <button type="button" class="cl-btn sm st2-ghost" :disabled="saving2" @click="undoAll">تراجع</button><button type="button" class="cl-btn primary sm" :disabled="saving2" @click="saveAll">{{ saving2 ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
+    <div v-if="leaveTo" class="overlay tm3-confirm tb-confirm" role="alertdialog" aria-modal="true" aria-labelledby="st-leave-h" @click.self="leaveTo = null">
+      <div class="tm3-cbox"><b id="st-leave-h">تغييرات غير محفوظة</b><p>لم تحفظ تعديلاتك في هذا القسم. ماذا تريد قبل الانتقال؟</p>
+        <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="cl-btn" @click="leaveTo = null">البقاء</button><button type="button" class="cl-btn" @click="leave('drop')">تجاهل</button><button type="button" class="cl-btn primary" @click="leave('save')">حفظ والانتقال</button></div></div></div>
   </div>`,
 };
 
