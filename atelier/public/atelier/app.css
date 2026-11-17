@@ -2253,3 +2253,11 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
 .who-row .sz-pop { top: auto; bottom: calc(100% + 8px); }
 .who-row .sz-pop { left: auto; right: 0; }
 .who-row .sz-host { position: static; } .who-row .sz-pop { left: 0; right: 0; width: auto; }
+
+/* card menu: new quick items and their sub-views */
+.tb-menu .tb-new .tb-ch, .tb-menu .tb-ch { margin-inline-start: auto; color: #98A2B3; }
+.tb-menu .tb-new { background: #F7F5FF; } .tb-menu .tb-new:hover { background: #EEEAFF; }
+.tb-menu .tb-ok { margin-inline-start: auto; color: var(--primary); font-size: 13px; padding: 0; }
+.tb-menu .tb-back { font-size: 12px; color: #667085; }
+.tb-due-q { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 6px 8px; }
+.tb-due-in { margin: 0 6px 4px; width: calc(100% - 12px); min-height: 34px; }

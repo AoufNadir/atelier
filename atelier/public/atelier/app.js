@@ -998,13 +998,14 @@ const ago = (iso) => { const m = Math.round((Date.now() - new Date(String(iso).r
   return m < 1 ? "الآن" : m < 60 ? `منذ ${m} دقيقة` : m < 1440 ? `منذ ${Math.round(m / 60)} ساعة` : `منذ ${Math.round(m / 1440)} يوم`; };
 
 const BoardCard = {
-  props: ["c", "labels", "statuses", "busy", "dropBefore", "columns"], emits: ["open", "drag", "dropon", "menu", "status"], components: { Avatar, Icon },
+  props: ["c", "labels", "statuses", "busy", "dropBefore", "columns"], emits: ["open", "drag", "dropon", "menu", "status", "hover"], components: { Avatar, Icon },
   setup(props) {
     const sts = computed(() => (props.statuses || []).filter((x) => (props.c.status || []).includes(x.id)));
     return { sts, inkOn, labelStyle, dueWord, daysFromToday, money };
   },
   template: `
   <article class="tc tc2" :class="{busy, 'drop-before': dropBefore}" draggable="true" tabindex="0" @dragstart="$emit('drag', c)" @click="$emit('open', c)" @keydown.enter="$emit('open', c)"
+     @contextmenu.prevent.stop="$emit('menu', c, $event)" @mouseenter="$emit('hover', c)" @mouseleave="$emit('hover', null)" @focus="$emit('hover', c)"
     @dragover.prevent.stop="$emit('dropon', c, false)" @drop.prevent.stop="$emit('dropon', c, true)" :aria-label="c.title + ' — ' + c.customer_name">
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
     <div v-else-if="c.cover_color" class="tc2-band" :style="{background: c.cover_color}"></div>
@@ -1100,12 +1101,24 @@ const CostSection = {
 };
 
 const CardModal = {
-  props: ["name", "config"], emits: ["close", "changed", "open"], components: { Icon, Avatar, CustomerField, CostSection, StatusMenu },
+  props: ["name", "config", "me"], emits: ["close", "changed", "open"], components: { Icon, Avatar, CustomerField, CostSection, StatusMenu },
   setup(props, { emit }) {
     const d = ref(null), err = ref(null), busy = ref(false), fileInput = ref(null);
     const labels = computed(() => Object.fromEntries(props.config.labels.map((l) => [l.id, l])));
     const load = async () => { try { d.value = await call("card", { name: props.name }); } catch (e) { err.value = e.message; } };
     onMounted(load);
+    // Space inside the open card (not while typing): take the card or let it go
+    const onSpace = (e) => {
+      if (e.code !== "Space" || e.ctrlKey || e.altKey || e.metaKey || !d.value || busy.value) return;
+      const t = e.target; if (t instanceof HTMLElement && (t.matches("input, textarea, select, button, [contenteditable]") || t.isContentEditable)) return;
+      if (document.querySelector(".tm3-confirm, .tb-confirm")) return;
+      e.preventDefault();
+      if (!props.me) { toast("اربط حسابك بشخص في الإعدادات ← الفريق لتأخذ البطاقات.", "error"); return; }
+      const had = (d.value.members || []).includes(props.me);
+      save({ members: had ? d.value.members.filter((x) => x !== props.me) : [...(d.value.members || []), props.me] });
+      toast(had ? "أُزلت من البطاقة" : "أُضفت إلى البطاقة");
+    };
+    onMounted(() => window.addEventListener("keydown", onSpace)); onBeforeUnmount(() => window.removeEventListener("keydown", onSpace));
     const save = async (changes) => {
       busy.value = true; err.value = null;
       try { d.value = await call("update_card", { name: props.name, changes: JSON.stringify(changes) }, true); emit("changed"); }
@@ -1649,18 +1662,43 @@ const Board = {
     // card menu
     const menu = ref(null), photoInput = ref(null);
     // menus are position:fixed inside a zoomed page: work in page pixels (screen pixels ÷ zoom)
-    const box = (el) => { const z = zoomOf(), r = el.getBoundingClientRect(); return { z, top: r.top / z, bottom: r.bottom / z, right: r.right / z, vh: window.innerHeight / z, vw: window.innerWidth / z }; };
-    const place = (ev, w) => { const r = box(ev.currentTarget); return { top: Math.min(r.bottom + 6, r.vh - 340), left: Math.min(Math.max(8, r.right - w), r.vw - w - 8) }; };
+    const box = (ev) => {
+      const z = zoomOf(), vh = window.innerHeight / z, vw = window.innerWidth / z;
+      if (ev.type === "contextmenu") { const x = ev.clientX / z, y = ev.clientY / z; return { z, top: y, bottom: y, right: x, vh, vw }; }
+      const r = ev.currentTarget.getBoundingClientRect(); return { z, top: r.top / z, bottom: r.bottom / z, right: r.right / z, vh, vw };
+    };
+    const place = (ev, w) => { const r = box(ev); return { top: Math.min(r.bottom + 6, r.vh - 340), left: Math.min(Math.max(8, r.right - w), r.vw - w - 8) }; };
     // after it renders, keep the menu on screen: below the button if it fits, else above, else pinned with its own scroll
     const fitPop = (m, ev) => {
-      const r = box(ev.currentTarget);
+      const r = box(ev);
       nextTick(() => {
         const el = document.querySelector(".tb-menu"); if (!el || !m.value) return;
         const h = Math.min(el.scrollHeight, r.vh - 16), below = r.vh - r.bottom - 8, above = r.top - 8;
         m.value.top = h <= below ? r.bottom + 6 : h <= above ? r.top - 6 - h : Math.max(8, r.vh - 8 - h);
       });
     };
-    const openMenu = (c, ev) => { stMenu.value = null; menu.value = { c, ...place(ev, 230) }; fitPop(menu, ev); };
+    const openMenu = (c, ev) => { stMenu.value = null; menu.value = { c, view: null, ...place(ev, 236) }; menu.anchor = ev.type === "contextmenu" ? { type: "contextmenu", clientX: ev.clientX, clientY: ev.clientY } : { type: "click", currentTarget: ev.currentTarget }; fitPop(menu, ev); };
+    // sub-views of the card menu: statuses, members, due date
+    const menuView = (v) => { if (!menu.value) return; menu.value.view = v; if (menu.anchor) fitPop(menu, menu.anchor); };
+    const team = computed(() => state.boot.team || []);
+    const saveCard = async (c, changes, msg) => {
+      try { await call("update_card", { name: c.name, changes: JSON.stringify(changes) }, true); if (msg) toast(msg); } catch (e) { toast(e.message, "error"); await load(); }
+    };
+    const menuStatus = (list) => { const c = menu.value?.c; if (!c) return; c.status = list; saveCard(c, { status: list }); };
+    const toggleMember = (c, m) => { const had = (c.members || []).includes(m); c.members = had ? c.members.filter((x) => x !== m) : [...(c.members || []), m]; saveCard(c, { members: c.members }); return !had; };
+    const menuDue = async (iso) => { const c = menu.value?.c; if (!c || !iso) return; menu.value = null; c.due = iso; await saveCard(c, { due: iso }, "تغيّر الموعد"); await load(); };
+    // Space over a card: take it (add myself as a member) or let it go
+    const hovered = ref(null);
+    const onSpace = (e) => {
+      if (e.code !== "Space" || e.ctrlKey || e.altKey || e.metaKey || !hovered.value) return;
+      const t = e.target; if (t instanceof HTMLElement && (t.matches("input, textarea, select, [contenteditable]") || t.isContentEditable)) return;
+      if (open.value || panel.value || document.querySelector(".overlay")) return;
+      e.preventDefault();
+      const me = s.data?.me; if (!me) { toast("اربط حسابك بشخص في الإعدادات ← الفريق لتأخذ البطاقات.", "error"); return; }
+      const c = hovered.value, added = toggleMember(c, me);
+      toast(added ? `أُضفت إلى «${c.title}»` : `أُزلت من «${c.title}»`);
+    };
+    onMounted(() => window.addEventListener("keydown", onSpace)); onBeforeUnmount(() => window.removeEventListener("keydown", onSpace));
     const stMenu = ref(null);
     const openStatus = (c, ev) => { menu.value = null; stMenu.value = { c, ...place(ev, 230) }; fitPop(stMenu, ev); };
     const pickStatus = async (list) => {
@@ -1719,7 +1757,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -1787,7 +1825,7 @@ const Board = {
           <span v-if="colSort[c.id]" class="m">مرتّبة {{ {due: 'بالموعد', created: 'بالأحدث', amount: 'بالمبلغ'}[colSort[c.id]] }}</span></div>
         <TransitionGroup name="tcm" tag="div" class="tb-list">
           <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :statuses="cfg.statuses" :busy="busy === card.name" :drop-before="before === card.name"
-            @open="open = card.name" @drag="dragging = $event" @dropon="dropOn" @menu="openMenu" @status="openStatus"/>
+            @open="open = card.name" @drag="dragging = $event" @dropon="dropOn" @menu="openMenu" @status="openStatus" @hover="hovered = $event"/>
         </TransitionGroup>
         <button v-if="c.deliver && paidCount(c)" type="button" class="tb-addbtn" @click="archivePaid(c.id)">أرشفة المدفوع كله ({{ paidCount(c) }})</button>
         <template v-if="!c.deliver">
@@ -1805,8 +1843,23 @@ const Board = {
     </div>
 
     <div v-if="menu" class="tm-pop tb-menu" :style="{top: menu.top + 'px', left: menu.left + 'px'}" @click.stop>
+      <template v-if="menu.view === 'status'"><b>الحالات</b><StatusMenu :statuses="cfg.statuses || []" :current="menu.c.status" @pick="menuStatus"/>
+        <hr class="tm2-hr"><button type="button" class="tm-pop-row tb-back" @click="menuView(null)">‹ رجوع</button></template>
+      <template v-else-if="menu.view === 'members'"><b>الأعضاء</b>
+        <button v-for="p in team" :key="p" type="button" class="tm-pop-row" :aria-pressed="(menu.c.members || []).includes(p)" @click="toggleMember(menu.c, p)"><Avatar :name="p" :size="22"/><span class="ellipsis" style="flex:1">{{ p }}</span><b v-if="(menu.c.members || []).includes(p)" class="tb-ok">✓</b></button>
+        <span v-if="!team.length" class="m tm3-hint">أضف أسماء الفريق من الإعدادات أولًا.</span>
+        <hr class="tm2-hr"><button type="button" class="tm-pop-row tb-back" @click="menuView(null)">‹ رجوع</button></template>
+      <template v-else-if="menu.view === 'due'"><b>الموعد</b>
+        <div class="tb-due-q"><button type="button" class="cl-btn sm" @click="menuDue(isoIn(0))">اليوم</button><button type="button" class="cl-btn sm" @click="menuDue(isoIn(1))">غدًا</button><button type="button" class="cl-btn sm" @click="menuDue(isoIn(3))">بعد 3 أيام</button></div>
+        <input type="date" class="input tb-due-in" :value="menu.c.due || ''" aria-label="تاريخ الموعد" @change="menuDue($event.target.value)">
+        <hr class="tm2-hr"><button type="button" class="tm-pop-row tb-back" @click="menuView(null)">‹ رجوع</button></template>
+      <template v-else>
       <b class="ellipsis">{{ menu.c.title }}</b>
       <button type="button" class="tm-pop-row" @click="open = menu.c.name; menu = null"><Icon name="ext" :size="15"/>فتح البطاقة</button>
+      <button v-if="(cfg.statuses || []).length" type="button" class="tm-pop-row tb-new" @click="menuView('status')"><Icon name="tag" :size="15"/>الحالات<span class="tb-ch">‹</span></button>
+      <button type="button" class="tm-pop-row tb-new" @click="menuView('members')"><Icon name="users" :size="15"/>الأعضاء<span class="tb-ch">‹</span></button>
+      <button type="button" class="tm-pop-row tb-new" @click="menuView('due')"><Icon name="clock" :size="15"/>الموعد<span class="tb-ch">‹</span></button>
+      <hr class="tm2-hr">
       <button type="button" class="tm-pop-row" @click="act('photo')"><Icon name="image" :size="15"/>تصوير وإرفاق</button>
       <button type="button" class="tm-pop-row" @click="act('copy')"><Icon name="file" :size="15"/>نسخ البطاقة</button>
       <button v-if="!s.data.worker" type="button" class="tm-pop-row" @click="act('template')"><Icon name="grid" :size="15"/>حفظ كقالب</button>
@@ -1816,6 +1869,7 @@ const Board = {
       <template v-if="state.boot.can.order"><hr class="tm2-hr">
         <button v-if="!(menu.c.paid > 0.005) && !(menu.c.per_delivered > 0)" type="button" class="tm-pop-row tm3-danger" @click="act('delete')"><Icon name="trash" :size="15"/>حذف البطاقة</button>
         <span v-else class="m tm3-hint">عليها دفعة أو تسليم: أرشفها بدل الحذف.</span></template>
+      </template>
     </div>
     <div v-if="delAsk" class="overlay tm3-confirm tb-confirm" role="alertdialog" aria-modal="true" aria-labelledby="bdel-h" @click.self="delAsk = null">
       <div class="tm3-cbox"><b id="bdel-h">حذف البطاقة نهائيًا؟</b>
@@ -1861,7 +1915,7 @@ const Board = {
     </div>
 
     <BoardPanel v-if="panel" :mode="panel.mode" :preset="panel.preset" :columns="cfg?.columns" @close="closePanel" @saved="saved"/>
-    <CardModal v-if="open && s.data" :key="open" :name="open" :config="cfg" @close="open = null" @changed="load" @open="open = $event"/>
+    <CardModal v-if="open && s.data" :key="open" :name="open" :config="cfg" :me="s.data.me" @close="open = null" @changed="load" @open="open = $event"/>
   </div>`,
 };
 
