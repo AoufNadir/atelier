@@ -749,7 +749,7 @@ const newLine = () => ({ text: "", item_code: null, unit: (state.boot.units || [
 const BoardPanel = {
   props: ["mode", "order", "preset", "columns", "statuses", "labels", "edit"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
   setup(props, { emit }) {
-    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", subject: "", lines: [newLine()], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
+    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", subject: "", lines: [newLine()], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash", description: "", checklist: [] });
     // opened from any page: the board settings come with it, or are fetched once
     const cfg = ref(null);
     onMounted(async () => { if (props.mode === "new" && !props.columns) { try { cfg.value = (await call("board2")).config; } catch { /* columns stay empty */ } } });
@@ -822,8 +822,11 @@ const BoardPanel = {
           customer: f.customer?.name || null, subject: f.subject.trim(), new_customer: f.customer ? {} : { name: newName.value, phone: f.phone, type: f.type },
           lines: filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty, rate: l.rate === "" ? null : +l.rate,
             unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null })),
-          status: f.status, labels: f.labels, checklist: f.checklist || [], advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
+          status: f.status, labels: f.labels, checklist: (f.checklist || []).map((c) => c.text), description: f.description || "", advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
         }) }, true);
+        if (res?.sales_order && queued.value.length) {
+          for (const q of queued.value) { const up = await uploadPrivate(isImg({ file_name: q.name }) ? await shrinkImage(q) : q, "Sales Order", res.sales_order); await call("file_added", { name: res.sales_order, file_url: up.file_url, file_name: up.file_name }, true); }
+        }
         toast("أُنشئ الطلب"); emit("saved", res?.sales_order);
         if (openAfter === true && res?.sales_order) go("/?card=" + encodeURIComponent(res.sales_order));
       } catch (e) { error.value = e.message; } finally { saving.value = false; }
@@ -854,7 +857,7 @@ const BoardPanel = {
         const d = await call("card", { name: props.edit }); ed.value = d;
         f.customer = { name: d.customer, customer_name: d.customer_name, customer_type: d.client?.type || "Individual", mobile_no: d.client?.mobile || d.client?.phone || "" };
         f.subject = d.title === d.name ? "" : d.title || ""; f.due = d.due || ""; f.column = d.column; f.status = [...(d.status || [])]; f.labels = [...(d.labels || [])];
-        members.value = [...(d.members || [])];
+        members.value = [...(d.members || [])]; f.description = plain(d.description || ""); f.checklist = (d.checklist || []).map((c) => ({ ...c }));
         f.lines = (d.lines.length ? d.lines : [{}]).map((l) => { const unit = l.unit || (state.boot.units || [])[0]?.name || "قطعة", count = unitOfName(unit).calc === "count";
           return { text: l.text || "", item_code: l.item_code && l.item_code !== "SRV-GENERAL" ? l.item_code : null, unit, width: l.width || "", height: l.height || "", length: l.length || "",
             qty: count ? (l.qty || 1) : (l.pieces || 1), rate: l.rate === null || l.rate === undefined ? "" : l.rate, category: l.category || "", auto: false, focus: false }; });
@@ -869,7 +872,7 @@ const BoardPanel = {
       rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null })));
     let lastLines = "";
     const run = async (fn) => { sv.value = "saving"; try { await fn(); sv.value = "saved"; svMsg.value = ""; state.rev++; } catch (e) { sv.value = "error"; svMsg.value = e.message; } };
-    const saveMeta = () => run(() => call("update_card", { name: props.edit, changes: JSON.stringify({ title: f.subject.trim() || props.edit, status: f.status, labels: f.labels, members: members.value, ...(f.due ? { due: f.due } : {}) }) }, true));
+    const saveMeta = () => run(() => call("update_card", { name: props.edit, changes: JSON.stringify({ title: f.subject.trim() || props.edit, status: f.status, labels: f.labels, members: members.value, description: f.description, checklist: f.checklist, ...(f.due ? { due: f.due } : {}) }) }, true));
     const saveLinesNow = () => {
       if (locked.value || !ready.value) return;
       const bad = !filled.value.length ? "أبقِ بندًا واحدًا على الأقل" : filled.value.some((l) => !(+l.qty > 0)) ? "الكمية غير صحيحة"
@@ -879,7 +882,26 @@ const BoardPanel = {
       const p = linesPayload(); if (p === lastLines) return;
       return run(async () => { await call("update_lines", { name: props.edit, lines: p }, true); lastLines = p; });
     };
-    watch(() => [f.subject, f.due, JSON.stringify(f.status), JSON.stringify(f.labels), JSON.stringify(members.value)], () => { if (ready.value) later("meta", saveMeta, 600); });
+    watch(() => [f.subject, f.due, JSON.stringify(f.status), JSON.stringify(f.labels), JSON.stringify(members.value), f.description, JSON.stringify(f.checklist)], () => { if (ready.value) later("meta", saveMeta, 600); });
+    // checklist, attachments, cover (same window for a new order and an opened card)
+    const newItem = ref(""), queued = ref([]), fileIn = ref(null), uploading = ref(false), ckTpls = ref(null);
+    const addItem = () => { const v = newItem.value.trim(); if (v) f.checklist.push({ text: v, done: 0 }); newItem.value = ""; };
+    const openCkTpls = async () => { if (ckTpls.value) { ckTpls.value = null; return; } try { ckTpls.value = await call("checklist_templates"); } catch { ckTpls.value = []; } };
+    const useCkTpl = (tp) => { tp.items.forEach((t) => { if (!f.checklist.some((c) => c.text === t)) f.checklist.push({ text: t, done: 0 }); }); ckTpls.value = null; };
+    const saveCkTpl = async () => { const title = prompt("اسم قالب المهام:", (f.subject || "").slice(0, 40)); if (!title) return;
+      try { await call("save_checklist_template", { title, items: JSON.stringify(f.checklist.map((c) => c.text)) }, true); toast("حُفظ القالب"); } catch (e) { toast(e.message, "error"); } };
+    const files = computed(() => ed.value?.files || []);
+    const imagesOf = computed(() => files.value.filter(isImg));
+    const onFiles = async (e) => {
+      const list = [...(e.target.files || e.dataTransfer?.files || [])]; if (!list.length) return;
+      if (!editing.value) { queued.value.push(...list); if (fileIn.value) fileIn.value.value = ""; return; }
+      uploading.value = true;
+      try { for (const x of list) { const up = await uploadPrivate(isImg({ file_name: x.name }) ? await shrinkImage(x) : x, "Sales Order", props.edit); ed.value = await call("file_added", { name: props.edit, file_url: up.file_url, file_name: up.file_name }, true); } state.rev++; }
+      catch (x) { toast(x.message, "error"); } finally { uploading.value = false; if (fileIn.value) fileIn.value.value = ""; }
+    };
+    const delFile = async (x) => { if (!confirm(`حذف «${x.file_name}»؟`)) return; try { ed.value = await call("delete_file", { name: props.edit, file: x.name }, true); state.rev++; } catch (e) { toast(e.message, "error"); } };
+    const cardSet = async (changes) => { try { ed.value = await call("update_card", { name: props.edit, changes: JSON.stringify(changes) }, true); state.rev++; } catch (e) { toast(e.message, "error"); } };
+    const copyPath = async () => { try { await navigator.clipboard.writeText(ed.value.folder); toast("نُسخ مسار المجلد"); } catch { /* selectable */ } };
     watch(() => linesPayload(), () => { if (ready.value) later("lines", saveLinesNow, 900); });
     watch(() => f.column, async (c, old) => { if (ready.value && c && old && c !== old) await run(() => call("move_card", { name: props.edit, column: c }, true)); });
     const flush = async () => { clearTimeout(timers.meta); clearTimeout(timers.lines); if (!ready.value) return; await saveMeta(); await saveLinesNow(); };
@@ -921,7 +943,7 @@ const BoardPanel = {
     const tpls = ref([]), tplOn = ref(null);
     onMounted(async () => { if (props.mode === "new") { try { tpls.value = await call("card_templates"); } catch { /* none */ } } });
     const useTpl = (tp) => {
-      tplOn.value = tp.id; f.subject = tp.subject || tp.title; f.checklist = [...(tp.checklist || [])];
+      tplOn.value = tp.id; f.subject = tp.subject || tp.title; f.checklist = (tp.checklist || []).map((t) => ({ text: t, done: 0 }));
       const ls = (tp.lines || []).map((x) => { const l = newLine(); Object.assign(l, { text: x.text || "", item_code: x.item_code || null, unit: x.unit || l.unit, width: x.width || "", height: x.height || "", length: x.length || "", category: x.category || "" });
         const c = calcOf(l); l.qty = c === "count" ? (x.qty || 1) : (x.pieces || 1);
         const it = l.item_code && (state.boot.items || []).find((i) => i.item_code === l.item_code);
@@ -933,7 +955,7 @@ const BoardPanel = {
     const dropTpl = async (tp) => { if (!confirm(`حذف القالب «${tp.title}»؟`)) return; try { tpls.value = await call("delete_card_template", { id: tp.id }, true); if (tplOn.value === tp.id) tplOn.value = null; } catch (e) { error.value = e.message; } };
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
-    return { sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
@@ -1021,6 +1043,40 @@ const BoardPanel = {
               <div v-else-if="!editing && +f.advance > 0"><span>التسبيق</span><span class="num od-ok">− {{ money(+f.advance) }}</span></div>
               <div class="od-g-row"><span>الباقي على العميل</span><span class="num">{{ money(Math.max(0, remain)) }}</span></div></div></div>
           </section>
+
+          <section class="od-card"><div class="od-ch"><Icon name="file" :size="18"/><b>الوصف</b><span class="m od-r">يظهر في البون والعرض إن فُعّل في الإعدادات</span></div>
+            <div class="od-pad"><textarea class="input od-desc" v-model="f.description" rows="3" placeholder="المقاسات، الورق، الكمية، ملاحظات العميل…" aria-label="الوصف"></textarea></div></section>
+
+          <section class="od-card"><div class="od-ch"><Icon name="check" :size="18"/><b>قائمة المهام</b><span v-if="f.checklist.length" class="m">{{ f.checklist.filter((c) => c.done).length }} / {{ f.checklist.length }}</span>
+              <span class="od-r od-pop-host"><button type="button" class="cl-link" @click.stop="openCkTpls">من قالب ▾</button>
+                <div v-if="ckTpls" class="tm-pop od-pop" @click.stop><button v-for="tp in ckTpls" :key="tp.title" type="button" class="tm-pop-row" @click="useCkTpl(tp)">{{ tp.title }} <span class="m">· {{ tp.items.length }}</span></button>
+                  <span v-if="!ckTpls.length" class="m tm3-hint">لا قوالب بعد.</span>
+                  <button v-if="f.checklist.length" type="button" class="tm-pop-row" @click="ckTpls = null; saveCkTpl()">+ احفظ هذه القائمة كقالب</button></div></span></div>
+            <div class="od-pad od-ck">
+              <div v-for="(c, i) in f.checklist" :key="i" class="od-ck-row"><button type="button" class="od-box" :class="{on: c.done}" :aria-pressed="!!c.done" :aria-label="'إنجاز ' + c.text" @click="c.done = c.done ? 0 : 1">{{ c.done ? '✓' : '' }}</button>
+                <input class="input lb-in" :class="{done: c.done}" v-model="c.text" :aria-label="'مهمة ' + (i + 1)"><button type="button" class="lb-del" :aria-label="'حذف ' + c.text" @click="f.checklist.splice(i, 1)"><Icon name="x" :size="14"/></button></div>
+              <input class="input lb-in" v-model="newItem" placeholder="+ مهمة جديدة ثم Enter" aria-label="مهمة جديدة" @keydown.enter.prevent="addItem"></div></section>
+
+          <section class="od-card"><div class="od-ch"><Icon name="image" :size="18"/><b>المرفقات</b><span v-if="uploading" class="m">جارٍ الرفع…</span>
+              <span class="od-r btn-row"><label class="cl-btn sm"><Icon name="image" :size="14"/>تصوير<input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFiles"></label>
+                <label class="cl-btn sm"><Icon name="plus" :size="14"/>إضافة<input ref="fileIn" type="file" multiple class="sr-only" @change="onFiles"></label></span></div>
+            <div class="od-pad">
+              <div v-if="!editing && queued.length" class="od-files"><span v-for="(q, i) in queued" :key="i" class="od-file"><span class="ellipsis">{{ q.name }}</span><button type="button" class="lb-del" :aria-label="'إزالة ' + q.name" @click="queued.splice(i, 1)"><Icon name="x" :size="12"/></button></span>
+                <span class="m">تُرفع عند حفظ الطلب.</span></div>
+              <div v-if="editing && files.length" class="od-files">
+                <div v-for="x in files" :key="x.name" class="od-file" :class="{img: isImg(x), cover: ed.cover === x.file_url, final: ed.final === x.file_url}">
+                  <a :href="x.file_url" target="_blank" rel="noopener" class="od-thumb"><img v-if="isImg(x)" :src="x.file_url" alt=""><Icon v-else name="file" :size="22"/></a>
+                  <span class="ellipsis" :title="x.file_name">{{ x.file_name }}</span>
+                  <span class="od-file-acts"><button v-if="isImg(x)" type="button" class="cl-link" @click="cardSet(ed.cover === x.file_url ? {cover: ''} : {cover: x.file_url})">{{ ed.cover === x.file_url ? 'إزالة الغلاف' : 'غلاف' }}</button>
+                    <button type="button" class="cl-link" @click="cardSet({final: ed.final === x.file_url ? '' : x.file_url})">{{ ed.final === x.file_url ? '✓ نهائي' : 'نهائي' }}</button>
+                    <button type="button" class="cl-link bad" @click="delFile(x)">حذف</button></span></div></div>
+              <span v-if="(editing ? !files.length : !queued.length)" class="m">لا مرفقات. أضف الشعار أو ملف التصميم أو صورة من الهاتف.</span>
+              <div v-if="editing && ed" class="od-cover"><span class="m">لون الغلاف:</span><button v-for="c in COVER_COLORS" :key="c" type="button" class="bs-sw" :style="{background: c}" :aria-pressed="!ed.cover && ed.cover_color === c" :aria-label="'لون ' + c" @click="cardSet({cover: '', cover_color: c})"></button>
+                <button v-if="ed.cover || ed.cover_color" type="button" class="cl-link" @click="cardSet({cover: '', cover_color: ''})">بلا غلاف</button></div>
+              <div v-if="editing && ed && ed.folder" class="od-folder"><span class="m">المجلد:</span><code dir="ltr">{{ ed.folder }}</code><button type="button" class="cl-link" @click="copyPath">نسخ المسار</button></div></div></section>
+
+          <section v-if="editing && ed && state.boot.can.finance" class="od-card"><details class="od-cost"><summary class="od-ch"><Icon name="calc" :size="18"/><b>التكلفة</b><span class="m od-r">اختياري · للمدير</span></summary>
+            <div class="od-pad"><CostSection :name="ed.name" :key="ed.name"/></div></details></section>
         </div>
 
         <aside class="od-side">
@@ -1210,6 +1266,7 @@ const CostSection = {
     </template>
   </div>`,
 };
+BoardPanel.components.CostSection = CostSection;
 
 const CardModal = {
   props: ["name", "config", "me"], emits: ["close", "changed", "open"], components: { Icon, Avatar, CustomerField, CostSection, StatusMenu },

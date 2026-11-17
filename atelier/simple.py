@@ -171,6 +171,8 @@ def quick_order(data):
 		frappe.db.set_value("Sales Order", so, "atelier_column", column)
 	if d.get("assignee"):
 		frappe.db.set_value("Sales Order", so, "atelier_assignee", d["assignee"].strip()[:80])
+	if (d.get("description") or "").strip():
+		frappe.db.set_value("Sales Order", so, "atelier_description", d["description"].strip()[:5000])
 	checklist = [{"text": str(t).strip()[:200], "done": 0} for t in (d.get("checklist") or []) if str(t).strip()]
 	if checklist:
 		frappe.db.set_value("Sales Order", so, "atelier_checklist", json.dumps(checklist, ensure_ascii=False))
