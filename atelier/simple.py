@@ -632,16 +632,21 @@ def update_card(name, changes):
 			_log(name, _("علّم «{0}» كملف نهائي").format(url.rsplit("/", 1)[-1]))
 	if "due_time" in ch:
 		so.db_set("atelier_due_time", ch["due_time"] or None)
-	if "due" in ch and ch["due"]:
+	if "due" in ch and str(so.delivery_date or "") != str(ch["due"] or ""):
+		date = ch["due"] or None
 		if so.docstatus == 1:
-			frappe.db.sql("update `tabSales Order` set delivery_date=%s where name=%s", (ch["due"], name))
-			frappe.db.sql("update `tabSales Order Item` set delivery_date=%s where parent=%s", (ch["due"], name))
+			frappe.db.sql("update `tabSales Order` set delivery_date=%s where name=%s", (date, name))
+			frappe.db.sql("update `tabSales Order Item` set delivery_date=%s where parent=%s", (date, name))
 		else:
-			so.delivery_date = ch["due"]
+			so.delivery_date = date
 			for i in so.items:
-				i.delivery_date = ch["due"]
+				i.delivery_date = date
 			so.save()
-		_log(name, _("غيّر الموعد إلى {0}").format(ch["due"]))
+		if so.project:
+			frappe.db.set_value("Project", so.project, "expected_end_date", date)
+		if not date:
+			so.db_set("atelier_due_time", None)
+		_log(name, _("غيّر الموعد إلى {0}").format(date) if date else _("أزال موعد التسليم"))
 	if ch.get("customer") and so.docstatus == 0 and ch["customer"] != so.customer:
 		if frappe.db.exists("Payment Entry", {"atelier_order": name, "docstatus": 1}):
 			frappe.throw(_("لهذا الطلب تسبيق باسم العميل الحالي، فلا يمكن تغيير العميل"))

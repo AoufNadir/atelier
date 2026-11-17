@@ -610,9 +610,7 @@ def create_order(data):
 		errors["customer"] = _("اختر عميلًا أو أدخل اسم عميل جديد")
 	if not (data.get("subject") or "").strip():
 		errors["subject"] = _("اكتب موضوع الطلب")
-	if not data.get("delivery_date"):
-		errors["delivery_date"] = _("حدد موعد التسليم")
-	elif getdate(data["delivery_date"]) < getdate(nowdate()):
+	if data.get("delivery_date") and getdate(data["delivery_date"]) < getdate(nowdate()):
 		errors["delivery_date"] = _("موعد التسليم في الماضي")
 	items = [i for i in data.get("items") or [] if i.get("item_code")]
 	if not items:
@@ -642,17 +640,17 @@ def create_order(data):
 	subject = data["subject"].strip()
 	project = frappe.get_doc({
 		"doctype": "Project", "project_name": f"{subject} — {customer}"[:140], "company": company, "customer": customer,
-		"expected_end_date": data["delivery_date"],
+		"expected_end_date": data.get("delivery_date") or None,
 	}).insert().name
 
 	so = frappe.get_doc({
 		"doctype": "Sales Order", "customer": customer, "company": company, "project": project,
 		"selling_price_list": _price_list(frappe.db.get_value("Customer", customer, "customer_type")),
-		"transaction_date": nowdate(), "delivery_date": data["delivery_date"],
+		"transaction_date": nowdate(), "delivery_date": data.get("delivery_date") or None,
 		"atelier_subject": subject, "atelier_stage": STAGES[0],
 		"items": [
 			{
-				"item_code": i["item_code"], "qty": flt(i["qty"]), "delivery_date": data["delivery_date"],
+				"item_code": i["item_code"], "qty": flt(i["qty"]), "delivery_date": data.get("delivery_date") or None,
 				**({"description": i["description"]} if i.get("description") else {}),
 				"rate": 0 if i.get("rate") in (None, "") else flt(i["rate"]),
 				"atelier_price_pending": 1 if i.get("rate") in (None, "") else 0,

@@ -902,7 +902,7 @@ const BoardPanel = {
       rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null })));
     let lastLines = "";
     const run = async (fn) => { sv.value = "saving"; try { await fn(); sv.value = "saved"; svMsg.value = ""; state.rev++; } catch (e) { sv.value = "error"; svMsg.value = e.message; } };
-    const saveMeta = () => run(() => call("update_card", { name: props.edit, changes: JSON.stringify({ title: f.subject.trim() || props.edit, status: f.status, labels: f.labels, members: members.value, description: f.description, checklist: f.checklist, due_time: f.due_time || "", ...(f.due ? { due: f.due } : {}) }) }, true));
+    const saveMeta = () => run(() => call("update_card", { name: props.edit, changes: JSON.stringify({ title: f.subject.trim() || props.edit, status: f.status, labels: f.labels, members: members.value, description: f.description, checklist: f.checklist, due_time: f.due ? f.due_time || "" : "", due: f.due || null }) }, true));
     const saveLinesNow = () => {
       if (ro.value || !ready.value) return;
       const bad = !filled.value.length ? "أبقِ بندًا واحدًا على الأقل" : filled.value.some((l) => !(+l.qty > 0)) ? "الكمية غير صحيحة"
@@ -985,7 +985,7 @@ const BoardPanel = {
       saving.value = true;
       try {
         const changes = { title: f.subject.trim() || d.name, status: f.status, labels: f.labels, members: members.value };
-        if (f.due) changes.due = f.due;
+        changes.due = f.due || null;
         await call("update_card", { name: d.name, changes: JSON.stringify(changes) }, true);
         if (!locked.value) await call("update_lines", { name: d.name, lines: JSON.stringify(filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty,
           rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null }))) }, true);
@@ -1139,7 +1139,7 @@ const BoardPanel = {
 
         <aside class="od-side">
           <section class="od-card"><div class="od-ch"><Icon name="calendar" :size="18"/><b>التسليم</b></div><div class="od-pad">
-            <div class="bd-chips"><button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button></div>
+            <div class="bd-chips"><button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button><button type="button" class="bd-chip" :aria-pressed="!f.due" @click="f.due = ''; f.due_time = ''">بلا موعد</button></div>
             <div class="od-due"><input type="date" class="input" v-model="f.due" :min="editing ? null : isoIn(0)" aria-label="تاريخ التسليم"><input v-if="editing" type="time" class="input od-time" v-model="f.due_time" aria-label="الساعة"></div>
             <span v-if="editing && f.due && daysFromToday(f.due) < 0 && !(ed && ed.per_delivered >= 100)" class="od-late">متأخر {{ -daysFromToday(f.due) }} {{ -daysFromToday(f.due) <= 10 ? 'أيام' : 'يومًا' }}</span>
             <label v-if="editing && ed" class="cl-fgroup"><span>العمود</span><select class="input" v-model="f.column" aria-label="العمود"><option v-for="c in boardCols" :key="c.id" :value="c.id" :disabled="c.deliver && c.id !== ed.column">{{ c.name }}</option></select></label>
@@ -1529,7 +1529,7 @@ const Board = {
     };
     const menuStatus = (list) => { const c = menu.value?.c; if (!c) return; c.status = list; saveCard(c, { status: list }); };
     const toggleMember = (c, m) => { const had = (c.members || []).includes(m); c.members = had ? c.members.filter((x) => x !== m) : [...(c.members || []), m]; saveCard(c, { members: c.members }); return !had; };
-    const menuDue = async (iso) => { const c = menu.value?.c; if (!c || !iso) return; menu.value = null; c.due = iso; await saveCard(c, { due: iso }, "تغيّر الموعد"); await load(); };
+    const menuDue = async (iso) => { const c = menu.value?.c; if (!c) return; menu.value = null; c.due = iso || null; await saveCard(c, { due: iso || null }, iso ? "تغيّر الموعد" : "أُزيل موعد التسليم"); await load(); };
     // Space over a card: take it (add myself as a member) or let it go
     const hovered = ref(null);
     const onSpace = (e) => {
@@ -1738,7 +1738,7 @@ const Board = {
         <span v-if="!team.length" class="m tm3-hint">أضف أسماء الفريق من الإعدادات أولًا.</span>
         <hr class="tm2-hr"><button type="button" class="tm-pop-row tb-back" @click="menuView(null)">‹ رجوع</button></template>
       <template v-else-if="menu.view === 'due'"><b>الموعد</b>
-        <div class="tb-due-q"><button type="button" class="cl-btn sm" @click="menuDue(isoIn(0))">اليوم</button><button type="button" class="cl-btn sm" @click="menuDue(isoIn(1))">غدًا</button><button type="button" class="cl-btn sm" @click="menuDue(isoIn(3))">بعد 3 أيام</button></div>
+        <div class="tb-due-q"><button type="button" class="cl-btn sm" @click="menuDue(isoIn(0))">اليوم</button><button type="button" class="cl-btn sm" @click="menuDue(isoIn(1))">غدًا</button><button type="button" class="cl-btn sm" @click="menuDue(isoIn(3))">بعد 3 أيام</button><button type="button" class="cl-btn sm" @click="menuDue(null)">بلا موعد</button></div>
         <input type="date" class="input tb-due-in" :value="menu.c.due || ''" aria-label="تاريخ الموعد" @change="menuDue($event.target.value)">
         <hr class="tm2-hr"><button type="button" class="tm-pop-row tb-back" @click="menuView(null)">‹ رجوع</button></template>
       <template v-else>
