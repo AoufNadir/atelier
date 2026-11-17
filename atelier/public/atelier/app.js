@@ -2041,7 +2041,7 @@ const SimpleCustomers = {
                     <span v-if="(c.tags || []).length" class="cl-tags"><span v-for="id in c.tags.filter(x => ctags[x])" :key="id"><i :style="{background: ctags[id].color}"></i>{{ ctags[id].name }}</span></span></div></div></td>
                 <td class="desktop-only">{{ c.orders ? c.orders + (c.orders === 1 ? ' عمل' : ' أعمال') : '—' }}<span v-if="c.open_orders" class="cl-sub">{{ c.open_orders }} جارية</span></td>
                 <td class="desktop-only muted" :class="{warn: c.away}">{{ lastWord(c.last_order) }}</td>
-                <td class="n"><span class="cl-bal" :class="bal(c.balance).cls"><i v-if="bal(c.balance).cls"></i>{{ c.balance === null ? '' : (bal(c.balance).cls === 'bad' ? 'عليه ' : '') + bal(c.balance).text }}</span>
+                <td class="n"><span class="cl-bal" :class="bal(c.balance).cls"><i v-if="bal(c.balance).cls"></i>{{ c.balance === null ? '' : (bal(c.balance).cls === 'bad' ? 'عليه ' : '') + bal(c.balance).text }}<small v-if="c.unbilled > 0.005 && c.balance > 0.005" class="cl-bal-sub">{{ c.invoices > 0.005 ? 'منها ' + fig(c.unbilled) + ' لم تُفوتر' : 'طلبات لم تُفوتر' }}</small></span>
                   <span v-if="c.overdue_days" class="cl-late">متأخر {{ c.overdue_days }} يومًا</span></td>
                 <td class="acts desktop-only"><span class="cl-row-acts">
                   <a v-if="c.mobile_no" class="cl-btn icon sm" :href="'tel:' + c.mobile_no" :aria-label="'اتصال بـ ' + c.customer_name" @click.stop><Icon name="phone" :size="14"/></a>

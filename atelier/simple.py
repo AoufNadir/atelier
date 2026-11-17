@@ -1007,7 +1007,16 @@ def customers2():
 		l = covers.setdefault(so.customer, [])
 		if len(l) < 3 and so.atelier_cover not in l:
 			l.append(so.atelier_cover)
+	# same rule as the customer page: invoices + open orders not yet invoiced (minus what was paid on them)
+	unbilled = {}
+	for o in api._order_rows({"customer": ["in", names], "docstatus": ["<", 2], "per_billed": ["<", 100], "status": ["!=", "Closed"]}, limit=0):
+		if not o.price_pending:
+			unbilled[o.customer] = unbilled.get(o.customer, 0) + max(0, flt(o.grand_total) - flt(o.paid))
 	for r in rows:
+		r.invoices = flt(r.balance)
+		r.unbilled = unbilled.get(r.name, 0)
+		if r.balance is not None:
+			r.balance = flt(r.balance) + r.unbilled
 		r.covers = covers.get(r.name, [])
 		e = extra.get(r.name) or {}
 		r.vip = cint(e.get("atelier_vip"))
