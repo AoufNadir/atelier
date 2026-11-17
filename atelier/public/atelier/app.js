@@ -745,7 +745,7 @@ const lineSpec = (l) => { // a small proportional drawing of the piece
 const newLine = () => ({ text: "", item_code: null, unit: (state.boot.units || [])[0]?.name || "قطعة", width: "", height: "", length: "", qty: 1, rate: "", auto: false, category: "", focus: false });
 // Side panel: a new order (one short form) or an existing order card.
 const BoardPanel = {
-  props: ["mode", "order", "preset", "columns", "statuses", "labels"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
+  props: ["mode", "order", "preset", "columns", "statuses", "labels", "edit"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
   setup(props, { emit }) {
     const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", subject: "", lines: [newLine()], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash" });
     // opened from any page: the board settings come with it, or are fetched once
@@ -842,7 +842,43 @@ const BoardPanel = {
     // totals for the summary and the footer
     const priced = computed(() => filled.value.filter((l) => lineTotal(l) !== null).reduce((a, l) => a + lineTotal(l), 0));
     const unpriced = computed(() => filled.value.filter((l) => lineTotal(l) === null).length);
-    const remain = computed(() => priced.value - (+f.advance || 0));
+    // editing an existing card in this same window: everything loads from the card, the advance becomes what was paid
+    const ed = ref(null), members = ref([]);
+    const editing = computed(() => !!props.edit);
+    const locked = computed(() => (ed.value?.lines_locked || []).length > 0);
+    onMounted(async () => {
+      if (!props.edit) return;
+      try {
+        const d = await call("card", { name: props.edit }); ed.value = d;
+        f.customer = { name: d.customer, customer_name: d.customer_name, customer_type: d.client?.type || "Individual", mobile_no: d.client?.mobile || d.client?.phone || "" };
+        f.subject = d.title === d.name ? "" : d.title || ""; f.due = d.due || ""; f.column = d.column; f.status = [...(d.status || [])]; f.labels = [...(d.labels || [])];
+        members.value = [...(d.members || [])];
+        f.lines = (d.lines.length ? d.lines : [{}]).map((l) => { const unit = l.unit || (state.boot.units || [])[0]?.name || "قطعة", count = unitOfName(unit).calc === "count";
+          return { text: l.text || "", item_code: l.item_code && l.item_code !== "SRV-GENERAL" ? l.item_code : null, unit, width: l.width || "", height: l.height || "", length: l.length || "",
+            qty: count ? (l.qty || 1) : (l.pieces || 1), rate: l.rate === null || l.rate === undefined ? "" : l.rate, category: l.category || "", auto: false, focus: false }; });
+      } catch (e) { error.value = e.message; }
+    });
+    const flipMember = (p) => { const i = members.value.indexOf(p); if (i >= 0) members.value.splice(i, 1); else members.value.push(p); };
+    async function saveEdit() {
+      error.value = null; const d = ed.value; if (!d) return;
+      if (!filled.value.length) return (error.value = "أبقِ بندًا واحدًا على الأقل");
+      if (filled.value.some((l) => !(+l.qty > 0))) return (error.value = "الكمية غير صحيحة");
+      const noSize = filled.value.find((l) => (calcOf(l) === "area" && !(+l.width > 0 && +l.height > 0)) || (calcOf(l) === "length" && !(+l.length > 0)));
+      if (noSize) return (error.value = `اكتب ${calcOf(noSize) === "area" ? "العرض والارتفاع" : "الطول"} للبند «${noSize.text.trim()}»`);
+      if (d.docstatus === 1 && filled.value.some((l) => l.rate === "")) return (error.value = "الطلب مؤكَّد: يلزم سعر لكل بند");
+      saving.value = true;
+      try {
+        const changes = { title: f.subject.trim() || d.name, status: f.status, labels: f.labels, members: members.value };
+        if (f.due) changes.due = f.due;
+        await call("update_card", { name: d.name, changes: JSON.stringify(changes) }, true);
+        if (!locked.value) await call("update_lines", { name: d.name, lines: JSON.stringify(filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty,
+          rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null }))) }, true);
+        if (f.column && f.column !== d.column) await call("move_card", { name: d.name, column: f.column }, true);
+        toast("حُفظت التعديلات"); emit("saved", d.name);
+      } catch (e) { error.value = e.message; } finally { saving.value = false; }
+    }
+    const paid = computed(() => +(ed.value?.paid || 0));
+    const remain = computed(() => priced.value - (editing.value ? paid.value : (+f.advance || 0)));
     const popular = computed(() => (state.boot.items || []).filter((it) => it.item_code !== "SRV-GENERAL").slice(0, 3));
     const tpls = ref([]), tplOn = ref(null);
     onMounted(async () => { if (props.mode === "new") { try { tpls.value = await call("card_templates"); } catch { /* none */ } } });
@@ -859,16 +895,17 @@ const BoardPanel = {
     const dropTpl = async (tp) => { if (!confirm(`حذف القالب «${tp.title}»؟`)) return; try { tpls.value = await call("delete_card_template", { id: tp.id }, true); if (tplOn.value === tp.id) tplOn.value = null; } catch (e) { error.value = e.message; } };
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
-    return { unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
   <aside class="bd-panel" :aria-label="mode === 'new' ? 'طلب جديد' : 'الطلب'">
     <div v-if="mode === 'new'" class="overlay od-ov" @click.self="$emit('close')">
-    <form class="od" role="dialog" aria-modal="true" aria-labelledby="od-h" novalidate @submit.prevent="save(false)" @keydown.ctrl.enter.prevent="save(false)">
+    <form class="od" role="dialog" aria-modal="true" aria-labelledby="od-h" novalidate @submit.prevent="editing ? saveEdit() : save(false)" @keydown.ctrl.enter.prevent="editing ? saveEdit() : save(false)">
       <header class="od-hd"><span class="od-ic"><Icon name="file" :size="22"/></span>
-        <div><h2 id="od-h">طلب جديد</h2><span class="m">{{ colName ? 'يُضاف إلى لوحة الطلبات في عمود «' + colName + '»' : 'يُضاف إلى لوحة الطلبات' }}</span></div>
+        <div v-if="editing"><h2 id="od-h">تعديل الطلب</h2><span class="m">{{ ed ? ed.name + (ed.title && ed.title !== ed.name ? ' · ' + ed.title : '') : 'جارٍ التحميل…' }}</span></div>
+        <div v-else><h2 id="od-h">طلب جديد</h2><span class="m">{{ colName ? 'يُضاف إلى لوحة الطلبات في عمود «' + colName + '»' : 'يُضاف إلى لوحة الطلبات' }}</span></div>
         <button type="button" class="od-x" aria-label="إغلاق" @click="$emit('close')"><Icon name="x" :size="18"/></button></header>
       <div class="od-bd">
         <div class="od-main">
@@ -879,7 +916,7 @@ const BoardPanel = {
                 <div class="od-cn"><b>{{ f.customer.customer_name }}</b><span class="od-tag">{{ customerType === 'Company' ? 'مؤسسة' : 'فرد' }}</span><span class="od-tag pri">{{ customerType === 'Company' ? 'أسعار المؤسسات' : 'أسعار الأفراد' }}</span>
                   <span v-if="credit && credit.owes > 0.005" class="od-tag bad">عليه {{ fig(credit.owes) }} دج</span></div>
                 <span v-if="f.customer.mobile_no" class="m" dir="ltr">{{ f.customer.mobile_no }}</span></div>
-              <button type="button" class="cl-link" @click="pickCust = true">تغيير العميل</button></div>
+              <button v-if="!editing" type="button" class="cl-link" @click="pickCust = true">تغيير العميل</button></div>
             <div v-else class="f"><label for="qo-customer">العميل</label><CustomerField v-model="f.customer" @input="onCustomerInput"/>
               <div v-if="!f.customer && newName" class="bd-newc"><span class="m">سيُنشأ عميل جديد عند الحفظ</span><div class="bd-newc-row">
                 <input class="input" v-model="f.phone" inputmode="tel" dir="ltr" placeholder="الهاتف (اختياري)" aria-label="هاتف العميل الجديد">
@@ -892,11 +929,12 @@ const BoardPanel = {
 
           <section class="od-card">
             <div class="od-ch"><Icon name="orders" :size="18"/><b>البنود</b><span class="m od-r">اكتب الوصف بحرية — تظهر اقتراحات من قائمة الأسعار</span></div>
-            <div v-if="tpls.length" class="od-tpls" role="group" aria-label="ابدأ من قالب"><span class="m">من قالب:</span>
+            <div v-if="locked" class="alert warn od-lock">البنود مقفلة: صدر لهذا الطلب {{ ed.lines_locked.join('، ') }}. يمكنك تعديل الباقي.</div>
+            <div v-if="tpls.length && !editing" class="od-tpls" role="group" aria-label="ابدأ من قالب"><span class="m">من قالب:</span>
               <span v-for="tp in tpls" :key="tp.id" class="od-tpl" :class="{on: tplOn === tp.id}"><button type="button" :aria-pressed="tplOn === tp.id" @click="useTpl(tp)">{{ tp.title }}<span class="m">{{ (tp.lines || []).length }} بند<template v-if="(tp.checklist || []).length"> · {{ tp.checklist.length }} مهام</template></span></button>
                 <button type="button" class="od-tpl-x" :aria-label="'حذف القالب ' + tp.title" @click="dropTpl(tp)">×</button></span>
               <button v-if="tplOn" type="button" class="cl-link" @click="clearTpl">طلب فارغ</button></div>
-            <div class="lb-list">
+            <fieldset class="lb-list od-fs" :disabled="locked">
               <div v-for="(l, i) in f.lines" :key="i" class="lb">
                 <div class="lb-top"><span class="lb-no">{{ i + 1 }}</span>
                   <div class="ol2-desc"><textarea class="input lb-desc" rows="1" v-model="l.text" @input="lineInput(l)" @focus="l.focus = true" @blur="blurLine(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="الوصف: بطاقات زيارة 350 غ وجهان…" autocomplete="off"></textarea>
@@ -916,13 +954,14 @@ const BoardPanel = {
                 </div>
                 <div v-if="lineCalc(l) || (l.text.trim() && !l.item_code && state.boot.can.prices)" class="lb-calc"><span>{{ lineCalc(l) }}</span>
                   <button v-if="l.text.trim() && !l.item_code && state.boot.can.prices" type="button" class="cl-link od-tolist" @click="addToList(l)">+ إلى قائمة الأسعار</button></div>
-              </div></div>
-            <div class="od-add"><button type="button" class="od-addb" @click="addLine"><Icon name="plus" :size="16"/>بند جديد</button><span class="spacer"></span>
+              </div></fieldset>
+            <div v-if="!locked" class="od-add"><button type="button" class="od-addb" @click="addLine"><Icon name="plus" :size="16"/>بند جديد</button><span class="spacer"></span>
               <template v-if="popular.length"><span class="m">الأكثر طلبًا:</span><button v-for="it in popular" :key="it.item_code" type="button" class="od-sug" @click="addFrom(it)">{{ it.item_name }}</button></template></div>
             <div class="od-totals"><div class="od-tbox">
               <div><span>مجموع البنود المسعّرة</span><span class="num">{{ money(priced) }}</span></div>
               <div v-if="unpriced"><span>بنود بلا سعر</span><span>{{ unpriced }}</span></div>
-              <div v-if="+f.advance > 0"><span>التسبيق</span><span class="num od-ok">− {{ money(+f.advance) }}</span></div>
+              <div v-if="editing && paid > 0.005"><span>المدفوع</span><span class="num od-ok">− {{ money(paid) }}</span></div>
+              <div v-else-if="!editing && +f.advance > 0"><span>التسبيق</span><span class="num od-ok">− {{ money(+f.advance) }}</span></div>
               <div class="od-g-row"><span>الباقي على العميل</span><span class="num">{{ money(Math.max(0, remain)) }}</span></div></div></div>
           </section>
         </div>
@@ -930,10 +969,11 @@ const BoardPanel = {
         <aside class="od-side">
           <section class="od-card"><div class="od-ch"><Icon name="calendar" :size="18"/><b>التسليم</b></div><div class="od-pad">
             <div class="bd-chips"><button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button></div>
-            <input type="date" class="input" v-model="f.due" :min="isoIn(0)" aria-label="تاريخ التسليم">
-            <label v-if="startColumns.length > 1" class="cl-fgroup"><span>يبدأ في عمود</span><select id="qo-column" class="input" v-model="f.column"><option v-for="c in startColumns" :key="c.id" :value="c.id">{{ c.name }}</option></select></label></div></section>
+            <input type="date" class="input" v-model="f.due" :min="editing ? null : isoIn(0)" aria-label="تاريخ التسليم">
+            <label v-if="startColumns.length > 1" class="cl-fgroup"><span>{{ editing ? 'العمود' : 'يبدأ في عمود' }}</span><select id="qo-column" class="input" v-model="f.column"><option v-for="c in startColumns" :key="c.id" :value="c.id">{{ c.name }}</option></select></label></div></section>
           <section class="od-card"><div class="od-ch"><Icon name="users" :size="18"/><b>من يعمل عليه؟</b></div><div class="od-pad">
-            <button v-for="p in state.boot.team" :key="p" type="button" class="od-person" :aria-pressed="f.assignee === p" @click="f.assignee = f.assignee === p ? '' : p"><Avatar :name="p" :size="28"/><span style="flex:1">{{ p }}</span><span v-if="f.assignee === p" class="tm-tick">✓</span></button>
+            <template v-if="editing"><button v-for="p in state.boot.team" :key="p" type="button" class="od-person" :aria-pressed="members.includes(p)" @click="flipMember(p)"><Avatar :name="p" :size="28"/><span style="flex:1">{{ p }}</span><span v-if="members.includes(p)" class="tm-tick">✓</span></button></template>
+            <button v-else v-for="p in state.boot.team" :key="p" type="button" class="od-person" :aria-pressed="f.assignee === p" @click="f.assignee = f.assignee === p ? '' : p"><Avatar :name="p" :size="28"/><span style="flex:1">{{ p }}</span><span v-if="f.assignee === p" class="tm-tick">✓</span></button>
             <a v-if="!state.boot.team.length" href="/atelier/team" class="m" @click.prevent="go('/team')">أضف أسماء الفريق أولًا</a></div></section>
           <section v-if="boardStatuses.length || boardLabels.length" class="od-card"><div class="od-ch"><Icon name="tag" :size="18"/><b>الحالات</b></div><div class="od-pad">
             <div class="od-opts"><button v-for="x in boardStatuses" :key="x.id" type="button" class="od-opt" :aria-pressed="f.status.includes(x.id)" @click="flip(f.status, x.id)">
@@ -943,7 +983,9 @@ const BoardPanel = {
               <div class="od-opts"><button v-for="x in boardLabels" :key="x.id" type="button" class="od-opt" :aria-pressed="f.labels.includes(x.id)" @click="flip(f.labels, x.id)">
                 <span class="od-box" :style="f.labels.includes(x.id) ? {background: x.color, borderColor: x.color, color: inkOn(x.color)} : {}">{{ f.labels.includes(x.id) ? '✓' : '' }}</span>
                 <span class="od-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span></button></div></template></div></section>
-          <section class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>تسبيق</b></div><div class="od-pad">
+          <section v-if="editing" class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>الدفع</b></div><div class="od-pad">
+            <span class="m">المدفوع حتى الآن: <b>{{ money(paid) }}</b>. الدفعات تُسجَّل من البطاقة أو من صفحة المال.</span></div></section>
+          <section v-else class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>تسبيق</b></div><div class="od-pad">
             <div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0" aria-label="التسبيق"><span class="u">دج</span></div>
             <div v-if="+f.advance > 0" class="bd-chips"><button v-for="m in state.boot.modes" :key="m.value" type="button" class="bd-chip" :aria-pressed="f.mode === m.value" @click="f.mode = m.value">{{ m.label }}</button></div></div></section>
         </aside>
@@ -955,8 +997,8 @@ const BoardPanel = {
         <span class="spacer"></span>
         <span class="od-kbd"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> حفظ · <kbd>Esc</kbd> إغلاق</span>
         <button type="button" class="cl-btn od-btn" @click="$emit('close')">إلغاء</button>
-        <button type="button" class="cl-btn od-btn" :disabled="saving" @click="save(true)">حفظ وفتح البطاقة</button>
-        <button type="submit" class="cl-btn primary od-btn" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ الطلب' }}</button>
+        <button v-if="!editing" type="button" class="cl-btn od-btn" :disabled="saving" @click="save(true)">حفظ وفتح البطاقة</button>
+        <button type="submit" class="cl-btn primary od-btn" :disabled="saving || (editing && !ed)">{{ saving ? 'جارٍ الحفظ…' : editing ? 'حفظ التعديلات' : 'حفظ الطلب' }}</button>
       </footer>
     </form>
     </div>
@@ -1409,7 +1451,7 @@ const CardModal = {
             <div class="tm3-sh"><Icon name="orders" :size="20"/><b>البنود <span class="m" style="display:inline">{{ d.lines.length }}</span></b>
               <span v-if="d.lines_locked.length" class="ln-lock">مقفلة — صدر {{ d.lines_locked.join('، ') }}</span>
               <div v-else-if="d.can_edit" class="btn-row">
-                <button v-if="!edLines" type="button" class="cl-btn sm" @click="startLines">تعديل البنود</button>
+                <button v-if="!edLines" type="button" class="cl-btn sm" @click="state.sheet = {type: 'order', edit: name}">تعديل الطلب</button>
                 <template v-else><button type="button" class="cl-btn sm" @click="edLines = null">إلغاء</button><button type="button" class="cl-btn primary sm" :disabled="savingLines" @click="saveLines">{{ savingLines ? 'جارٍ الحفظ…' : 'حفظ البنود' }}</button></template></div></div>
 
             <div v-if="!edLines" class="ln-rows">
@@ -1905,6 +1947,7 @@ const Board = {
       <template v-else>
       <b class="ellipsis">{{ menu.c.title }}</b>
       <button type="button" class="tm-pop-row" @click="open = menu.c.name; menu = null"><Icon name="ext" :size="15"/>فتح البطاقة</button>
+      <button v-if="state.boot.can.order" type="button" class="tm-pop-row" @click="state.sheet = {type: 'order', edit: menu.c.name}; menu = null"><Icon name="file" :size="15"/>تعديل الطلب</button>
       <button v-if="(cfg.statuses || []).length" type="button" class="tm-pop-row tb-new" @click="menuView('status')"><Icon name="tag" :size="15"/>الحالات<span class="tb-ch">‹</span></button>
       <button type="button" class="tm-pop-row tb-new" @click="menuView('members')"><Icon name="users" :size="15"/>الأعضاء<span class="tb-ch">‹</span></button>
       <button type="button" class="tm-pop-row tb-new" @click="menuView('due')"><Icon name="clock" :size="15"/>الموعد<span class="tb-ch">‹</span></button>
@@ -3977,7 +4020,7 @@ const App = {
     <ItemSheet v-if="state.sheet && state.sheet.type==='item'" :opts="state.sheet"/>
     <MaterialsSheet v-if="state.sheet && state.sheet.type==='materials'" :opts="state.sheet"/>
     <ItemSheet v-if="state.subsheet" :opts="state.subsheet"/>
-    <BoardPanel v-if="state.sheet && state.sheet.type==='order'" mode="new" :preset="state.sheet.customer" @close="state.sheet = null; route.name === 'order-new' && go('/')" @saved="state.sheet = null; state.rev++; route.name === 'order-new' && go('/')"/>
+    <BoardPanel v-if="state.sheet && state.sheet.type==='order'" :key="state.sheet.edit || 'new'" mode="new" :edit="state.sheet.edit" :preset="state.sheet.customer" @close="state.sheet = null; route.name === 'order-new' && go('/')" @saved="state.sheet = null; state.rev++; route.name === 'order-new' && go('/')"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>
   </div>`,
 };
