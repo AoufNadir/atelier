@@ -2733,3 +2733,7 @@ body.col-dragging, body.col-dragging * { cursor: grabbing !important; user-selec
 /* settings: changed fields */
 .st2-body .st2-changed:not([type=checkbox]):not([type=radio]) { border-color: #F79009 !important; background: #FFFCF5 !important; box-shadow: 0 0 0 3px rgba(247,144,9,.12); }
 .st2-body input[type=checkbox].st2-changed, .st2-body input[type=radio].st2-changed { outline: 2px solid #F79009; outline-offset: 2px; }
+/* stock: row menu must not be clipped by the card */
+.stk-card { overflow: visible !important; }
+.stk-card .stk-acts { position: relative; }
+.stk-card .stk-more { position: absolute; top: calc(100% + 4px); inset-inline-end: 0; z-index: 30; min-width: 140px; }
