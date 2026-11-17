@@ -723,6 +723,17 @@ const CustomerField = {
 
 // order lines measured by their unit, shared by the new-order window and the card window
 const unitOfName = (n) => (state.boot.units || []).find((u) => u.name === n) || { calc: "count" };
+// changing m² ↔ cm² (or m ↔ cm) keeps the same piece and the same total: sizes and the unit price are converted
+const unitChanged = (l, from) => {
+  const a = unitOfName(from), b = unitOfName(l.unit);
+  if (a.calc !== b.calc || a.calc === "count" || (a.scale || "m") === (b.scale || "m")) return;
+  const k = (a.scale || "m") === "m" ? 100 : 0.01, r6 = (v) => +(+v).toFixed(6);
+  if (a.calc === "area") { if (+l.width) l.width = r6(l.width * k); if (+l.height) l.height = r6(l.height * k); }
+  if (a.calc === "length" && +l.length) l.length = r6(l.length * k);
+  if (l.rate !== "" && l.rate !== null && l.rate !== undefined) { l.rate = r6(l.rate / (a.calc === "area" ? k * k : k)); l.auto = false; }
+  const fine = l.rate === "" || l.rate === null || l.rate === undefined || Math.abs(l.rate * 100 - Math.round(l.rate * 100)) < 1e-6;
+  toast(fine ? `حُوّل المقاس والسعر إلى ${l.unit}: المجموع لم يتغير` : `سعر ${l.unit} صار ${l.rate} دج، وقد يُقرَّب عند الحفظ فيتغير المجموع قليلًا. الأدق: التسعير بوحدة أكبر.`, fine ? "ok" : "error");
+};
 const lineMeasure = (l) => { const c = unitOfName(l.unit).calc, q = +l.qty || 0;
   return c === "area" ? (+l.width || 0) * (+l.height || 0) * q : c === "length" ? (+l.length || 0) * q : q; };
 const lineSpec = (l) => { // a small proportional drawing of the piece
@@ -848,7 +859,7 @@ const BoardPanel = {
     const dropTpl = async (tp) => { if (!confirm(`حذف القالب «${tp.title}»؟`)) return; try { tpls.value = await call("delete_card_template", { id: tp.id }, true); if (tplOn.value === tp.id) tplOn.value = null; } catch (e) { error.value = e.message; } };
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
-    return { tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
@@ -894,7 +905,7 @@ const BoardPanel = {
                         <span class="m" style="display:block">{{ [it.atelier_category, uom(it.stock_uom), priceOf(it) !== '' ? fig(priceOf(it)) + ' دج' : 'بلا سعر'].filter(Boolean).join(' · ') }}</span></span></button></div></div>
                   <button v-if="f.lines.length > 1" type="button" class="lb-del" :aria-label="'حذف البند ' + (i + 1)" @click="dropLine(i)"><Icon name="x" :size="14"/></button></div>
                 <div class="lb-f">
-                  <label class="lb-c"><span>الوحدة</span><select class="input lb-in" v-model="l.unit"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></label>
+                  <label class="lb-c"><span>الوحدة</span><select class="input lb-in" v-model="l.unit" @focus="l._u = l.unit" @change="unitChanged(l, l._u); l._u = l.unit"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></label>
                   <div class="lb-c"><span>{{ calcOf(l) === 'count' ? 'المقاس' : 'المقاس (' + sym(l) + ')' }}</span>
                     <div v-if="calcOf(l) === 'area'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.width > 0)}" inputmode="decimal" v-model="l.width" placeholder="العرض" :aria-label="'العرض ' + (i + 1)"><span>×</span><input class="input lb-in num" :class="{miss: !(+l.height > 0)}" inputmode="decimal" v-model="l.height" placeholder="الارتفاع" :aria-label="'الارتفاع ' + (i + 1)"></div>
                     <div v-else-if="calcOf(l) === 'length'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"></div>
@@ -1282,7 +1293,7 @@ const CardModal = {
     const startCheck = () => { showCheck.value = true; nextTick(() => document.getElementById("tm2-check")?.focus()); };
     const setFinal = (f) => save({ final: d.value.final === f.file_url ? "" : f.file_url });
     const openFolder = () => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة في هذا الحاسوب — استعمل «نسخ المسار»");
-    return { edLines, savingLines, startLines, lnCalc, lnSym, lnTotal, lnSugg, lnPick, lnInput, lnBlur, edTotal, saveLines, viewTotal, viewPending, lineSpec, unitOfName, uom, newLine,
+    return { unitChanged, edLines, savingLines, startLines, lnCalc, lnSym, lnTotal, lnSugg, lnPick, lnInput, lnBlur, edTotal, saveLines, viewTotal, viewPending, lineSpec, unitOfName, uom, newLine,
       fig, askDelete, deleting, deleteCard, pickFile, focusDue, sideMoney, startCheck, statuses, status, setStatus, images, coverStyle, setCover, addingDesc, showCheck, setFinal, openFolder, folderLink, inkOn, COVER_COLORS, tpls, openTpl, applyTpl, saveTpl, dropTpl, copyCard, archiveCard, pop, who, editing, pickClient, people, manager, newLabel, saveLabel, deleteLabel, dueTone, waLink, BOARD_COLORS, d, err, busy, fileInput, labels, title, saveTitle, toggle, moveTo, save, editDesc, desc, startDesc, saveDesc, newItem, checkDone, addItem, tick, dropItem,
       uploading, onFiles, delFile, copyFolder, pulling, pullFiles, comment, addComment, price, setPrice, pay, quote, offerMaterials, customer, column, labelStyle, isImg, ago, money, date, dueWord, pdfUrl, go, state };
   },
@@ -1425,7 +1436,7 @@ const CardModal = {
                       <button v-for="it in lnSugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="lnPick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b></span></button></div></div>
                   <button v-if="edLines.length > 1" type="button" class="lb-del" :aria-label="'حذف البند ' + (i + 1)" @click="edLines.splice(i, 1)"><Icon name="x" :size="14"/></button></div>
                 <div class="lb-f">
-                  <label class="lb-c"><span>الوحدة</span><select class="input lb-in" v-model="l.unit"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></label>
+                  <label class="lb-c"><span>الوحدة</span><select class="input lb-in" v-model="l.unit" @focus="l._u = l.unit" @change="unitChanged(l, l._u); l._u = l.unit"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></label>
                   <div class="lb-c"><span>{{ lnCalc(l) === 'count' ? 'المقاس' : 'المقاس (' + lnSym(l) + ')' }}</span>
                     <div v-if="lnCalc(l) === 'area'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.width > 0)}" inputmode="decimal" v-model="l.width" placeholder="العرض" :aria-label="'العرض ' + (i + 1)"><span>×</span><input class="input lb-in num" :class="{miss: !(+l.height > 0)}" inputmode="decimal" v-model="l.height" placeholder="الارتفاع" :aria-label="'الارتفاع ' + (i + 1)"></div>
                     <div v-else-if="lnCalc(l) === 'length'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"></div>
