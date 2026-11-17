@@ -434,7 +434,7 @@ def board2():
 			"check": [sum(1 for c in checklist if c.get("done")), len(checklist)],
 			"status": _status_of(e, labels, cfg), "cover_color": e.get("atelier_cover_color"),
 		})
-	return {"config": cfg, "cards": cards, "manager": _is_manager(), "worker": worker, "me": me}
+	return {"config": cfg, "cards": cards, "manager": _is_manager(), "worker": worker, "me": me, "calendar": calendar_settings()}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2414,3 +2414,27 @@ def set_ui_scale(scale):
 		frappe.throw(_("حجم غير صالح"))
 	frappe.defaults.set_user_default("atelier_ui_scale", v)
 	return float(v)
+
+
+# ---------------------------------------------------------------- calendar settings (per workshop)
+CALENDAR_DEFAULT = {"day_limit": 5, "off_days": [5]}  # off_days: JS getDay() numbers, 5 = Friday
+
+
+def calendar_settings():
+	try:
+		v = json.loads(frappe.db.get_default("atelier_calendar") or "null")
+	except ValueError:
+		v = None
+	return {**CALENDAR_DEFAULT, **(v or {})}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_calendar(day_limit=5, off_days=None):
+	if not _is_manager():
+		frappe.throw(_("التخصيص للمدير فقط"), frappe.PermissionError)
+	days = sorted({cint(d) for d in (frappe.parse_json(off_days) if off_days is not None else []) if 0 <= cint(d) <= 6})
+	if len(days) >= 7:
+		frappe.throw(_("أبقِ يوم عمل واحدًا على الأقل"))
+	v = {"day_limit": max(0, cint(day_limit)), "off_days": days}
+	frappe.db.set_default("atelier_calendar", json.dumps(v))
+	return v

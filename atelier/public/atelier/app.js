@@ -1744,13 +1744,34 @@ const Board = {
     const toggleBell = async () => { bell.value = !bell.value; if (bell.value && notes.value.logs.some((l) => !l.read)) { await call("mark_read", {}, true).catch(() => {}); } };
     watch(bell, (v) => !v && loadNotes());
     // calendar
-    const weekStart = ref(0);
+    // the week starts on Saturday; off days and the daily limit come from the workshop's settings
+    const calMode = ref("week"), weekStart = ref(0), monthOff = ref(0);
+    const calCfg = computed(() => s.data?.calendar || { day_limit: 5, off_days: [5] });
+    const satOf = (d) => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 1) % 7)); return x; };
+    const openRows = computed(() => rows.value.filter((c) => c.per_delivered < 100));
+    const dayOf = (d, extra) => { const iso = isoOf(d), items = openRows.value.filter((c) => c.due === iso);
+      return { iso, name: WEEK[d.getDay()], num: d.getDate(), today: iso === todayISO(), off: calCfg.value.off_days.includes(d.getDay()), items,
+        full: calCfg.value.day_limit > 0 && items.length > calCfg.value.day_limit, ...extra }; };
     const days = computed(() => {
-      const base = parseDate(todayISO()); base.setDate(base.getDate() - base.getDay() + weekStart.value * 7);
-      return Array.from({ length: 7 }, (_, i) => { const d = new Date(base); d.setDate(base.getDate() + i); const iso = isoOf(d);
-        return { iso, name: WEEK[d.getDay()], num: d.getDate(), today: iso === todayISO(), items: rows.value.filter((c) => c.due === iso && c.per_delivered < 100) }; });
+      const base = satOf(parseDate(todayISO())); base.setDate(base.getDate() + weekStart.value * 7);
+      return Array.from({ length: 7 }, (_, i) => { const d = new Date(base); d.setDate(base.getDate() + i); return dayOf(d); });
     });
-    const lateCount = computed(() => rows.value.filter((c) => c.due && c.per_delivered < 100 && daysFromToday(c.due) < 0).length);
+    const monthDays = computed(() => {
+      const t = parseDate(todayISO()), first = new Date(t.getFullYear(), t.getMonth() + monthOff.value, 1), start = satOf(first);
+      const last = new Date(first.getFullYear(), first.getMonth() + 1, 0), n = Math.ceil((Math.round((last - start) / 86400000) + 1) / 7) * 7;
+      return Array.from({ length: n }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return dayOf(d, { out: d.getMonth() !== first.getMonth() }); });
+    });
+    const monthTitle = computed(() => { const t = parseDate(todayISO()); return new Intl.DateTimeFormat("ar-DZ-u-nu-latn", { month: "long", year: "numeric" }).format(new Date(t.getFullYear(), t.getMonth() + monthOff.value, 1)); });
+    const calHead = computed(() => WEEK.map((_, i) => WEEK[(i + 6) % 7]));
+    const lateRows = computed(() => openRows.value.filter((c) => c.due && daysFromToday(c.due) < 0).sort((a, b) => (a.due < b.due ? -1 : 1)));
+    const lateCount = computed(() => lateRows.value.length);
+    const undated = computed(() => openRows.value.filter((c) => !c.due));
+    const lateWord = (iso) => { const n = -daysFromToday(iso); return n === 1 ? "أمس" : n === 2 ? "منذ يومين" : `منذ ${n} ${n <= 10 ? "أيام" : "يومًا"}`; };
+    const colOf = (c) => (cfg.value.columns || []).find((x) => x.id === c.column) || { name: "", color: "#9B87F5" };
+    const calPrev = () => (calMode.value === "week" ? weekStart.value-- : monthOff.value--);
+    const calNext = () => (calMode.value === "week" ? weekStart.value++ : monthOff.value++);
+    const calToday = () => { weekStart.value = 0; monthOff.value = 0; };
+    const openWeek = (iso) => { const sat = satOf(parseDate(iso)), now = satOf(parseDate(todayISO())); weekStart.value = Math.round((sat - now) / (7 * 86400000)); calMode.value = "week"; };
     const dropDay = async (iso) => {
       const c = dragging.value; dragging.value = null; over.value = null; if (!c || c.due === iso) return;
       try { await call("update_card", { name: c.name, changes: JSON.stringify({ due: iso }) }, true); toast("تغيّر الموعد"); await load(); } catch (e) { toast(e.message, "error"); }
@@ -1760,7 +1781,7 @@ const Board = {
     return { menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
-      notes, bell, toggleBell, weekStart, days, lateCount, dropDay, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
+      notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
   },
   template: `
   <div class="page tb cb">
@@ -1799,20 +1820,37 @@ const Board = {
     <div v-if="s.loading && !s.data" class="ws-loading">{{ t('loading') }}</div>
     <div v-else-if="s.error" class="alert error"><span style="flex:1">{{ s.error }}</span><button class="btn sm" @click="load">{{ t('retry') }}</button></div>
 
-    <div v-else-if="view === 'calendar'" class="tb-cal">
-      <div class="tb-cal-head"><b>{{ date(days[0].iso) }} — {{ date(days[6].iso) }}</b><span v-if="lateCount" class="bd-chip debt" style="cursor:default">{{ lateCount }} متأخرة</span><span class="spacer"></span>
-        <button type="button" class="bd-chip" @click="weekStart--">‹ السابق</button><button type="button" class="bd-chip" :aria-pressed="weekStart === 0" @click="weekStart = 0">هذا الأسبوع</button><button type="button" class="bd-chip" @click="weekStart++">التالي ›</button></div>
-      <div class="tb-cal-grid">
-        <section v-for="d in days" :key="d.iso" class="tb-day" :class="{today: d.today, over: over === d.iso}" :aria-label="d.name + ' ' + d.num"
-          @dragover.prevent="over = d.iso" @dragleave="over === d.iso && (over = null)" @drop.prevent="dropDay(d.iso)">
-          <h2><span>{{ d.name }}</span><span class="tb-day-n">{{ d.num }}</span></h2>
-          <button v-for="c in d.items" :key="c.name" type="button" class="tb-ev" draggable="true" @dragstart="dragging = c" @click="open = c.name"
-            :style="{borderInlineStartColor: (c.labels[0] && labels[c.labels[0]]) ? labels[c.labels[0]].color : '#9B87F5'}">
-            <span class="strong">{{ c.title }}</span><span class="m">{{ c.due_time || '' }} {{ c.customer_name }}</span>
-            <span class="tc-members"><Avatar v-for="m in c.members.slice(0, 3)" :key="m" :name="m"/></span></button>
-        </section>
+    <div v-else-if="view === 'calendar'" class="tb-cal cal2">
+      <div class="cal2-head"><b class="cal2-range">{{ calMode === 'week' ? date(days[0].iso) + ' — ' + date(days[6].iso, true) : monthTitle }}</b><span class="spacer"></span>
+        <div class="cal2-seg" role="group" aria-label="العرض"><button type="button" :aria-pressed="calMode === 'week'" @click="calMode = 'week'">أسبوع</button><button type="button" :aria-pressed="calMode === 'month'" @click="calMode = 'month'">شهر</button></div>
+        <div class="btn-row"><button type="button" class="cl-btn sm" @click="calPrev">‹ السابق</button><button type="button" class="cl-btn sm" :class="{on: !weekStart && !monthOff}" @click="calToday">اليوم</button><button type="button" class="cl-btn sm" @click="calNext">التالي ›</button></div></div>
+      <div class="cal2-body"><div class="cal2-main">
+        <section v-if="lateRows.length" class="cal2-late" aria-label="متأخرة"><h3>متأخرة <span class="cal2-n">{{ lateRows.length }}</span><span class="m">— اسحبها إلى يوم جديد</span></h3>
+          <div class="cal2-late-row"><button v-for="c in lateRows" :key="c.name" type="button" class="cal2-ev" draggable="true" :style="{'--c': colOf(c).color}" @dragstart="dragging = c" @click="open = c.name">
+            <b>{{ c.title }}</b><span class="m"><span class="cal2-st">{{ colOf(c).name }}</span><span class="cal2-late-d">{{ lateWord(c.due) }}</span><span class="tc-members"><Avatar v-for="m in c.members.slice(0, 2)" :key="m" :name="m"/></span></span></button></div></section>
+        <div v-if="calMode === 'week'" class="cal2-week">
+          <section v-for="d in days" :key="d.iso" class="cal2-day" :class="{today: d.today, off: d.off, over: over === d.iso}" :aria-label="d.name + ' ' + d.num"
+            @dragover.prevent="over = d.iso" @dragleave="over === d.iso && (over = null)" @drop.prevent="dropDay(d.iso)">
+            <div class="cal2-dh">{{ d.name }} <span class="cal2-num">{{ d.num }}</span><span v-if="d.off && !d.items.length" class="cal2-off">عطلة</span>
+              <span v-else class="cal2-cnt" :class="{full: d.full}" :title="d.full ? 'تجاوز الحد اليومي (' + calCfg.day_limit + ')' : ''">{{ d.items.length }}<template v-if="d.full"> / {{ calCfg.day_limit }}</template></span></div>
+            <div class="cal2-dl"><button v-for="c in d.items" :key="c.name" type="button" class="cal2-ev" draggable="true" :style="{'--c': colOf(c).color}" @dragstart="dragging = c" @click="open = c.name">
+              <b>{{ c.title }}</b><span class="m"><span class="cal2-st">{{ colOf(c).name }}</span>{{ c.due_time || '' }} {{ c.customer_name }}<span class="tc-members"><Avatar v-for="m in c.members.slice(0, 2)" :key="m" :name="m"/></span></span></button></div>
+          </section></div>
+        <div v-else class="cal2-month">
+          <div v-for="h in calHead" :key="h" class="cal2-mh">{{ h }}</div>
+          <div v-for="d in monthDays" :key="d.iso" class="cal2-mc" :class="{out: d.out, off: d.off, today: d.today, over: over === d.iso}" role="button" tabindex="0" :aria-label="d.name + ' ' + d.num"
+            @click="openWeek(d.iso)" @keydown.enter="openWeek(d.iso)" @dragover.prevent="over = d.iso" @dragleave="over === d.iso && (over = null)" @drop.prevent="dropDay(d.iso)">
+            <span class="cal2-mn">{{ d.num }}<span v-if="d.items.length" class="cal2-cnt" :class="{full: d.full}">{{ d.items.length }}</span></span>
+            <span v-for="c in d.items.slice(0, 3)" :key="c.name" class="cal2-pill" draggable="true" :style="{'--c': colOf(c).color}" @dragstart.stop="dragging = c" @click.stop="open = c.name">{{ c.title }}</span>
+            <span v-if="d.items.length > 3" class="cal2-more">+ {{ d.items.length - 3 }} المزيد</span></div></div>
+        <span class="m cal2-hint">اسحب بطاقة إلى يوم لتغيير موعدها. الرقم في رأس اليوم عدد الطلبات، ويصبح برتقاليًا إذا تجاوز الحد اليومي ({{ calCfg.day_limit }}).</span>
       </div>
-      <span class="m" style="color:#fff">اسحب بطاقة إلى يوم آخر لتغيير موعدها.</span>
+      <aside class="cal2-side" @dragover.prevent @drop.prevent="dragging = null; over = null"><h3>بلا موعد <span class="cal2-n">{{ undated.length }}</span></h3>
+        <div class="cal2-dl"><button v-for="c in undated" :key="c.name" type="button" class="cal2-ev" draggable="true" :style="{'--c': colOf(c).color}" @dragstart="dragging = c" @click="open = c.name">
+          <b>{{ c.title }}</b><span class="m"><span class="cal2-st">{{ colOf(c).name }}</span>{{ c.customer_name }}</span></button>
+          <span v-if="!undated.length" class="m">كل الطلبات لها موعد.</span></div>
+        <span v-if="undated.length" class="m">اسحب إلى يوم لتعطيه موعدًا.</span>
+        <div class="cal2-legend"><span v-for="c in (cfg.columns || []).filter((x) => !x.deliver && !x.hidden)" :key="c.id"><i :style="{background: c.color}"></i>{{ c.name }}</span></div></aside></div>
     </div>
 
     <div v-else class="tb-cols">
@@ -2899,14 +2937,24 @@ const BoardSettings = {
         toast("حُفظ التخصيص"); await load(); state.rev++;
       } catch (e) { err.value = e.message; } finally { saving.value = false; }
     };
-    return { statuses, s, tab, cols, labels, moves, removed, saving, err, count, lcount, up, delCol, setDeliver, save, BOARD_COLORS, COVER_COLORS, labelStyle, go };
+    // calendar: daily limit and off days (getDay numbers), week shown from Saturday
+    const cal = reactive({ day_limit: 5, off_days: [5] });
+    watch(() => s.data?.calendar, (v) => v && Object.assign(cal, { day_limit: v.day_limit, off_days: [...v.off_days] }), { immediate: true });
+    const CAL_DAYS = [6, 0, 1, 2, 3, 4, 5].map((i) => [i, WEEK[i]]);
+    const flipOff = (i) => { cal.off_days = cal.off_days.includes(i) ? cal.off_days.filter((x) => x !== i) : [...cal.off_days, i]; };
+    const saveCal = async () => {
+      saving.value = true; err.value = null;
+      try { const v = await call("save_calendar", { day_limit: cal.day_limit, off_days: JSON.stringify(cal.off_days) }, true); Object.assign(cal, v); toast("حُفظت إعدادات التقويم"); }
+      catch (e) { err.value = e.message; } finally { saving.value = false; }
+    };
+    return { statuses, s, tab, cols, labels, moves, removed, saving, err, count, lcount, up, delCol, setDeliver, save, BOARD_COLORS, COVER_COLORS, labelStyle, go, cal, CAL_DAYS, flipOff, saveCal };
   },
   template: `
   <div class="page">
     <div v-if="!embedded" class="bd-head"><div><h1>تخصيص اللوحة</h1><div class="sub">للمدير فقط. التغييرات تظهر للفريق مباشرة.</div></div>
       <button type="button" class="btn" @click="go('/')">← العودة إلى الطلبات</button></div>
     <div class="cv-tabs" role="tablist" style="margin:12px 0 18px">
-      <button v-for="tb in [['columns','الأعمدة'],['statuses','الحالات'],['labels','الوسوم'],['team','الفريق']]" :key="tb[0]" type="button" role="tab" class="bs-tab" :aria-selected="tab===tb[0]" @click="tab=tb[0]">{{ tb[1] }}</button></div>
+      <button v-for="tb in [['columns','الأعمدة'],['statuses','الحالات'],['labels','الوسوم'],['calendar','التقويم'],['team','الفريق']]" :key="tb[0]" type="button" role="tab" class="bs-tab" :aria-selected="tab===tb[0]" @click="tab=tb[0]">{{ tb[1] }}</button></div>
     <div v-if="!s.data && tab !== 'team'" class="ws-loading">جارٍ التحميل…</div>
     <div v-else-if="tab === 'columns'" class="bs-list">
       <div v-for="(c, i) in cols" :key="c.id || i" class="bs-row">
@@ -2946,7 +2994,15 @@ const BoardSettings = {
       <button type="button" class="bs-addrow" @click="labels.push({name: '', color: BOARD_COLORS[labels.length % BOARD_COLORS.length]})">+ إضافة وسم</button>
     </div>
     <TeamPage v-else-if="tab === 'team'" embedded/>
-    <template v-if="tab !== 'team' && s.data">
+    <div v-else-if="tab === 'calendar'" class="bs-list bs-cal">
+      <label class="cl-fgroup" style="max-width:420px"><span>الحد اليومي للطلبات</span><div class="unit-wrap"><input class="input num" style="max-width:160px" v-model="cal.day_limit" inputmode="numeric"><span class="u">طلب</span></div>
+        <span class="m">يصبح رقم اليوم برتقاليًا إذا تجاوزه. 0 لإلغاء التنبيه.</span></label>
+      <div class="cl-fgroup"><span>أيام العطلة</span><div class="bs-days"><label v-for="d in CAL_DAYS" :key="d[0]" class="st2-check"><input type="checkbox" :checked="cal.off_days.includes(d[0])" @change="flipOff(d[0])"><span>{{ d[1] }}</span></label></div>
+        <span class="m">تظهر رمادية في التقويم. الأسبوع يبدأ السبت.</span></div>
+      <div v-if="err" class="alert error" role="alert">{{ err }}</div>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn primary" :disabled="saving" @click="saveCal">{{ saving ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
+    </div>
+    <template v-if="tab !== 'team' && tab !== 'calendar' && s.data">
       <div v-if="err" class="alert error" role="alert" style="margin-top:12px">{{ err }}</div>
       <div class="row" style="justify-content:flex-end;margin-top:16px"><button type="button" class="btn primary" :disabled="saving" @click="save">{{ saving ? 'جارٍ الحفظ…' : 'حفظ' }}</button></div>
     </template>
