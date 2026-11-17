@@ -749,7 +749,7 @@ const newLine = () => ({ text: "", item_code: null, unit: (state.boot.units || [
 const BoardPanel = {
   props: ["mode", "order", "preset", "columns", "statuses", "labels", "edit"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
   setup(props, { emit }) {
-    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", subject: "", lines: [newLine()], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash", description: "", checklist: [] });
+    const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", subject: "", lines: [newLine()], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash", description: "", checklist: [], cover_color: "", coverIdx: -1 });
     // opened from any page: the board settings come with it, or are fetched once
     const cfg = ref(null);
     onMounted(async () => { if (props.mode === "new" && !props.columns) { try { cfg.value = (await call("board2")).config; } catch { /* columns stay empty */ } } });
@@ -829,9 +829,11 @@ const BoardPanel = {
             unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null })),
           status: f.status, labels: f.labels, checklist: (f.checklist || []).map((c) => c.text), description: f.description || "", advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
         }) }, true);
+        let coverUrl = "";
         if (res?.sales_order && queued.value.length) {
-          for (const q of queued.value) { const up = await uploadPrivate(isImg({ file_name: q.name }) ? await shrinkImage(q) : q, "Sales Order", res.sales_order); await call("file_added", { name: res.sales_order, file_url: up.file_url, file_name: up.file_name }, true); }
+          for (const [k, q] of queued.value.entries()) { const up = await uploadPrivate(isImg({ file_name: q.name }) ? await shrinkImage(q) : q, "Sales Order", res.sales_order); await call("file_added", { name: res.sales_order, file_url: up.file_url, file_name: up.file_name }, true); if (k === f.coverIdx) coverUrl = up.file_url; }
         }
+        if (res?.sales_order && (coverUrl || f.cover_color)) await call("update_card", { name: res.sales_order, changes: JSON.stringify(coverUrl ? { cover: coverUrl } : { cover_color: f.cover_color }) }, true);
         toast("أُنشئ الطلب"); emit("saved", res?.sales_order);
         if (openAfter === true && res?.sales_order) go("/?card=" + encodeURIComponent(res.sales_order));
       } catch (e) { error.value = e.message; } finally { saving.value = false; }
@@ -1070,7 +1072,7 @@ const BoardPanel = {
           <div v-if="(!showDesc && !f.description.trim()) || (!showCk && !f.checklist.length) || (!showFiles && !(editing ? files.length : queued.length))" class="od-adds">
             <button v-if="!showDesc && !f.description.trim()" type="button" class="od-addline" @click="showDesc = true"><Icon name="plus" :size="14"/>وصف</button>
             <button v-if="!showCk && !f.checklist.length" type="button" class="od-addline" @click="showCk = true"><Icon name="plus" :size="14"/>قائمة مهام</button>
-            <button v-if="!showFiles && !(editing ? files.length : queued.length)" type="button" class="od-addline" @click="showFiles = true"><Icon name="plus" :size="14"/>مرفق</button></div>
+            <button v-if="!showFiles && !(editing ? files.length : queued.length)" type="button" class="od-addline" @click="showFiles = true"><Icon name="plus" :size="14"/>مرفق أو غلاف</button></div>
           <section v-if="showDesc || f.description.trim()" class="od-card"><div class="od-ch"><Icon name="file" :size="18"/><b>الوصف</b><span class="m od-r">يظهر في البون والعرض إن فُعّل في الإعدادات</span></div>
             <div class="od-pad"><textarea class="input od-desc" v-model="f.description" rows="3" placeholder="المقاسات، الورق، الكمية، ملاحظات العميل…" aria-label="الوصف"></textarea></div></section>
 
@@ -1088,8 +1090,12 @@ const BoardPanel = {
               <span class="od-r btn-row"><label class="cl-btn sm"><Icon name="image" :size="14"/>تصوير<input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFiles"></label>
                 <label class="cl-btn sm"><Icon name="plus" :size="14"/>إضافة<input ref="fileIn" type="file" multiple class="sr-only" @change="onFiles"></label></span></div>
             <div class="od-pad">
-              <div v-if="!editing && queued.length" class="od-files"><span v-for="(q, i) in queued" :key="i" class="od-file"><span class="ellipsis">{{ q.name }}</span><button type="button" class="lb-del" :aria-label="'إزالة ' + q.name" @click="queued.splice(i, 1)"><Icon name="x" :size="12"/></button></span>
+              <div v-if="!editing && queued.length" class="od-files"><span v-for="(q, i) in queued" :key="i" class="od-file" :class="{cover: f.coverIdx === i}"><span class="ellipsis">{{ q.name }}</span>
+                  <span class="od-file-acts"><button v-if="isImg({file_name: q.name})" type="button" class="cl-link" @click="f.coverIdx = f.coverIdx === i ? -1 : i; f.cover_color = ''">{{ f.coverIdx === i ? '✓ الغلاف' : 'غلاف' }}</button>
+                    <button type="button" class="cl-link bad" @click="queued.splice(i, 1); if (f.coverIdx === i) f.coverIdx = -1; else if (f.coverIdx > i) f.coverIdx--">إزالة</button></span></span>
                 <span class="m">تُرفع عند حفظ الطلب.</span></div>
+              <div v-if="!editing" class="od-cover"><span class="m">لون الغلاف:</span><button v-for="c in COVER_COLORS" :key="c" type="button" class="bs-sw" :style="{background: c}" :aria-pressed="f.coverIdx < 0 && f.cover_color === c" :aria-label="'لون ' + c" @click="f.cover_color = f.cover_color === c ? '' : c; f.coverIdx = -1"></button>
+                <button v-if="f.cover_color || f.coverIdx >= 0" type="button" class="cl-link" @click="f.cover_color = ''; f.coverIdx = -1">بلا غلاف</button></div>
               <div v-if="editing && files.length" class="od-files">
                 <div v-for="x in files" :key="x.name" class="od-file" :class="{img: isImg(x), cover: ed.cover === x.file_url, final: ed.final === x.file_url}">
                   <a :href="x.file_url" target="_blank" rel="noopener" class="od-thumb"><img v-if="isImg(x)" :src="x.file_url" alt=""><Icon v-else name="file" :size="22"/></a>
