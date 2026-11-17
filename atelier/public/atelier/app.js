@@ -767,6 +767,14 @@ const BoardPanel = {
     watch(() => f.customer, (c) => { if (c) pickCust.value = false; });
     const dueChips = computed(() => (state.boot?.lists?.due || []).map((c) => [c.label, c.days]));
     const saving = ref(false), error = ref(null), newName = ref(""), credit = ref(null);
+    // a new order is a draft kept in this browser until it is saved: a misclick, a closed tab or a power cut lose nothing
+    const DRAFT = "atelier.orderDraft", draftNote = ref(""), otherDraft = ref(null);
+    const draftKeys = ["customer", "phone", "type", "subject", "lines", "advance", "due", "assignee", "tags", "column", "mode", "description", "checklist", "cover_color", "status", "labels"];
+    const hasContent = () => !!(f.customer || newName.value || f.subject.trim() || f.description.trim() || f.checklist.length || f.lines.some((l) => l.text.trim()));
+    const draftPick = (o) => Object.fromEntries(draftKeys.map((k) => [k, o[k]]));
+    const applyDraft = (d) => { Object.assign(f, JSON.parse(JSON.stringify(d.f))); if (d.newName) newName.value = d.newName; if (d.f.customer) pickCust.value = false;
+      nextTick(() => { const el = document.getElementById("qo-customer"); if (el && !f.customer && d.newName) el.value = d.newName; }); draftNote.value = "استُعيدت مسودة لم تُحفظ"; };
+    const dropDraft = () => store.del(DRAFT);
     // the customer's type (it picks the price list) and phone come from the server, whatever page opened the form
     watch(() => f.customer, async (c) => { credit.value = null; if (c) { try { credit.value = await call("customer_credit", { name: c.name });
       if (f.customer === c && credit.value.customer_type && c.customer_type !== credit.value.customer_type) { f.customer = { ...c, customer_type: credit.value.customer_type, mobile_no: c.mobile_no || credit.value.mobile_no }; } } catch { /* optional */ } } }, { immediate: true });
@@ -834,7 +842,7 @@ const BoardPanel = {
           for (const [k, q] of queued.value.entries()) { const up = await uploadPrivate(isImg({ file_name: q.name }) ? await shrinkImage(q) : q, "Sales Order", res.sales_order); await call("file_added", { name: res.sales_order, file_url: up.file_url, file_name: up.file_name }, true); if (k === f.coverIdx) coverUrl = up.file_url; }
         }
         if (res?.sales_order && (coverUrl || f.cover_color)) await call("update_card", { name: res.sales_order, changes: JSON.stringify(coverUrl ? { cover: coverUrl } : { cover_color: f.cover_color }) }, true);
-        toast("أُنشئ الطلب"); emit("saved", res?.sales_order);
+        dropDraft(); toast("أُنشئ الطلب"); emit("saved", res?.sales_order);
         if (openAfter === true && res?.sales_order) go("/?card=" + encodeURIComponent(res.sales_order));
       } catch (e) { error.value = e.message; } finally { saving.value = false; }
     }
@@ -873,6 +881,19 @@ const BoardPanel = {
         await nextTick(); lastLines = linesPayload(); ready.value = true;
       } catch (e) { error.value = e.message; }
     });
+    onMounted(() => {
+      if (props.edit) return;
+      const d = store.get(DRAFT);
+      if (d && d.f && Date.now() - (d.at || 0) < 30 * 86400000) {
+        if (!props.preset || d.f.customer?.name === props.preset.name) applyDraft(d); else otherDraft.value = d;
+      }
+    });
+    watch(() => [JSON.stringify(draftPick(f)), newName.value], () => {
+      if (props.edit) return;
+      if (hasContent()) store.set(DRAFT, { f: draftPick(f), newName: newName.value, at: Date.now() });
+    });
+    const useOtherDraft = () => { applyDraft(otherDraft.value); otherDraft.value = null; };
+    const cancelNew = () => { if (hasContent() && !confirm("تجاهل هذا الطلب؟ ستُحذف المسودة المحفوظة.")) return; dropDraft(); emit("close"); };
     const flipMember = (p) => { const i = members.value.indexOf(p); if (i >= 0) members.value.splice(i, 1); else members.value.push(p); };
     // an opened card saves itself: details right after a change, lines once every line is complete
     const sv = ref(""), svMsg = ref(""), ready = ref(false), timers = {};
@@ -981,13 +1002,13 @@ const BoardPanel = {
     const dropTpl = async (tp) => { if (!confirm(`حذف القالب «${tp.title}»؟`)) return; try { tpls.value = await call("delete_card_template", { id: tp.id }, true); if (tplOn.value === tp.id) tplOn.value = null; } catch (e) { error.value = e.message; } };
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
-    return { miss, showDesc, showCk, showFiles, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, showDesc, showCk, showFiles, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
   <aside class="bd-panel" :aria-label="mode === 'new' ? 'طلب جديد' : 'الطلب'">
-    <div v-if="mode === 'new'" class="overlay od-ov" @click.self="$emit('close')">
+    <div v-if="mode === 'new'" class="overlay od-ov" @click.self="editing ? closeEdit() : $emit('close')">
     <form class="od" role="dialog" aria-modal="true" aria-labelledby="od-h" novalidate @submit.prevent="editing ? closeEdit() : save(false)" @keydown.ctrl.enter.prevent="editing ? closeEdit() : save(false)">
       <header class="od-hd"><span class="od-ic"><Icon name="file" :size="22"/></span>
         <div v-if="editing"><h2 id="od-h">{{ ed && ed.title ? ed.title : 'الطلب' }}</h2><span class="m">{{ ed ? ed.name : 'جارٍ التحميل…' }}</span></div>
@@ -1013,6 +1034,8 @@ const BoardPanel = {
         <button type="button" class="od-x" aria-label="إغلاق" @click="editing ? closeEdit() : $emit('close')"><Icon name="x" :size="18"/></button></header>
       <div class="od-bd">
         <div class="od-main">
+          <div v-if="!editing && draftNote" class="od-draft" role="status"><Icon name="check" :size="15"/>{{ draftNote }}. تُحفظ كتابتك تلقائيًا حتى تحفظ الطلب.<span class="spacer"></span><button type="button" class="cl-link" @click="cancelNew">بدء طلب فارغ</button></div>
+          <div v-if="!editing && otherDraft" class="od-draft" role="status">لديك مسودة لم تُحفظ<template v-if="otherDraft.f.customer"> للعميل «{{ otherDraft.f.customer.customer_name }}»</template>.<span class="spacer"></span><button type="button" class="cl-link" @click="useOtherDraft">استعادتها</button><button type="button" class="cl-link" @click="dropDraft(); otherDraft = null">حذفها</button></div>
           <section class="od-card od-pad">
             <div v-if="f.customer && !pickCust" class="od-cust">
               <span class="od-av">{{ initialOf(f.customer.customer_name) }}</span>
@@ -1159,7 +1182,7 @@ const BoardPanel = {
         <span class="spacer"></span>
         <span v-if="!editing" class="od-kbd"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> حفظ · <kbd>Esc</kbd> إغلاق</span><span v-else class="od-kbd">كل تعديل يُحفظ مباشرة</span>
         <button v-if="editing" type="button" class="cl-btn primary od-btn" @click="closeEdit">إغلاق</button>
-        <button v-else type="button" class="cl-btn od-btn" @click="$emit('close')">إلغاء</button>
+        <button v-else type="button" class="cl-btn od-btn" @click="cancelNew">إلغاء</button>
         <button v-if="!editing" type="button" class="cl-btn od-btn" :disabled="saving" @click="save(true)">حفظ وفتح البطاقة</button>
         <button v-if="!editing" type="submit" class="cl-btn primary od-btn" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ الطلب' }}</button>
       </footer>
