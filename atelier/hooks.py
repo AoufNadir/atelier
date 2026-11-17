@@ -221,7 +221,10 @@ doc_events = {
 # 	"Task": "atelier.custom.task.CustomTaskMixin"
 # }
 extend_doctype_class = {
-	"Sales Order": ["atelier.delivery_dates.OptionalDeliveryDateMixin"],
+	"Sales Order": [
+		"atelier.delivery_dates.OptionalDeliveryDateMixin",
+		"atelier.order_pricing.PendingPriceMixin",
+	],
 }
 
 # Overriding Methods

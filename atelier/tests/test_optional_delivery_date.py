@@ -67,6 +67,9 @@ def verify_live():
 				assert all(not item.delivery_date for item in order.items)
 				assert bool(order.items[0].atelier_price_pending) == (rate is None)
 				assert order.docstatus == (0 if rate is None else 1)
+				assert order.grand_total == (0 if rate is None else rate), (
+					"An unknown rate must not inherit an Item Price", order.grand_total
+				)
 				day = add_days(nowdate(), 2)
 				simple.update_card(name, json.dumps({"due": day}))
 				simple.update_card(name, json.dumps({"due": ""}))
