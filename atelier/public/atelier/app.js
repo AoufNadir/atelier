@@ -1517,8 +1517,38 @@ const CardModal = {
   </div>`,
 };
 
+// display size control: a button with a small popover, and Alt + = / Alt + - anywhere (even inside a card)
+const sizeState = reactive({ zoom: zoomOf() });
+async function setScale(z, announce) {
+  applyScale(z); sizeState.zoom = z;
+  if (announce) toast(`حجم العرض ${Math.round(z * 100)}%`);
+  try { await call("set_ui_scale", { scale: z }, true); } catch (e) { toast(e.message, "error"); }
+}
+window.addEventListener("keydown", (e) => {
+  if (!e.altKey || e.ctrlKey || e.metaKey) return;
+  const step = e.code === "Equal" || e.code === "NumpadAdd" ? 1 : e.code === "Minus" || e.code === "NumpadSubtract" ? -1 : 0;
+  if (!step) return;
+  e.preventDefault();
+  const i = SCALES.findIndex((x) => x[0] === sizeState.zoom), next = SCALES[Math.min(SCALES.length - 1, Math.max(0, (i < 0 ? 1 : i) + step))][0];
+  if (next !== sizeState.zoom) setScale(next, true);
+});
+const SizeControl = {
+  props: ["cls"],
+  setup() {
+    const open = ref(false);
+    const close = () => (open.value = false);
+    onMounted(() => document.addEventListener("click", close)); onBeforeUnmount(() => document.removeEventListener("click", close));
+    return { open, sizeState, SCALES, pick: (z) => setScale(z) };
+  },
+  template: `
+  <div class="sz-host"><button type="button" :class="cls || 'cl-btn icon'" class="sz-btn" aria-label="حجم العرض" title="حجم العرض" :aria-expanded="open" @click.stop="open = !open">Aa</button>
+    <div v-if="open" class="sz-pop" role="group" aria-label="حجم العرض" @click.stop><b>حجم العرض</b>
+      <div class="who-seg"><button v-for="x in SCALES" :key="x[0]" type="button" dir="ltr" :aria-pressed="sizeState.zoom === x[0]" @click="pick(x[0])">{{ x[1] }}</button></div>
+      <span class="m">خاص بك ويبقى معك على أي حاسوب.</span><span class="m">من أي مكان: <bdi dir="ltr">Alt +</bdi> للتكبير، <bdi dir="ltr">Alt −</bdi> للتصغير.</span></div></div>`,
+};
+
 const Board = {
-  props: ["startNew", "openCard"], components: { Icon, BoardCard, BoardPanel, CardModal, Avatar, TransitionGroup, StatusMenu },
+  props: ["startNew", "openCard"], components: { Icon, BoardCard, BoardPanel, CardModal, Avatar, TransitionGroup, StatusMenu, SizeControl },
   setup(props) {
     const { s, load } = useLoad(() => call("board2"));
     onMounted(load);
@@ -1702,6 +1732,7 @@ const Board = {
       <div class="mn-month cb-views" role="group" aria-label="طريقة العرض"><button type="button" :aria-pressed="view === 'board'" @click="view = 'board'"><Icon name="grid" :size="15"/>لوحة</button><button type="button" :aria-pressed="view === 'calendar'" @click="view = 'calendar'"><Icon name="calendar" :size="15"/>تقويم</button></div>
       <span class="spacer"></span>
       <label class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث في البطاقات</span><input type="search" v-model="q" placeholder="ابحث: عميل، عنوان، رقم"></label>
+      <SizeControl/>
       <div class="tb-bell-host"><button type="button" class="cl-btn icon cb-bell" :aria-label="'التنبيهات' + (notes.unread ? ' — ' + notes.unread + ' جديدة' : '')" :aria-expanded="bell" @click.stop="fopen = false; more = false; toggleBell()"><Icon name="bell" :size="18"/><span v-if="notes.unread" class="cb-dot"></span></button>
         <div v-if="bell" class="tm-pop tb-bell-pop" @click.stop>
           <b>التنبيهات</b>
@@ -3672,12 +3703,12 @@ const StockPage = {
 };
 
 const App = {
-  components: { BoardPanel, StockPage, CalcPage, MaterialsSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
       bootErr.value = null;
-      try { state.boot = await call("boot"); applyScale(state.boot.ui_scale); } catch (e) { bootErr.value = e.message; }
+      try { state.boot = await call("boot"); applyScale(state.boot.ui_scale); sizeState.zoom = zoomOf(); } catch (e) { bootErr.value = e.message; }
       call("orders").then((l) => (state.openOrders = l.length)).catch(() => {});
     };
     onMounted(async () => {
@@ -3696,12 +3727,7 @@ const App = {
       try { localStorage.removeItem("atelier.remember"); } catch { /* private mode */ }
       location.href = "/atelier-login";
     };
-    const sizeOpen = ref(false), zoom = ref(zoomOf());
-    const setScale = async (z) => { applyScale(z); zoom.value = z; try { await call("set_ui_scale", { scale: z }, true); } catch (e) { toast(e.message, "error"); } };
-    const closeSize = () => (sizeOpen.value = false);
-    onMounted(() => document.addEventListener("click", closeSize)); onBeforeUnmount(() => document.removeEventListener("click", closeSize));
-    watch(() => state.boot?.ui_scale, (v) => { if (v) zoom.value = v; });
-    return { logout, state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials, sizeOpen, zoom, setScale, SCALES };
+    return { logout, state, route, NAV, SECTION_NAV, isActive, bootErr, loadBoot, t, go, titles, back, initials };
   },
   template: `
   <div v-if="bootErr" class="page"><div class="alert error" role="alert"><span style="flex:1">{{ bootErr }}</span><button class="btn sm" @click="loadBoot">{{ t('retry') }}</button></div></div>
@@ -3722,10 +3748,7 @@ const App = {
       <div class="spacer"></div>
       <a v-if="state.boot.can.prices" class="nav" :class="{active: route.name==='settings'}" href="/atelier/settings" @click.prevent="go('/settings')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
       <div class="who-row"><span class="who-av">{{ initials(state.boot.full_name) }}</span><span class="who-txt"><span class="who-name">{{ state.boot.full_name }}</span><span class="who-role">{{ state.boot.can.prices ? t('role_manager') : 'موظف' }}</span></span>
-        <button type="button" class="who-out who-size" aria-label="حجم العرض" title="حجم العرض" :aria-expanded="sizeOpen" @click.stop="sizeOpen = !sizeOpen">Aa</button>
-        <div v-if="sizeOpen" class="who-pop" role="group" aria-label="حجم العرض" @click.stop><b>حجم العرض</b>
-          <div class="who-seg"><button v-for="x in SCALES" :key="x[0]" type="button" dir="ltr" :aria-pressed="zoom === x[0]" @click="setScale(x[0])">{{ x[1] }}</button></div>
-          <span class="m">خاص بك، ويبقى معك على أي حاسوب.</span></div>
+        <SizeControl cls="who-out who-size"/>
         <button type="button" class="who-out" aria-label="تسجيل الخروج" title="تسجيل الخروج" @click="logout"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></button></div>
     </nav>
 
@@ -3738,6 +3761,7 @@ const App = {
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
         <div class="spacer desktop-only"></div>
         <SearchBox :class="{'desktop-only': route.name!=='home'}"/>
+        <SizeControl class="desktop-only" cls="btn ghost icon-btn"/>
         <button type="button" class="btn ghost icon-btn desktop-only" :aria-label="t('notifications')"><Icon name="bell" :size="20"/></button>
       </header>
       <main id="main" tabindex="-1" style="outline:none">

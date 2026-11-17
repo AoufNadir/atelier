@@ -2244,3 +2244,11 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
 .who-seg button + button { border-inline-start: 1px solid #D0D5DD; }
 .who-seg button[aria-pressed="true"] { background: var(--primary); color: #fff; }
 .who-seg button:focus-visible { outline: 3px solid var(--primary); outline-offset: -3px; }
+
+/* display size control (top bars and sidebar) */
+.sz-host { position: relative; display: inline-flex; }
+.sz-btn { font-size: 13px; font-weight: 700; }
+.sz-pop { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; z-index: 95; width: 260px; background: #fff; color: #17202A; border: 1px solid #D0D5DD; border-radius: 10px; box-shadow: 0 12px 32px rgba(16,24,40,.18); padding: 10px; display: flex; flex-direction: column; gap: 8px; text-align: start; }
+.sz-pop > b { font-size: 13px; } .sz-pop .m { font-size: 12px; color: #667085; line-height: 1.5; }
+.who-row .sz-pop { top: auto; bottom: calc(100% + 8px); }
+.who-row .sz-pop { left: auto; right: 0; }
