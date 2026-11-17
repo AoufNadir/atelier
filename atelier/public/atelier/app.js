@@ -2175,9 +2175,9 @@ const SimpleCustomers = {
           <div v-if="hview === 'files'" class="cpf">
             <nav class="cpf-tree" aria-label="مجموعات الملفات"><button type="button" :aria-pressed="!fsel" @click="fsel = null">كل الأعمال<i>{{ d.card_files.length }}</i></button>
               <button v-for="G in fileGroups" :key="G.key" type="button" :aria-pressed="fsel === G.key" :class="{id: G.key === '__id'}" @click="fsel = G.key"><span class="ellipsis">{{ G.title }}</span><i>{{ G.n }}</i></button>
-              <label v-if="d.can_edit" class="cl-btn sm cpf-up">{{ uploading ? 'جارٍ الرفع…' : 'رفع شعار أو هوية العميل' }}<input type="file" multiple class="sr-only" @change="onFile"></label></nav>
+</nav>
             <div class="cpf-body">
-              <div class="cpf-help">الملفات مرتبة حسب العمل. <b>الهوية</b>: ملفات ثابتة للعميل مثل الشعار. لتغيير نوع ملف أو حذفه اضغط <b>⋯</b> بجانبه.</div>
+              <div class="cpf-help">الملفات مرتبة حسب العمل. الملفات تُرفع من بطاقة العمل. لجعل ملف (مثل الشعار) من <b>الهوية</b> أو لحذفه اضغط <b>⋯</b> بجانبه.</div>
               <div v-if="!shownGroups.length" class="muted cp-pad">{{ d.card_files.length ? 'لا ملفات تطابق التصفية.' : 'لا ملفات بعد. ما يُرفق في البطاقات يظهر هنا مرتبًا حسب العمل.' }}</div>
               <section v-for="G in shownGroups" :key="G.key" class="cpf-grp">
                 <div class="cpf-gh"><b class="ellipsis">{{ G.title }}</b><span class="muted">{{ G.sub }}</span><button v-if="G.order" type="button" class="cl-link" @click="openCard(G.order)">فتح البطاقة</button>
@@ -2273,8 +2273,7 @@ const SimpleCustomers = {
               <span class="cp-fi-ic"><img v-if="isImg(x)" :src="x.file_url" alt="" loading="lazy"><Icon v-else name="file" :size="16"/></span>
               <span class="cp-fi-t"><b class="ellipsis">{{ x.file_name }}</b><span class="muted ellipsis">{{ x.atelier_subject || 'ملف العميل' }} · {{ ago(x.creation) }}</span></span></a>
             <div v-if="!d.card_files.length" class="muted cp-small">كل ما يُرفق في بطاقات هذا العميل يظهر هنا.</div>
-            <div class="btn-row"><label v-if="d.can_edit" class="cl-btn sm">{{ uploading ? 'جارٍ الرفع…' : 'رفع ملف' }}<input type="file" multiple class="sr-only" @change="onFile"></label>
-              <a v-if="d.folder" class="cl-btn sm" :href="folderLink(d.folder)">فتح مجلد العميل</a></div>
+            <a v-if="d.folder" class="cl-link cp-small" :href="folderLink(d.folder)">فتح مجلد العميل في الحاسوب</a>
           </section>
           <section class="cp-card cp-sc"><h3>البيانات<button v-if="d.can_edit" type="button" class="cl-link" @click="state.sheet = {type: 'customer', name: d.name}">تعديل</button></h3>
             <div v-for="p in d.contacts" :key="p.name + p.phone" class="cp-kv"><span>{{ p.role || 'شخص' }}</span><b>{{ p.name }}<template v-if="p.phone"> · <a dir="ltr" :href="'tel:' + p.phone">{{ p.phone }}</a></template></b></div>
