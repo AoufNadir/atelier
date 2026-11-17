@@ -2730,3 +2730,6 @@ body.col-dragging, body.col-dragging * { cursor: grabbing !important; user-selec
 .tb-col-ghost { position: fixed; z-index: 9999; pointer-events: none; margin: 0; overflow: hidden; opacity: .96;
   box-shadow: 0 24px 48px rgba(16,24,40,.28), 0 0 0 2px #4F35D2; border-radius: 12px; transform-origin: 50% 20px; will-change: transform; }
 .tb-col-ghost .tb-ch { cursor: grabbing; }
+/* settings: changed fields */
+.st2-body .st2-changed:not([type=checkbox]):not([type=radio]) { border-color: #F79009 !important; background: #FFFCF5 !important; box-shadow: 0 0 0 3px rgba(247,144,9,.12); }
+.st2-body input[type=checkbox].st2-changed, .st2-body input[type=radio].st2-changed { outline: 2px solid #F79009; outline-offset: 2px; }

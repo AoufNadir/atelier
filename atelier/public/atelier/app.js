@@ -3198,9 +3198,18 @@ const SettingsPage = {
     const leaveTo = ref(null);
     const switchTab = (t) => { if (t === tab.value) return; if (dirtyForms.value.length) { leaveTo.value = t; return; } tab.value = t; };
     const leave = async (how) => { const t = leaveTo.value; leaveTo.value = null; if (how === "save" && !(await saveAll())) return; if (how === "drop") await undoAll(); tab.value = t; };
+    // changed-field highlight: each field remembers its saved value; a field that differs is tinted until saved or undone
+    const valOf = (el) => (el.type === "checkbox" || el.type === "radio" ? String(el.checked) : el.value);
+    const FIELDS = ".st2-body input:not([type=search]):not([type=file]), .st2-body select, .st2-body textarea";
+    const markOrig = () => nextTick(() => document.querySelectorAll(FIELDS).forEach((el) => { el.dataset.orig = valOf(el); el.classList.remove("st2-changed"); }));
+    const onEdit = (e) => { const el = e.target; if (!el.matches?.(FIELDS)) return;
+      el.classList.toggle("st2-changed", el.dataset.orig === undefined ? !!valOf(el) && valOf(el) !== "false" : valOf(el) !== el.dataset.orig); };
+    watch(() => dirtyForms.value.length, (n) => { if (!n) markOrig(); });
+    watch([tab, () => s.data], () => setTimeout(markOrig, 350));
+    onMounted(() => setTimeout(markOrig, 900));
     const onUnload = (e) => { if (dirtyForms.value.length) { e.preventDefault(); e.returnValue = ""; } };
     onMounted(() => window.addEventListener("beforeunload", onUnload)); onBeforeUnmount(() => window.removeEventListener("beforeunload", onUnload));
-    return { dirtyForms, saveAll, undoAll, saving2, leaveTo, switchTab, leave, sq, sres, goSearch, ready, navFlag, fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
+    return { onEdit, dirtyForms, saveAll, undoAll, saving2, leaveTo, switchTab, leave, sq, sres, goSearch, ready, navFlag, fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
       LIST_DEFS, addToTeam, renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
   },
   template: `
@@ -3224,7 +3233,7 @@ const SettingsPage = {
       </header>
       <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
       <div v-else-if="s.error" class="alert error" style="margin:20px 32px">{{ s.error }}</div>
-      <div v-else class="st2-body">
+      <div v-else class="st2-body" @input="onEdit" @change="onEdit">
         <div v-if="err" class="alert error" role="alert">{{ err }}</div>
 
         <div v-if="tab === 'profile'" class="st2-ready"><b>جاهزية المطبعة</b><span class="st2-rbar"><i :style="{width: ready.pct + '%'}"></i></span><b>{{ ready.pct }}%</b>
