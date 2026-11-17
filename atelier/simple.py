@@ -726,7 +726,8 @@ EXTRA_FIELDS = [
 def extra_fields():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
-	create_custom_fields({"Sales Order": [{**f, "module": "Atelier"} for f in EXTRA_FIELDS]})
+	create_custom_fields({"Sales Order": [{**f, "module": "Atelier"} for f in EXTRA_FIELDS],
+		"File": [{"fieldname": "atelier_kind", "label": "نوع الملف في نسق", "fieldtype": "Data", "insert_after": "file_url", "module": "Atelier"}]})
 
 
 def _so_write(name):
@@ -1060,11 +1061,12 @@ def customer2(name):
 	if api._can("Payment Entry"):
 		res["year_paid"] = flt(frappe.db.sql("""select sum(paid_amount) from `tabPayment Entry` where party_type='Customer' and party=%s
 			and docstatus=1 and payment_type='Receive' and posting_date >= %s""", (name, str(frappe.utils.getdate(nowdate()).year) + "-01-01"))[0][0])
+	kind_col = "f.atelier_kind" if frappe.db.has_column("File", "atelier_kind") else "'' as atelier_kind"
 	files = frappe.db.sql(
-		"""select f.name, f.file_name, f.file_url, f.creation, f.attached_to_doctype, f.attached_to_name, so.atelier_subject
+		"""select f.name, f.file_name, f.file_url, f.file_size, f.creation, f.owner, f.attached_to_doctype, f.attached_to_name, so.atelier_subject, """ + kind_col + """
 		from `tabFile` f left join `tabSales Order` so on f.attached_to_doctype='Sales Order' and so.name=f.attached_to_name
 		where (f.attached_to_doctype='Customer' and f.attached_to_name=%s) or (f.attached_to_doctype='Sales Order' and so.customer=%s)
-		order by f.creation desc limit 100""", (name, name), as_dict=True)
+		order by f.creation desc limit 400""", (name, name), as_dict=True)
 	seen, res["card_files"] = set(), []
 	for f in files:  # a copied card shares its source's file: show it once
 		if f.file_url not in seen:
@@ -2469,3 +2471,18 @@ def save_calendar(day_limit=5, off_days=None):
 	v = {"day_limit": max(0, cint(day_limit)), "off_days": days}
 	frappe.db.set_default("atelier_calendar", json.dumps(v))
 	return v
+
+
+FILE_KINDS = ("final", "source", "ref", "identity", "")
+
+
+@frappe.whitelist(methods=["POST"])
+def set_file_kind(name, kind=""):
+	"""Customer files tab: the user corrects the guessed kind of a file (final / source / reference / identity)."""
+	if kind not in FILE_KINDS:
+		frappe.throw(_("نوع غير معروف"))
+	f = frappe.get_doc("File", name)
+	if f.attached_to_doctype and f.attached_to_name:
+		frappe.get_doc(f.attached_to_doctype, f.attached_to_name).check_permission("write")
+	frappe.db.set_value("File", name, "atelier_kind", kind)
+	return True

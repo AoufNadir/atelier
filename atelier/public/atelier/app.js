@@ -1973,6 +1973,41 @@ const SimpleCustomers = {
     const showImages = (o, url) => { const list = gallery.value.filter((g) => g.url); const i = list.findIndex((g) => (url ? g.url === url : g.o.name === o.name));
       if (i >= 0) viewer.value = { list, i }; else go("/?card=" + encodeURIComponent(o.name)); };
     const openCard = (o) => go("/?card=" + encodeURIComponent(o.name));
+    // files tab: grouped by job, identity first, kind = final / source / reference (guessed, can be corrected), old versions folded
+    const fk = ref("all"), fq = ref(""), fsel = ref(null), verOpen = reactive({});
+    const FILE_KINDS = [["final", "نهائي للطباعة"], ["source", "مصدر التصميم"], ["ref", "مراجع وصور"], ["identity", "الهوية"]];
+    const SRC_EXT = ["ai", "psd", "indd", "cdr", "eps", "afdesign", "sketch", "fig", "svg", "tif", "tiff"];
+    const extOf = (x) => (String(x.file_name || "").split(".").pop() || "").toLowerCase();
+    const orderOf = computed(() => Object.fromEntries((d.value?.orders || []).map((o) => [o.name, o])));
+    const kindOf = (x) => { if (x.atelier_kind) return x.atelier_kind; if (x.attached_to_doctype === "Customer") return "identity";
+      const o = orderOf.value[x.attached_to_name], e = extOf(x); if (o && o.final === x.file_url) return "final";
+      return SRC_EXT.includes(e) ? "source" : e === "pdf" ? "final" : "ref"; };
+    const verKey = (x) => String(x.file_name || "").toLowerCase().replace(/[-_ .]?v\d+(?=\.[^.]+$)/, "").replace(/\s*\(\d+\)(?=\.[^.]+$)/, "");
+    const verOf = (x) => (String(x.file_name || "").match(/v(\d+)\.[^.]+$/i) || [])[1];
+    const kindCount = computed(() => { const c = { all: (d.value?.card_files || []).length }; for (const x of d.value?.card_files || []) { const k = kindOf(x); c[k] = (c[k] || 0) + 1; } return c; });
+    const fileGroups = computed(() => {
+      const n = fq.value.trim().toLowerCase(), by = new Map();
+      const id = { key: "__id", title: "الهوية", sub: "الشعار والألوان والخطوط — تُستعمل في كل الأعمال", folder: d.value?.folder, all: [] };
+      by.set("__id", id);
+      for (const x of d.value?.card_files || []) {
+        const k = kindOf(x), g = k === "identity" ? "__id" : x.attached_to_name;
+        if (!by.has(g)) { const o = orderOf.value[g]; by.set(g, { key: g, title: o?.atelier_subject || x.atelier_subject || g, sub: o ? date(o.transaction_date) + (o.column ? " · " + o.column : "") : "", folder: o?.folder, order: o, all: [] }); }
+        by.get(g).all.push(x);
+      }
+      return [...by.values()].map((G) => {
+        const files = G.all.filter((x) => (fk.value === "all" || kindOf(x) === fk.value) && (!n || x.file_name.toLowerCase().includes(n) || String(G.title).toLowerCase().includes(n)));
+        const rows = [], idx = {};
+        for (const x of files) { const v = verKey(x); if (idx[v] === undefined) { idx[v] = rows.length; rows.push({ main: x, older: [] }); } else rows[idx[v]].older.push(x); }
+        const rank = { final: 0, source: 1, identity: 1, ref: 2 };
+        rows.sort((a, b) => rank[kindOf(a.main)] - rank[kindOf(b.main)]);
+        return { ...G, rows, n: G.all.length };
+      }).filter((G) => G.n);
+    });
+    const shownGroups = computed(() => fileGroups.value.filter((G) => G.rows.length && (!fsel.value || G.key === fsel.value)));
+    const setKind = async (x, kind) => { try { await call("set_file_kind", { name: x.name, kind }, true); x.atelier_kind = kind; toast("تغيّر نوع الملف"); } catch (e) { toast(e.message, "error"); } };
+    const fileSize = (b) => (!b ? "" : b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB");
+    const viewFile = (x) => { if (isImg(x)) viewer.value = { list: [{ url: x.file_url, name: x.file_name, o: {} }], i: 0 }; else window.open(x.file_url, "_blank", "noopener"); };
+    const allFiles = () => { hview.value = "files"; fsel.value = null; nextTick(() => document.querySelector(".cp-hist")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
     const initial = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
     const finalName = (o) => decodeURIComponent((o.final || "").split("/").pop());
     // what the customer owes, in one sum: unpaid invoices + confirmed orders not invoiced yet
@@ -1991,7 +2026,7 @@ const SimpleCustomers = {
       kpi, quick, open, bal, lastWord, exportList, newOrderFor, pay, pmenu, merging, editNote, note, startNote, saveExtra, remind, startRemind, sendRemind, toggleDisabled,
       doMerge, exportOrders, reorder, uploading, onFile, copyText, LOG_KINDS, logKind, logText, addLog, months6, maxMonth, stFrom, stTo, statementUrl, sendStatement, STATE_DOT,
       owesNow, TABS, labelStyle, isImg, waLink, money, fig, date, ago, state, go, t,
-      account, remaining, showNote, chips, jf, jobChips, stOpen, logAll, filesAll, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
+      account, remaining, showNote, chips, fk, fq, fsel, verOpen, FILE_KINDS, kindOf, verOf, kindCount, fileGroups, shownGroups, setKind, fileSize, viewFile, allFiles, extOf, jf, jobChips, stOpen, logAll, filesAll, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
   },
   template: `
   <div class="cl">
@@ -2116,11 +2151,38 @@ const SimpleCustomers = {
         </div>
         <section class="cp-card cp-hist" aria-label="أعماله">
           <div class="cp-hist-head"><h2>أعماله</h2><span class="muted">{{ d.orders.length }}</span>
-            <button v-for="c in jobChips" :key="c.k" type="button" class="bd-chip" :class="{debt: c.k === 'unpaid'}" :aria-pressed="jf === c.k" @click="jf = c.k">{{ c.t }} <span class="cl-quick-n">{{ c.n }}</span></button>
+            <template v-if="hview !== 'files'"><button v-for="c in jobChips" :key="c.k" type="button" class="bd-chip" :class="{debt: c.k === 'unpaid'}" :aria-pressed="jf === c.k" @click="jf = c.k">{{ c.t }} <span class="cl-quick-n">{{ c.n }}</span></button></template>
+            <template v-else><button v-for="k in [['all', 'الكل'], ['final', 'نهائي'], ['source', 'مصدر'], ['ref', 'مراجع'], ['identity', 'الهوية']]" :key="k[0]" v-show="k[0] === 'all' || kindCount[k[0]]" type="button" class="bd-chip" :aria-pressed="fk === k[0]" @click="fk = k[0]">{{ k[1] }} <span class="cl-quick-n">{{ kindCount[k[0]] || 0 }}</span></button></template>
             <span class="spacer"></span>
-            <label class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث في أعماله</span><input type="search" v-model="jq" placeholder="ابحث في أعماله"></label>
-            <div class="seg" role="group" aria-label="طريقة العرض"><button type="button" :aria-pressed="hview === 'list'" @click="hview = 'list'">جدول</button><button type="button" :aria-pressed="hview === 'gallery'" @click="hview = 'gallery'">معرض الصور</button></div></div>
-          <div v-if="!jobs.length" class="muted cp-pad">{{ jq.trim() || jf !== 'all' ? 'لا أعمال تطابق التصفية.' : 'لا أعمال بعد.' }}</div>
+            <label v-if="hview === 'files'" class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث في الملفات</span><input type="search" v-model="fq" placeholder="اسم الملف أو العمل"></label>
+            <label v-else class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث في أعماله</span><input type="search" v-model="jq" placeholder="ابحث في أعماله"></label>
+            <div class="seg" role="group" aria-label="طريقة العرض"><button type="button" :aria-pressed="hview === 'list'" @click="hview = 'list'">جدول</button><button type="button" :aria-pressed="hview === 'gallery'" @click="hview = 'gallery'">معرض الصور</button><button type="button" :aria-pressed="hview === 'files'" @click="hview = 'files'">الملفات <span class="muted">{{ d.card_files.length }}</span></button></div></div>
+          <div v-if="hview === 'files'" class="cpf">
+            <nav class="cpf-tree" aria-label="مجموعات الملفات"><button type="button" :aria-pressed="!fsel" @click="fsel = null">كل الأعمال<i>{{ d.card_files.length }}</i></button>
+              <button v-for="G in fileGroups" :key="G.key" type="button" :aria-pressed="fsel === G.key" :class="{id: G.key === '__id'}" @click="fsel = G.key"><span class="ellipsis">{{ G.title }}</span><i>{{ G.n }}</i></button>
+              <label v-if="d.can_edit" class="cl-btn sm cpf-up">{{ uploading ? 'جارٍ الرفع…' : 'رفع ملف للهوية' }}<input type="file" multiple class="sr-only" @change="onFile"></label></nav>
+            <div class="cpf-body">
+              <div v-if="!shownGroups.length" class="muted cp-pad">{{ d.card_files.length ? 'لا ملفات تطابق التصفية.' : 'لا ملفات بعد. ما يُرفق في البطاقات يظهر هنا مرتبًا حسب العمل.' }}</div>
+              <section v-for="G in shownGroups" :key="G.key" class="cpf-grp">
+                <div class="cpf-gh"><b class="ellipsis">{{ G.title }}</b><span class="muted">{{ G.sub }}</span><button v-if="G.order" type="button" class="cl-link" @click="openCard(G.order)">فتح البطاقة</button>
+                  <span v-if="G.folder" class="od-path cpf-path"><code dir="ltr" :title="G.folder">{{ G.folder }}</code><button type="button" class="od-pbtn" @click="copyText(G.folder)">نسخ</button><a class="od-pbtn pri" :href="folderLink(G.folder)">فتح المجلد</a></span></div>
+                <template v-for="r in G.rows" :key="r.main.name">
+                  <div class="cpf-row">
+                    <span class="cpf-ic" :class="'k-' + kindOf(r.main)"><img v-if="isImg(r.main)" :src="r.main.file_url" alt="" loading="lazy"><template v-else>{{ extOf(r.main).slice(0, 4).toUpperCase() || '?' }}</template></span>
+                    <button type="button" class="cpf-n" :title="r.main.file_name" @click="viewFile(r.main)"><b class="ellipsis">{{ r.main.file_name }}</b><span class="muted">{{ ago(r.main.creation) }}<template v-if="r.main.file_size"> · {{ fileSize(r.main.file_size) }}</template><template v-if="verOf(r.main)"> · v{{ verOf(r.main) }}</template></span></button>
+                    <select class="cpf-kind" :class="'k-' + kindOf(r.main)" :value="kindOf(r.main)" :disabled="!d.can_edit" aria-label="نوع الملف" @change="setKind(r.main, $event.target.value)"><option v-for="k in FILE_KINDS" :key="k[0]" :value="k[0]">{{ k[1] }}</option></select>
+                    <span class="btn-row cpf-acts"><a class="cl-btn sm" :href="r.main.file_url" download>تنزيل</a></span>
+                  </div>
+                  <button v-if="r.older.length" type="button" class="cpf-ver" @click="verOpen[r.main.name] = !verOpen[r.main.name]">{{ verOpen[r.main.name] ? 'إخفاء' : 'النسخ السابقة' }} ({{ r.older.length }}) <Icon :name="verOpen[r.main.name] ? 'up' : 'down'" :size="12"/></button>
+                  <template v-if="verOpen[r.main.name]"><div v-for="x in r.older" :key="x.name" class="cpf-row old">
+                    <span class="cpf-ic">{{ extOf(x).slice(0, 4).toUpperCase() }}</span>
+                    <button type="button" class="cpf-n" @click="viewFile(x)"><b class="ellipsis">{{ x.file_name }}</b><span class="muted">{{ ago(x.creation) }}</span></button><span></span>
+                    <span class="btn-row cpf-acts"><a class="cl-btn sm" :href="x.file_url" download>تنزيل</a></span></div></template>
+                </template>
+              </section>
+            </div>
+          </div>
+          <div v-else-if="!jobs.length" class="muted cp-pad">{{ jq.trim() || jf !== 'all' ? 'لا أعمال تطابق التصفية.' : 'لا أعمال بعد.' }}</div>
           <div v-else-if="hview === 'list'" class="cp-tbl-wrap">
             <table class="cl-table cp-tbl">
               <thead><tr><th class="cp-td-img"><span class="sr-only">صورة</span></th><th>العمل</th><th>التاريخ</th><th class="desktop-only">المرحلة</th><th>الحالة</th><th class="n desktop-only">المبلغ</th><th class="n">الباقي</th></tr></thead>
@@ -2169,8 +2231,8 @@ const SimpleCustomers = {
             <div v-if="!d.log.length" class="muted cp-small">لا تواصل مسجّل بعد.</div>
             <div v-for="l in (logAll ? d.log : d.log.slice(0, 3))" :key="l.name" class="cp-logi"><div class="cl-logt" v-html="l.content"></div><span class="muted">{{ l.by }} · {{ ago(l.creation) }}</span></div>
           </section>
-          <section class="cp-card cp-sc"><h3>الملفات <span class="muted">{{ d.card_files.length }}</span><button v-if="d.card_files.length > 4" type="button" class="cl-link" @click="filesAll = !filesAll">{{ filesAll ? 'أقل' : 'الكل' }}</button></h3>
-            <a v-for="x in (filesAll ? d.card_files : d.card_files.slice(0, 4))" :key="x.name" class="cp-fi" :href="x.file_url" target="_blank" rel="noopener">
+          <section class="cp-card cp-sc"><h3>الملفات <span class="muted">{{ d.card_files.length }}</span><button v-if="d.card_files.length" type="button" class="cl-link" @click="allFiles">كل الملفات مرتبة</button></h3>
+            <a v-for="x in d.card_files.slice(0, 4)" :key="x.name" class="cp-fi" :href="x.file_url" target="_blank" rel="noopener">
               <span class="cp-fi-ic"><img v-if="isImg(x)" :src="x.file_url" alt="" loading="lazy"><Icon v-else name="file" :size="16"/></span>
               <span class="cp-fi-t"><b class="ellipsis">{{ x.file_name }}</b><span class="muted ellipsis">{{ x.atelier_subject || 'ملف العميل' }} · {{ ago(x.creation) }}</span></span></a>
             <div v-if="!d.card_files.length" class="muted cp-small">كل ما يُرفق في بطاقات هذا العميل يظهر هنا.</div>
