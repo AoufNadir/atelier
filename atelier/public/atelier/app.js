@@ -3760,7 +3760,7 @@ const CalcPage = {
 };
 
 const StockPage = {
-  components: { Icon, RecipesCard },
+  components: { Icon, RecipesCard, SizeControl },
   setup() {
     const { s, load } = useLoad(() => call("stock"));
     onMounted(load);
@@ -3805,7 +3805,7 @@ const StockPage = {
   template: `
   <div class="page tb cb">
     <div class="stk-head"><h1>المخزون</h1><span class="spacer"></span>
-      <input class="input stk-q" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><button type="button" class="cl-btn primary" @click="open('add')"><Icon name="plus" :size="16"/>مادة جديدة</button></div>
+      <input class="input stk-q" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><SizeControl/><button type="button" class="cl-btn primary" @click="open('add')"><Icon name="plus" :size="16"/>مادة جديدة</button></div>
     <div v-if="s.error" class="alert error" style="margin:0 28px 12px">{{ s.error }}</div>
     <div v-if="s.data" class="stock-body stk">
       <div class="stk-kpis">
@@ -3901,7 +3901,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'suppliers', 'supplier', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports', 'calc'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
+      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'suppliers', 'supplier', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports', 'calc', 'stock'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>

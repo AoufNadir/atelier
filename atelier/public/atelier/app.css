@@ -2386,3 +2386,21 @@ button.stk-kpi { cursor: pointer; } button.stk-kpi:focus-visible { outline: 3px 
   .mn-grid { padding: 12px 20px 20px; gap: 12px; }
   .mn-card-h { padding: 10px 14px; } .mn-card-h > b:first-child { font-size: 14px; }
 }
+
+/* ==== compact: stock and settings on desktop ==== */
+@media (min-width: 1024px) {
+  .stk-head { padding: 10px 20px 10px; } .stk-head h1 { font-size: 18px; }
+  .stk-head .cl-btn { height: 32px; font-size: 13px; }
+  .stock-body { padding: 0 20px 20px; gap: 12px; }
+  .stk-kpi { padding: 8px 14px; } .stk-kpi b { font-size: 18px; }
+  .stk-table th { padding: 8px 14px; } .stk-table td { padding: 6px 14px; }
+  .st2-nav { width: 220px; padding: 12px 10px; }
+  .st2-nav button { padding: 7px 10px; font-size: 13px; }
+  .st2-head h1 { font-size: 18px; }
+  .st2-body { padding: 12px 20px 20px; gap: 12px; }
+  .st2-card { padding: 0 18px; }
+  .st2-grp { grid-template-columns: 220px minmax(0, 1fr); gap: 20px; padding: 14px 0; }
+  .st2-lbl b { font-size: 14px; } .st2-lbl span { font-size: 12px; line-height: 1.6; }
+  .st2 .cl-fgroup .input { min-height: 34px; font-size: 13px; }
+}
+@media (min-width: 1024px) { .stk-head { background: #fff; border-bottom: 1px solid #E4E7EC; margin-bottom: 12px; min-height: 54px; } }
