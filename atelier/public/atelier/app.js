@@ -882,7 +882,7 @@ const BoardPanel = {
             <div class="od-tw"><table class="od-tbl">
               <thead><tr><th class="od-c-desc">الوصف</th><th>الوحدة</th><th>المقاس</th><th>الكمية</th><th>السعر (دج)</th><th class="n">المجموع</th><th><span class="sr-only">حذف</span></th></tr></thead>
               <tbody><tr v-for="(l, i) in f.lines" :key="i">
-                <td class="od-c-desc"><div class="ol2-desc"><input class="input od-f od-strong" v-model="l.text" @input="lineInput(l)" @focus="l.focus = true" @blur="blurLine(l)" :aria-label="'وصف البند ' + (i + 1)" placeholder="لافتة، بطاقات، تصميم…" autocomplete="off">
+                <td class="od-c-desc"><div class="ol2-desc"><textarea class="input od-f od-strong od-desc" rows="1" v-model="l.text" @input="lineInput(l)" @focus="l.focus = true" @blur="blurLine(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="لافتة، بطاقات، تصميم…" autocomplete="off"></textarea>
                     <div v-if="l.focus && sugg(l).length" class="ol2-sug"><span class="m">من قائمة الأسعار</span>
                       <button v-for="it in sugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="pick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b>
                         <span class="m" style="display:block">{{ [it.atelier_category, uom(it.stock_uom), priceOf(it) !== '' ? fig(priceOf(it)) + ' دج' : 'بلا سعر'].filter(Boolean).join(' · ') }}</span></span></button></div></div>
@@ -1400,7 +1400,7 @@ const CardModal = {
               <table class="od-tbl ln-tbl">
                 <thead><tr><th>الوصف</th><th>الوحدة</th><th>المقاس</th><th>الكمية</th><th>السعر</th><th class="n">المجموع</th><th><span class="sr-only">حذف</span></th></tr></thead>
                 <tbody><tr v-for="(l, i) in edLines" :key="i">
-                  <td class="od-c-desc"><div class="ol2-desc"><input class="input od-f od-strong" v-model="l.text" @input="lnInput(l)" @focus="l.focus = true" @blur="lnBlur(l)" :aria-label="'وصف البند ' + (i + 1)" placeholder="لافتة، بطاقات، تصميم…" autocomplete="off">
+                  <td class="od-c-desc"><div class="ol2-desc"><textarea class="input od-f od-strong od-desc" rows="1" v-model="l.text" @input="lnInput(l)" @focus="l.focus = true" @blur="lnBlur(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="لافتة، بطاقات، تصميم…" autocomplete="off"></textarea>
                     <div v-if="l.focus && lnSugg(l).length" class="ol2-sug"><span class="m">من قائمة الأسعار</span>
                       <button v-for="it in lnSugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="lnPick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b></span></button></div></div></td>
                   <td><select class="input od-f od-unit" v-model="l.unit" :aria-label="'وحدة البند ' + (i + 1)"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></td>
