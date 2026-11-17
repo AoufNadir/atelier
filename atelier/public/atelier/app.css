@@ -2361,3 +2361,21 @@ button.stk-kpi { cursor: pointer; } button.stk-kpi:focus-visible { outline: 3px 
 .cb .tb-filters .cl-btn.on { background: #EEEAFF; border-color: #C4B8F3; color: var(--primary); font-weight: 700; }
 .cb .tb-cal { padding: 0 20px 20px; }
 .cb .tb-cols { padding-top: 4px; }
+
+/* ==== compact list pages (customers, suppliers, money… share .cl-*) ==== */
+@media (min-width: 1024px) {
+  .cl-head { padding: 10px 20px 8px; gap: 8px; }
+  .cl-head h1 { font-size: 18px; } .cl-count { font-size: 12px; }
+  .cl-head .cl-search { height: 32px; width: 260px; font-size: 13px; }
+  .cl-head .cl-btn { height: 32px; font-size: 13px; padding: 0 12px; }
+  .cl-head .cl-btn.icon { width: 32px; padding: 0; }
+  .cl-quick { margin-top: 0; gap: 6px; }
+  .cl-quick .bd-chip { min-height: 28px; height: 28px; font-size: 12.5px; padding: 0 10px; }
+  .cl-stats { margin: 12px 20px 0; }
+  .cl-stats button { padding: 8px 16px; }
+  .cl-stats b { font-size: 18px; line-height: 1.5; }
+  .cl-table-wrap { margin: 12px 20px 20px; }
+  .cl-table { font-size: 13px; }
+  .cl-table th { padding: 8px 14px; font-size: 12px; }
+  .cl-table td { padding: 7px 14px; }
+}
