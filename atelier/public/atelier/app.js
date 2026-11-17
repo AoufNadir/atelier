@@ -485,7 +485,7 @@ const PaymentSheet = {
     watch(() => f.customer, loadOrders, { immediate: true });
     const errs = computed(() => ({ customer: !f.customer ? t("err_pick_customer") : null, amount: !(+f.amount > 0) ? t("err_amount") : null,
       ref: f.mode === "Cheque" && !f.ref.trim() ? "اكتب رقم الصك" : null }));
-    const close = () => (state.sheet = null);
+    const close = () => (props.opts?.sub ? (state.subsheet = null) : (state.sheet = null));
     const onKey = (e) => { if (e.key === "Escape") close(); };
     onMounted(() => { window.addEventListener("keydown", onKey); setTimeout(() => document.querySelector(".sheet input")?.focus(), 50); });
     onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
@@ -857,7 +857,7 @@ const BoardPanel = {
         const d = await call("card", { name: props.edit }); ed.value = d;
         f.customer = { name: d.customer, customer_name: d.customer_name, customer_type: d.client?.type || "Individual", mobile_no: d.client?.mobile || d.client?.phone || "" };
         f.subject = d.title === d.name ? "" : d.title || ""; f.due = d.due || ""; f.column = d.column; f.status = [...(d.status || [])]; f.labels = [...(d.labels || [])];
-        members.value = [...(d.members || [])]; f.description = plain(d.description || ""); f.checklist = (d.checklist || []).map((c) => ({ ...c }));
+        members.value = [...(d.members || [])]; f.due_time = d.due_time || ""; f.description = plain(d.description || ""); f.checklist = (d.checklist || []).map((c) => ({ ...c }));
         f.lines = (d.lines.length ? d.lines : [{}]).map((l) => { const unit = l.unit || (state.boot.units || [])[0]?.name || "قطعة", count = unitOfName(unit).calc === "count";
           return { text: l.text || "", item_code: l.item_code && l.item_code !== "SRV-GENERAL" ? l.item_code : null, unit, width: l.width || "", height: l.height || "", length: l.length || "",
             qty: count ? (l.qty || 1) : (l.pieces || 1), rate: l.rate === null || l.rate === undefined ? "" : l.rate, category: l.category || "", auto: false, focus: false }; });
@@ -872,7 +872,7 @@ const BoardPanel = {
       rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null })));
     let lastLines = "";
     const run = async (fn) => { sv.value = "saving"; try { await fn(); sv.value = "saved"; svMsg.value = ""; state.rev++; } catch (e) { sv.value = "error"; svMsg.value = e.message; } };
-    const saveMeta = () => run(() => call("update_card", { name: props.edit, changes: JSON.stringify({ title: f.subject.trim() || props.edit, status: f.status, labels: f.labels, members: members.value, description: f.description, checklist: f.checklist, ...(f.due ? { due: f.due } : {}) }) }, true));
+    const saveMeta = () => run(() => call("update_card", { name: props.edit, changes: JSON.stringify({ title: f.subject.trim() || props.edit, status: f.status, labels: f.labels, members: members.value, description: f.description, checklist: f.checklist, due_time: f.due_time || "", ...(f.due ? { due: f.due } : {}) }) }, true));
     const saveLinesNow = () => {
       if (locked.value || !ready.value) return;
       const bad = !filled.value.length ? "أبقِ بندًا واحدًا على الأقل" : filled.value.some((l) => !(+l.qty > 0)) ? "الكمية غير صحيحة"
@@ -882,7 +882,7 @@ const BoardPanel = {
       const p = linesPayload(); if (p === lastLines) return;
       return run(async () => { await call("update_lines", { name: props.edit, lines: p }, true); lastLines = p; });
     };
-    watch(() => [f.subject, f.due, JSON.stringify(f.status), JSON.stringify(f.labels), JSON.stringify(members.value), f.description, JSON.stringify(f.checklist)], () => { if (ready.value) later("meta", saveMeta, 600); });
+    watch(() => [f.subject, f.due, f.due_time, JSON.stringify(f.status), JSON.stringify(f.labels), JSON.stringify(members.value), f.description, JSON.stringify(f.checklist)], () => { if (ready.value) later("meta", saveMeta, 600); });
     // checklist, attachments, cover (same window for a new order and an opened card)
     const newItem = ref(""), queued = ref([]), fileIn = ref(null), uploading = ref(false), ckTpls = ref(null);
     const addItem = () => { const v = newItem.value.trim(); if (v) f.checklist.push({ text: v, done: 0 }); newItem.value = ""; };
@@ -901,6 +901,12 @@ const BoardPanel = {
     };
     const delFile = async (x) => { if (!confirm(`حذف «${x.file_name}»؟`)) return; try { ed.value = await call("delete_file", { name: props.edit, file: x.name }, true); state.rev++; } catch (e) { toast(e.message, "error"); } };
     const cardSet = async (changes) => { try { ed.value = await call("update_card", { name: props.edit, changes: JSON.stringify(changes) }, true); state.rev++; } catch (e) { toast(e.message, "error"); } };
+    // money, payments and the card's conversation
+    watch(() => state.rev, async () => { if (props.edit && ready.value) { try { const d = await call("card", { name: props.edit }); ed.value = d; } catch { /* keep */ } } });
+    const payNow = () => { state.subsheet = { type: "payment", sub: 1, customer: { name: ed.value.customer, customer_name: ed.value.customer_name }, order: props.edit }; };
+    const comment = ref("");
+    const addComment = async () => { if (!comment.value.trim()) return; try { ed.value = await call("add_comment", { name: props.edit, text: comment.value }, true); comment.value = ""; } catch (e) { toast(e.message, "error"); } };
+    const materials = () => offerMaterials(props.edit);
     const copyPath = async () => { try { await navigator.clipboard.writeText(ed.value.folder); toast("نُسخ مسار المجلد"); } catch { /* selectable */ } };
     watch(() => linesPayload(), () => { if (ready.value) later("lines", saveLinesNow, 900); });
     watch(() => f.column, async (c, old) => { if (ready.value && c && old && c !== old) await run(() => call("move_card", { name: props.edit, column: c }, true)); });
@@ -955,7 +961,7 @@ const BoardPanel = {
     const dropTpl = async (tp) => { if (!confirm(`حذف القالب «${tp.title}»؟`)) return; try { tpls.value = await call("delete_card_template", { id: tp.id }, true); if (tplOn.value === tp.id) tplOn.value = null; } catch (e) { error.value = e.message; } };
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
-    return { newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
@@ -975,7 +981,6 @@ const BoardPanel = {
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('proforma')"><Icon name="file" :size="15"/>Pro forma</button>
               <a class="tm-pop-row" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', ed.name, 'الورشة — عربي')" @click="hdPop = null"><Icon name="printer" :size="15"/>بون الطلب</a>
               <span v-if="unpriced > 0" class="m tm3-hint">سعّر كل البنود لإصدار Devis أو Pro forma.</span></div></span>
-          <button type="button" class="cl-btn od-more" @click="state.cardDetails = edit; $emit('close')"><Icon name="image" :size="16"/>المرفقات والتعليقات والمال</button>
           <span class="od-pop-host"><button type="button" class="cl-btn icon od-more" aria-label="خيارات البطاقة" :aria-expanded="hdPop === 'more'" @click.stop="hdPop = hdPop === 'more' ? null : 'more'"><Icon name="more" :size="16"/></button>
             <div v-if="hdPop === 'more'" class="tm-pop od-pop" @click.stop>
               <button type="button" class="tm-pop-row" @click="copyIt"><Icon name="file" :size="15"/>نسخ البطاقة</button>
@@ -1082,7 +1087,8 @@ const BoardPanel = {
         <aside class="od-side">
           <section class="od-card"><div class="od-ch"><Icon name="calendar" :size="18"/><b>التسليم</b></div><div class="od-pad">
             <div class="bd-chips"><button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button></div>
-            <input type="date" class="input" v-model="f.due" :min="editing ? null : isoIn(0)" aria-label="تاريخ التسليم">
+            <div class="od-due"><input type="date" class="input" v-model="f.due" :min="editing ? null : isoIn(0)" aria-label="تاريخ التسليم"><input v-if="editing" type="time" class="input od-time" v-model="f.due_time" aria-label="الساعة"></div>
+            <span v-if="editing && f.due && daysFromToday(f.due) < 0 && !(ed && ed.per_delivered >= 100)" class="od-late">متأخر {{ -daysFromToday(f.due) }} {{ -daysFromToday(f.due) <= 10 ? 'أيام' : 'يومًا' }}</span>
             <label v-if="startColumns.length > 1 && !editing" class="cl-fgroup"><span>يبدأ في عمود</span><select id="qo-column" class="input" v-model="f.column"><option v-for="c in startColumns" :key="c.id" :value="c.id">{{ c.name }}</option></select></label></div></section>
           <section class="od-card"><div class="od-ch"><Icon name="users" :size="18"/><b>من يعمل عليه؟</b></div><div class="od-pad">
             <template v-if="editing"><button v-for="p in state.boot.team" :key="p" type="button" class="od-person" :aria-pressed="members.includes(p)" @click="flipMember(p)"><Avatar :name="p" :size="28"/><span style="flex:1">{{ p }}</span><span v-if="members.includes(p)" class="tm-tick">✓</span></button></template>
@@ -1096,8 +1102,19 @@ const BoardPanel = {
               <div class="od-opts"><button v-for="x in boardLabels" :key="x.id" type="button" class="od-opt" :aria-pressed="f.labels.includes(x.id)" @click="flip(f.labels, x.id)">
                 <span class="od-box" :style="f.labels.includes(x.id) ? {background: x.color, borderColor: x.color, color: inkOn(x.color)} : {}">{{ f.labels.includes(x.id) ? '✓' : '' }}</span>
                 <span class="od-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span></button></div></template></div></section>
-          <section v-if="editing" class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>الدفع</b></div><div class="od-pad">
-            <span class="m">المدفوع حتى الآن: <b>{{ money(paid) }}</b>. الدفعات تُسجَّل من البطاقة أو من صفحة المال.</span></div></section>
+          <section v-if="editing && ed" class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>المال</b><span class="m od-r">المجموع {{ money(ed.grand_total) }}</span></div><div class="od-pad">
+            <div class="od-money"><span class="m">{{ ed.grand_total - ed.paid > 0.005 ? 'الباقي' : 'دُفع بالكامل' }}</span><b :class="{bad: ed.grand_total - ed.paid > 0.005}">{{ money(Math.max(0, ed.grand_total - ed.paid)) }}</b></div>
+            <div class="tm-paybar"><span :style="{width: Math.min(100, ed.grand_total ? ed.paid / ed.grand_total * 100 : 0) + '%'}"></span></div>
+            <span class="m">المدفوع: {{ money(ed.paid) }}</span>
+            <button v-if="state.boot.can.payment && !ed.price_pending && ed.grand_total - ed.paid > 0.005" type="button" class="cl-btn primary" @click="payNow">استلمت دفعة</button>
+            <button v-if="ed.materials_pending" type="button" class="cl-btn sm" @click="materials">خصم مواد الطلب من المخزون</button></div></section>
+          <section v-if="editing && ed" class="od-card"><div class="od-ch"><Icon name="msg" :size="18"/><b>التعليقات والنشاط</b></div><div class="od-pad">
+            <form class="od-comment" @submit.prevent="addComment"><textarea class="input od-desc" v-model="comment" rows="2" placeholder="اكتب تعليقًا… (Ctrl + Enter للحفظ)" aria-label="تعليق" @keydown.ctrl.enter.prevent.stop="addComment"></textarea>
+              <button v-if="comment.trim()" type="submit" class="cl-btn primary sm">حفظ التعليق</button></form>
+            <div class="od-acts"><div v-for="a in ed.activity" :key="a.name" class="od-act"><Avatar :name="a.by" :size="26"/>
+              <div style="flex:1;min-width:0"><b>{{ a.by }}</b> <span v-if="a.comment_type !== 'Comment'">{{ a.content }}</span>
+                <div v-if="a.comment_type === 'Comment'" class="tm3-bubble" v-html="a.content"></div><div class="m">{{ ago(a.creation) }}</div></div></div>
+              <span v-if="!ed.activity.length" class="m">لا نشاط بعد.</span></div></div></section>
           <section v-else class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>تسبيق</b></div><div class="od-pad">
             <div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0" aria-label="التسبيق"><span class="u">دج</span></div>
             <div v-if="+f.advance > 0" class="bd-chips"><button v-for="m in state.boot.modes" :key="m.value" type="button" class="bd-chip" :aria-pressed="f.mode === m.value" @click="f.mode = m.value">{{ m.label }}</button></div></div></section>
@@ -4137,7 +4154,7 @@ const App = {
     <CustomerSheet2 v-if="state.sheet && state.sheet.type==='customer'" :opts="state.sheet"/>
     <ItemSheet v-if="state.sheet && state.sheet.type==='item'" :opts="state.sheet"/>
     <MaterialsSheet v-if="state.sheet && state.sheet.type==='materials'" :opts="state.sheet"/>
-    <ItemSheet v-if="state.subsheet" :opts="state.subsheet"/>
+    <div v-if="state.subsheet" class="subsheet-layer"><PaymentSheet v-if="state.subsheet.type === 'payment'" :opts="state.subsheet"/><ItemSheet v-else :opts="state.subsheet"/></div>
     <BoardPanel v-if="state.sheet && state.sheet.type==='order'" :key="state.sheet.edit || 'new'" mode="new" :edit="state.sheet.edit" :preset="state.sheet.customer" @close="state.sheet = null; route.name === 'order-new' && go('/')" @saved="state.sheet = null; state.rev++; route.name === 'order-new' && go('/')"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>
   </div>`,

@@ -2446,3 +2446,11 @@ button.rp-rank { display: flex; align-items: center; gap: 12px; padding: 10px 18
 .od-folder code { font-size: 12px; background: #F2F4F7; border-radius: 4px; padding: 1px 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .od-cost > summary { cursor: pointer; list-style: none; } .od-cost > summary::-webkit-details-marker { display: none; }
 .od .od-desc { height: auto !important; min-height: 72px !important; padding: 8px 10px !important; line-height: 1.6; }
+
+.subsheet-layer .overlay { z-index: 110; }
+.od-due { display: flex; gap: 6px; } .od-due .od-time { width: 110px; flex: none; }
+.od-late { color: #B42318; font-weight: 700; font-size: 12px; }
+.od-money { display: flex; align-items: baseline; justify-content: space-between; } .od-money b { font-size: 20px; font-weight: 800; } .od-money b.bad { color: #B42318; }
+.od-comment { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; } .od-comment textarea { width: 100%; }
+.od-acts { display: flex; flex-direction: column; gap: 10px; max-height: 360px; overflow-y: auto; }
+.od-act { display: flex; gap: 8px; font-size: 13px; } .od-act .m { font-size: 12px; }
