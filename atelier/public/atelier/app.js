@@ -2042,6 +2042,19 @@ const SimpleCustomers = {
     const specOf = (o) => { const l = (o.lines || [])[0]; if (!l) return o.size || "";
       return [l.size || o.size, l.qty ? (Number.isInteger(l.qty) ? l.qty.toLocaleString("en-US") : fig(l.qty)) + " " + (l.uom || "") : "", (o.lines.length > 1 ? "و" + (o.lines.length - 1 === 1 ? "بند آخر" : (o.lines.length - 1) + " بنود أخرى") : "")].filter(Boolean).join(" · "); };
     const unitOf = (o) => { const l = (o.lines || [])[0]; return l && l.rate && o.lines.length === 1 && l.qty > 1 ? fig(l.rate) + " / " + (/m|م/i.test(l.uom || "") ? (l.uom || "") : "وحدة") : ""; };
+    // share chosen samples with the customer: a temporary public link
+    const picking = ref(false), picked = reactive(new Set()), shareBox = ref(null);
+    const togglePick = (o) => { if (!coverOf(o)) return toast("هذا العمل بلا صورة", "error"); picked.has(o.name) ? picked.delete(o.name) : picked.add(o.name); };
+    const startShare = () => { shareBox.value = { prices: false, days: 30, busy: false, url: "" }; };
+    const makeShare = async (send) => { const b = shareBox.value; b.busy = true;
+      try {
+        const items = (d.value.orders || []).filter((o) => picked.has(o.name)).map((o) => ({ order: o.name, file_url: coverOf(o), title: o.atelier_subject || o.name, spec: specOf(o), price: o.price_pending ? null : o.grand_total }));
+        const r = await call("create_share", { items: JSON.stringify(items), days: b.days, prices: b.prices ? 1 : 0 }, true); b.url = r.url;
+        try { await navigator.clipboard.writeText(r.url); } catch { /* shown below */ }
+        if (send && waLink(d.value.mobile_no)) window.open(waLink(d.value.mobile_no) + "?text=" + encodeURIComponent(`السلام عليكم ${d.value.customer_name}،\nهذه نماذج من أعمالنا:\n${r.url}\n${state.boot.company_label || ""}`), "_blank", "noopener");
+        toast(send ? "فُتح واتساب برابط النماذج" : "نُسخ الرابط");
+      } catch (e) { toast(e.message, "error"); } finally { b.busy = false; } };
+    const endShare = () => { shareBox.value = null; picking.value = false; picked.clear(); };
     const coverOf = (o) => o.cover || (isImg({ file_name: o.final || "" }) ? o.final : null) || imagesOf(o)[0]?.file_url || null;
     // files tab: grouped by job, identity first, kind = final / source / reference (guessed, can be corrected), old versions folded
     const fk = ref("all"), fq = ref(""), fsel = ref(null), verOpen = reactive({});
@@ -2100,7 +2113,7 @@ const SimpleCustomers = {
       kpi, quick, open, bal, lastWord, exportList, newOrderFor, pay, pmenu, merging, editNote, note, startNote, saveExtra, remind, startRemind, sendRemind, toggleDisabled,
       doMerge, exportOrders, reorder, uploading, onFile, copyText, LOG_KINDS, logKind, logText, addLog, months6, maxMonth, stFrom, stTo, statementUrl, sendStatement, STATE_DOT,
       owesNow, TABS, labelStyle, isImg, waLink, money, fig, date, ago, state, go, t,
-      account, remaining, showNote, chips, gGroup, gSort, gAll, groupOf, galleryJobs, gGroups, gallery2, specOf, unitOf, coverOf, fk, fq, fsel, verOpen, FILE_KINDS, kindOf, verOf, kindCount, fileGroups, shownGroups, setKind, fmenu, KIND_LABEL, delCustFile, fileSize, viewFile, allFiles, extOf, jf, jobChips, stOpen, logAll, filesAll, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
+      account, remaining, showNote, chips, gGroup, gSort, gAll, groupOf, galleryJobs, gGroups, gallery2, specOf, unitOf, coverOf, picking, picked, togglePick, startShare, makeShare, endShare, shareBox, fk, fq, fsel, verOpen, FILE_KINDS, kindOf, verOf, kindCount, fileGroups, shownGroups, setKind, fmenu, KIND_LABEL, delCustFile, fileSize, viewFile, allFiles, extOf, jf, jobChips, stOpen, logAll, filesAll, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
   },
   template: `
   <div class="cl">
@@ -2290,12 +2303,15 @@ const SimpleCustomers = {
             <div class="cpg-bar"><template v-if="gGroups.length > 1"><button type="button" class="bd-chip" :aria-pressed="gGroup === 'all'" @click="gGroup = 'all'">كل الخدمات <span class="cl-quick-n">{{ galleryJobs.length }}</span></button>
               <button v-for="g in gGroups" :key="g[0]" type="button" class="bd-chip" :aria-pressed="gGroup === g[0]" @click="gGroup = g[0]">{{ g[0] }} <span class="cl-quick-n">{{ g[1] }}</span></button></template>
               <span class="spacer"></span>
-              <label class="cpg-chk"><input type="checkbox" :checked="!gAll" @change="gAll = !$event.target.checked">المسلَّمة فقط</label>
-              <select class="input cpg-sort" v-model="gSort" aria-label="الترتيب"><option value="new">الأحدث</option><option value="price">الأعلى سعرًا</option></select></div>
+              <button v-if="!picking" type="button" class="cl-btn sm" @click="picking = true">مشاركة نماذج</button>
+              <template v-else><span class="cpg-pickn">اختر الأعمال: {{ picked.size }}</span><button type="button" class="cl-btn sm primary" :disabled="!picked.size" @click="startShare">مشاركة</button><button type="button" class="cl-btn sm" @click="endShare">إلغاء</button></template>
+              <label v-if="!picking" class="cpg-chk"><input type="checkbox" :checked="!gAll" @change="gAll = !$event.target.checked">المسلَّمة فقط</label>
+              <select v-if="!picking" class="input cpg-sort" v-model="gSort" aria-label="الترتيب"><option value="new">الأحدث</option><option value="price">الأعلى سعرًا</option></select></div>
             <div v-if="!gallery2.length" class="muted cp-pad">{{ gAll ? 'لا أعمال.' : 'لا أعمال مسلَّمة بعد — ألغِ «المسلَّمة فقط» لرؤية الكل.' }}</div>
             <div class="cpg-grid">
-              <article v-for="o in gallery2" :key="o.name" class="cpg-it">
-                <button type="button" class="cpg-ph" :style="coverOf(o) ? {} : {background: o.cover_color || '#98A2B3'}" :aria-label="'صور ' + (o.atelier_subject || o.name)" @click="coverOf(o) ? showImages(o, imagesOf(o)[0]?.file_url) : openCard(o)">
+              <article v-for="o in gallery2" :key="o.name" class="cpg-it" :class="{picking, picked: picked.has(o.name), nopic: picking && !coverOf(o)}">
+                <button type="button" class="cpg-ph" :style="coverOf(o) ? {} : {background: o.cover_color || '#98A2B3'}" :aria-label="'صور ' + (o.atelier_subject || o.name)" @click="picking ? togglePick(o) : coverOf(o) ? showImages(o, imagesOf(o)[0]?.file_url) : openCard(o)">
+                  <span v-if="picking && coverOf(o)" class="cpg-check" aria-hidden="true">{{ picked.has(o.name) ? '✓' : '' }}</span>
                   <img v-if="coverOf(o)" :src="coverOf(o)" alt="" loading="lazy"><span v-else class="cpg-ini">{{ initial(o.atelier_subject || o.name) }}</span>
                   <span v-if="gGroups.length > 1" class="cpg-tag">{{ groupOf(o) }}</span><span v-if="(o.per_delivered || 0) < 100" class="cpg-tag run">قيد التنفيذ</span></button>
                 <div class="cpg-in">
@@ -2307,6 +2323,15 @@ const SimpleCustomers = {
                 </div>
               </article>
             </div>
+            <div v-if="shareBox" class="cpg-share" @click.self="shareBox = null"><div class="cpg-sbox" role="dialog" aria-label="مشاركة النماذج">
+              <b>مشاركة {{ picked.size }} {{ picked.size === 1 ? 'عمل' : 'أعمال' }}</b>
+              <label class="cpg-chk"><input type="checkbox" v-model="shareBox.prices">إظهار الأسعار</label>
+              <label class="cl-fgroup"><span>صالح لمدة</span><select class="input" v-model.number="shareBox.days"><option :value="7">7 أيام</option><option :value="30">30 يومًا</option><option :value="0">بلا انتهاء</option></select></label>
+              <span class="muted cp-small">يرى العميل الصور المختارة وعناوينها فقط، دون أي ملف آخر.</span>
+              <div v-if="shareBox.url" class="od-path"><code dir="ltr">{{ shareBox.url }}</code><a class="od-pbtn pri" :href="shareBox.url" target="_blank" rel="noopener">فتح</a></div>
+              <div class="btn-row"><button type="button" class="cl-btn sm" :disabled="shareBox.busy" @click="makeShare(false)">نسخ الرابط</button>
+                <button v-if="waLink(d.mobile_no)" type="button" class="cl-btn sm primary" :disabled="shareBox.busy" @click="makeShare(true)">إرسال بواتساب</button>
+                <button type="button" class="cl-btn sm" @click="endShare">تم</button></div></div></div>
           </div>
         </section>
 

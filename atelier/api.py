@@ -1271,3 +1271,4 @@ from atelier.simple import add_to_team, team_accounts  # noqa: E402, F401
 from atelier.simple import save_calendar  # noqa: E402, F401
 from atelier.simple import set_file_kind  # noqa: E402, F401
 from atelier.simple import delete_customer_file  # noqa: E402, F401
+from atelier.sharing import create_share, revoke_share  # noqa: E402, F401
