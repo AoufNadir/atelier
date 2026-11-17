@@ -858,9 +858,45 @@ const BoardPanel = {
         f.lines = (d.lines.length ? d.lines : [{}]).map((l) => { const unit = l.unit || (state.boot.units || [])[0]?.name || "قطعة", count = unitOfName(unit).calc === "count";
           return { text: l.text || "", item_code: l.item_code && l.item_code !== "SRV-GENERAL" ? l.item_code : null, unit, width: l.width || "", height: l.height || "", length: l.length || "",
             qty: count ? (l.qty || 1) : (l.pieces || 1), rate: l.rate === null || l.rate === undefined ? "" : l.rate, category: l.category || "", auto: false, focus: false }; });
+        await nextTick(); lastLines = linesPayload(); ready.value = true;
       } catch (e) { error.value = e.message; }
     });
     const flipMember = (p) => { const i = members.value.indexOf(p); if (i >= 0) members.value.splice(i, 1); else members.value.push(p); };
+    // an opened card saves itself: details right after a change, lines once every line is complete
+    const sv = ref(""), svMsg = ref(""), ready = ref(false), timers = {};
+    const later = (k, fn, ms) => { clearTimeout(timers[k]); timers[k] = setTimeout(fn, ms); };
+    const linesPayload = () => JSON.stringify(filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty,
+      rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null })));
+    let lastLines = "";
+    const run = async (fn) => { sv.value = "saving"; try { await fn(); sv.value = "saved"; svMsg.value = ""; state.rev++; } catch (e) { sv.value = "error"; svMsg.value = e.message; } };
+    const saveMeta = () => run(() => call("update_card", { name: props.edit, changes: JSON.stringify({ title: f.subject.trim() || props.edit, status: f.status, labels: f.labels, members: members.value, ...(f.due ? { due: f.due } : {}) }) }, true));
+    const saveLinesNow = () => {
+      if (locked.value || !ready.value) return;
+      const bad = !filled.value.length ? "أبقِ بندًا واحدًا على الأقل" : filled.value.some((l) => !(+l.qty > 0)) ? "الكمية غير صحيحة"
+        : (() => { const x = filled.value.find((l) => (calcOf(l) === "area" && !(+l.width > 0 && +l.height > 0)) || (calcOf(l) === "length" && !(+l.length > 0))); return x ? `أكمل مقاس البند «${x.text.trim()}»` : ""; })()
+        || (ed.value?.docstatus === 1 && filled.value.some((l) => l.rate === "") ? "الطلب مؤكَّد: يلزم سعر لكل بند" : "");
+      if (bad) { sv.value = "pending"; svMsg.value = bad; return; }
+      const p = linesPayload(); if (p === lastLines) return;
+      return run(async () => { await call("update_lines", { name: props.edit, lines: p }, true); lastLines = p; });
+    };
+    watch(() => [f.subject, f.due, JSON.stringify(f.status), JSON.stringify(f.labels), JSON.stringify(members.value)], () => { if (ready.value) later("meta", saveMeta, 600); });
+    watch(() => linesPayload(), () => { if (ready.value) later("lines", saveLinesNow, 900); });
+    watch(() => f.column, async (c, old) => { if (ready.value && c && old && c !== old) await run(() => call("move_card", { name: props.edit, column: c }, true)); });
+    const flush = async () => { clearTimeout(timers.meta); clearTimeout(timers.lines); if (!ready.value) return; await saveMeta(); await saveLinesNow(); };
+    const closeEdit = async () => { if (ready.value && sv.value !== "error") await flush(); emit("close"); };
+    // header actions of an opened card
+    const hdPop = ref(null);
+    const quoteDoc = async (kind) => {
+      hdPop.value = null; const win = window.open("about:blank", "_blank");
+      try { await flush(); const n = await call("card_quote", { order: props.edit, kind }, true); if (win) win.location = pdfUrl("Quotation", n, "الورشة — عربي"); }
+      catch (e) { if (win) win.close(); sv.value = "error"; svMsg.value = e.message; }
+    };
+    const copyIt = async () => { hdPop.value = null; try { await flush(); const n = await cardActions.copy(props.edit); state.rev++; state.sheet = { type: "order", edit: n }; } catch (e) { toast(e.message, "error"); } };
+    const archiveIt = async () => { hdPop.value = null; if (!confirm("أرشفة هذه البطاقة؟ تجدها لاحقًا في «الأرشيف».")) return; try { await cardActions.archive(props.edit); state.rev++; emit("close"); } catch (e) { toast(e.message, "error"); } };
+    const templateIt = async () => { hdPop.value = null; const t = prompt("اسم القالب", f.subject || ""); if (!t || !t.trim()) return; try { await flush(); await call("save_card_template", { name: props.edit, title: t.trim() }, true); toast(`حُفظ القالب «${t.trim()}»`); } catch (e) { toast(e.message, "error"); } };
+    const deleteIt = async () => { hdPop.value = null; if (!confirm("حذف البطاقة نهائيًا؟ لا يمكن التراجع.")) return; try { await call("delete_card", { name: props.edit }, true); toast("حُذفت البطاقة"); state.rev++; emit("close"); } catch (e) { toast(e.message, "error"); } };
+    const closeHd = () => (hdPop.value = null);
+    onMounted(() => document.addEventListener("click", closeHd)); onBeforeUnmount(() => { document.removeEventListener("click", closeHd); Object.values(timers).forEach(clearTimeout); });
     async function saveEdit() {
       error.value = null; const d = ed.value; if (!d) return;
       if (!filled.value.length) return (error.value = "أبقِ بندًا واحدًا على الأقل");
@@ -897,19 +933,37 @@ const BoardPanel = {
     const dropTpl = async (tp) => { if (!confirm(`حذف القالب «${tp.title}»؟`)) return; try { tpls.value = await call("delete_card_template", { id: tp.id }, true); if (tplOn.value === tp.id) tplOn.value = null; } catch (e) { error.value = e.message; } };
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
-    return { editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
   <aside class="bd-panel" :aria-label="mode === 'new' ? 'طلب جديد' : 'الطلب'">
     <div v-if="mode === 'new'" class="overlay od-ov" @click.self="$emit('close')">
-    <form class="od" role="dialog" aria-modal="true" aria-labelledby="od-h" novalidate @submit.prevent="editing ? saveEdit() : save(false)" @keydown.ctrl.enter.prevent="editing ? saveEdit() : save(false)">
+    <form class="od" role="dialog" aria-modal="true" aria-labelledby="od-h" novalidate @submit.prevent="editing ? closeEdit() : save(false)" @keydown.ctrl.enter.prevent="editing ? closeEdit() : save(false)">
       <header class="od-hd"><span class="od-ic"><Icon name="file" :size="22"/></span>
         <div v-if="editing"><h2 id="od-h">{{ ed && ed.title ? ed.title : 'الطلب' }}</h2><span class="m">{{ ed ? ed.name : 'جارٍ التحميل…' }}</span></div>
-        <button v-if="editing" type="button" class="cl-btn od-more" @click="state.cardDetails = edit; $emit('close')"><Icon name="image" :size="16"/>المرفقات والتعليقات والمال</button>
+        <template v-if="editing && ed">
+          <select class="input od-colsel" v-model="f.column" aria-label="العمود"><option v-for="c in boardCols" :key="c.id" :value="c.id" :disabled="c.deliver && c.id !== ed.column">{{ c.name }}</option></select>
+          <span class="spacer"></span>
+          <span class="od-sv" :class="sv" role="status">{{ sv === 'saving' ? 'جارٍ الحفظ…' : sv === 'saved' ? '✓ حُفظ' : sv === 'pending' ? 'غير محفوظ: ' + svMsg : sv === 'error' ? 'تعذّر الحفظ: ' + svMsg : '' }}</span>
+          <span v-if="state.boot.can.order" class="od-pop-host"><button type="button" class="cl-btn od-more" :aria-expanded="hdPop === 'docs'" @click.stop="hdPop = hdPop === 'docs' ? null : 'docs'"><Icon name="file" :size="16"/>المستندات<Icon name="down" :size="14"/></button>
+            <div v-if="hdPop === 'docs'" class="tm-pop od-pop" @click.stop>
+              <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('devis')"><Icon name="file" :size="15"/>Devis — عرض سعر</button>
+              <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('proforma')"><Icon name="file" :size="15"/>Pro forma</button>
+              <a class="tm-pop-row" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', ed.name, 'الورشة — عربي')" @click="hdPop = null"><Icon name="printer" :size="15"/>بون الطلب</a>
+              <span v-if="unpriced > 0" class="m tm3-hint">سعّر كل البنود لإصدار Devis أو Pro forma.</span></div></span>
+          <button type="button" class="cl-btn od-more" @click="state.cardDetails = edit; $emit('close')"><Icon name="image" :size="16"/>المرفقات والتعليقات والمال</button>
+          <span class="od-pop-host"><button type="button" class="cl-btn icon od-more" aria-label="خيارات البطاقة" :aria-expanded="hdPop === 'more'" @click.stop="hdPop = hdPop === 'more' ? null : 'more'"><Icon name="more" :size="16"/></button>
+            <div v-if="hdPop === 'more'" class="tm-pop od-pop" @click.stop>
+              <button type="button" class="tm-pop-row" @click="copyIt"><Icon name="file" :size="15"/>نسخ البطاقة</button>
+              <button type="button" class="tm-pop-row" @click="templateIt"><Icon name="grid" :size="15"/>حفظ كقالب</button>
+              <button type="button" class="tm-pop-row" @click="archiveIt"><Icon name="box" :size="15"/>أرشفة</button>
+              <button v-if="!(paid > 0.005) && !(ed.per_delivered > 0)" type="button" class="tm-pop-row tm3-danger" @click="deleteIt"><Icon name="trash" :size="15"/>حذف البطاقة</button>
+              <span v-else class="m tm3-hint">عليها دفعة أو تسليم: أرشفها بدل الحذف.</span></div></span>
+        </template>
         <div v-else><h2 id="od-h">طلب جديد</h2><span class="m">{{ colName ? 'يُضاف إلى لوحة الطلبات في عمود «' + colName + '»' : 'يُضاف إلى لوحة الطلبات' }}</span></div>
-        <button type="button" class="od-x" aria-label="إغلاق" @click="$emit('close')"><Icon name="x" :size="18"/></button></header>
+        <button type="button" class="od-x" aria-label="إغلاق" @click="editing ? closeEdit() : $emit('close')"><Icon name="x" :size="18"/></button></header>
       <div class="od-bd">
         <div class="od-main">
           <section class="od-card od-pad">
@@ -973,7 +1027,7 @@ const BoardPanel = {
           <section class="od-card"><div class="od-ch"><Icon name="calendar" :size="18"/><b>التسليم</b></div><div class="od-pad">
             <div class="bd-chips"><button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button></div>
             <input type="date" class="input" v-model="f.due" :min="editing ? null : isoIn(0)" aria-label="تاريخ التسليم">
-            <label v-if="startColumns.length > 1" class="cl-fgroup"><span>{{ editing ? 'العمود' : 'يبدأ في عمود' }}</span><select id="qo-column" class="input" v-model="f.column"><option v-for="c in startColumns" :key="c.id" :value="c.id">{{ c.name }}</option></select></label></div></section>
+            <label v-if="startColumns.length > 1 && !editing" class="cl-fgroup"><span>يبدأ في عمود</span><select id="qo-column" class="input" v-model="f.column"><option v-for="c in startColumns" :key="c.id" :value="c.id">{{ c.name }}</option></select></label></div></section>
           <section class="od-card"><div class="od-ch"><Icon name="users" :size="18"/><b>من يعمل عليه؟</b></div><div class="od-pad">
             <template v-if="editing"><button v-for="p in state.boot.team" :key="p" type="button" class="od-person" :aria-pressed="members.includes(p)" @click="flipMember(p)"><Avatar :name="p" :size="28"/><span style="flex:1">{{ p }}</span><span v-if="members.includes(p)" class="tm-tick">✓</span></button></template>
             <button v-else v-for="p in state.boot.team" :key="p" type="button" class="od-person" :aria-pressed="f.assignee === p" @click="f.assignee = f.assignee === p ? '' : p"><Avatar :name="p" :size="28"/><span style="flex:1">{{ p }}</span><span v-if="f.assignee === p" class="tm-tick">✓</span></button>
@@ -998,10 +1052,11 @@ const BoardPanel = {
         <div class="od-big"><span>الباقي</span><b :class="{bad: remain > 0.005}">{{ money(Math.max(0, remain)) }}</b></div>
         <div v-if="error" class="alert error od-err" role="alert">{{ error }}</div>
         <span class="spacer"></span>
-        <span class="od-kbd"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> حفظ · <kbd>Esc</kbd> إغلاق</span>
-        <button type="button" class="cl-btn od-btn" @click="$emit('close')">إلغاء</button>
+        <span v-if="!editing" class="od-kbd"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> حفظ · <kbd>Esc</kbd> إغلاق</span><span v-else class="od-kbd">كل تعديل يُحفظ مباشرة</span>
+        <button v-if="editing" type="button" class="cl-btn primary od-btn" @click="closeEdit">إغلاق</button>
+        <button v-else type="button" class="cl-btn od-btn" @click="$emit('close')">إلغاء</button>
         <button v-if="!editing" type="button" class="cl-btn od-btn" :disabled="saving" @click="save(true)">حفظ وفتح البطاقة</button>
-        <button type="submit" class="cl-btn primary od-btn" :disabled="saving || (editing && !ed)">{{ saving ? 'جارٍ الحفظ…' : editing ? 'حفظ التعديلات' : 'حفظ الطلب' }}</button>
+        <button v-if="!editing" type="submit" class="cl-btn primary od-btn" :disabled="saving">{{ saving ? 'جارٍ الحفظ…' : 'حفظ الطلب' }}</button>
       </footer>
     </form>
     </div>

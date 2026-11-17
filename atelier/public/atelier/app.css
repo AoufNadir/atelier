@@ -2423,3 +2423,10 @@ button.rp-rank { all: unset; box-sizing: border-box; width: 100%; cursor: pointe
 button.rp-rank { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--c-line2); }
 .od-fs { border: 0; margin: 0; padding: 0; min-width: 0; } .od-fs:disabled { opacity: .7; } .od-lock { margin: 10px 14px 0; }
 .od-hd .od-more { margin-inline-start: auto; height: 32px; font-size: 13px; }
+
+.od-colsel { width: auto; min-height: 32px !important; height: 32px; font-size: 13px; font-weight: 700; margin-inline-start: 8px; }
+.od-sv { font-size: 12px; color: #667085; white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.od-sv.saved { color: #067647; } .od-sv.pending { color: #B54708; } .od-sv.error { color: #B42318; }
+.od-pop-host { position: relative; } .od-pop { top: calc(100% + 6px); inset-inline-start: auto; left: 0; width: 240px; z-index: 30; }
+.od-hd .od-more { margin-inline-start: 0; }
+.od-hd .od-colsel { flex: none; width: 180px !important; } .od-hd .od-sv { flex: none; }
