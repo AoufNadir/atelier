@@ -2648,3 +2648,28 @@ button.rp-rank { display: flex; align-items: center; gap: 12px; padding: 10px 18
 .cp-hist-head .bd-chip { white-space: nowrap; flex: none; }
 .cp-hist-head .seg { flex: none; white-space: nowrap; }
 .cp-hist-head .cl-search { min-width: 150px; flex: 0 1 220px; }
+/* customer gallery for sales */
+.cpg { border-top: 1px solid #E4E7EC; }
+.cpg-bar { display: flex; align-items: center; gap: 6px; padding: 8px 14px; overflow-x: auto; white-space: nowrap; }
+.cpg-bar .bd-chip { flex: none; }
+.cpg-chk { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #475467; flex: none; }
+.cpg-sort { height: 28px; font-size: 12px; width: auto; flex: none; }
+.cpg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; padding: 4px 14px 14px; max-height: 680px; overflow: auto; }
+.cpg-it { border: 1px solid #E4E7EC; border-radius: 10px; overflow: hidden; background: #fff; display: flex; flex-direction: column; transition: box-shadow .15s, transform .15s; }
+.cpg-it:hover { box-shadow: 0 8px 22px rgba(16,24,40,.12); transform: translateY(-1px); }
+.cpg-ph { position: relative; height: 140px; border: 0; padding: 0; cursor: zoom-in; background: #F2F4F7; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.cpg-ph img { width: 100%; height: 100%; object-fit: cover; }
+.cpg-ini { font-size: 34px; font-weight: 800; color: rgba(255,255,255,.85); }
+.cpg-tag { position: absolute; top: 8px; inset-inline-start: 8px; font-size: 12px; font-weight: 700; background: rgba(255,255,255,.94); border-radius: 5px; padding: 0 6px; color: #17202A; }
+.cpg-tag.run { inset-inline-start: auto; inset-inline-end: 8px; background: #FEF0C7; color: #B54708; }
+.cpg-in { padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cpg-t { font: inherit; font-size: 13px; font-weight: 700; text-align: start; border: 0; background: none; padding: 0; cursor: pointer; color: #17202A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cpg-t:hover { color: #4F35D2; }
+.cpg-spec { font-size: 12px; color: #667085; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cpg-pr { display: flex; align-items: flex-end; justify-content: space-between; gap: 6px; margin-top: 4px; }
+.cpg-pr b { font-size: 14px; display: block; } .cpg-pr b.warn { color: #B54708; }
+.cpg-pr small { font-size: 12px; color: #667085; }
+.cpg-again { flex: none; color: #4F35D2; border-color: #C4B8F3; background: #F1EEFF; font-weight: 700; }
+.cpg-pr > div { min-width: 0; }
+.cpg-pr small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cpg-ph:not(:has(img)) { height: 96px; }

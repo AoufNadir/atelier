@@ -1052,11 +1052,18 @@ def customer2(name):
 		o.cover_color, o.final = e.get("atelier_cover_color"), e.get("atelier_final")
 		o.status = _status_of(e, _jl(e.get("atelier_labels")), cfg)
 		o.folder = folders.card_folder(o.name)
-	sizes = {}
-	for r in frappe.get_all("Sales Order Item", filters={"parent": ["in", orders], "atelier_size": ["is", "set"]}, fields=["parent", "atelier_size"], order_by="idx asc"):
-		sizes.setdefault(r.parent, r.atelier_size)
+	sizes, lines = {}, {}
+	for r in frappe.get_all("Sales Order Item", filters={"parent": ["in", orders]},
+			fields=["parent", "atelier_size", "item_name", "item_group", "qty", "uom", "rate", "amount", "atelier_price_pending"], order_by="idx asc"):
+		if r.atelier_size:
+			sizes.setdefault(r.parent, r.atelier_size)
+		l = lines.setdefault(r.parent, [])
+		if len(l) < 4:  # gallery: what was made, how many, at what price
+			l.append({"what": r.item_name, "group": r.item_group, "qty": flt(r.qty), "uom": r.uom, "size": r.atelier_size,
+				"rate": None if r.atelier_price_pending else flt(r.rate), "amount": None if r.atelier_price_pending else flt(r.amount)})
 	for o in res.get("orders") or []:
 		o.size = sizes.get(o.name)
+		o.lines = lines.get(o.name, [])
 	res["statuses"] = cfg["statuses"]
 	if api._can("Payment Entry"):
 		res["year_paid"] = flt(frappe.db.sql("""select sum(paid_amount) from `tabPayment Entry` where party_type='Customer' and party=%s

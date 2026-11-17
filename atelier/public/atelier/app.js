@@ -1973,6 +1973,17 @@ const SimpleCustomers = {
     const showImages = (o, url) => { const list = gallery.value.filter((g) => g.url); const i = list.findIndex((g) => (url ? g.url === url : g.o.name === o.name));
       if (i >= 0) viewer.value = { list, i }; else go("/?card=" + encodeURIComponent(o.name)); };
     const openCard = (o) => go("/?card=" + encodeURIComponent(o.name));
+    // gallery for the salesperson: delivered work, what it was and what it cost
+    const gGroup = ref("all"), gSort = ref("new"), gAll = ref(false);
+    const groupOf = (o) => (o.lines || [])[0]?.group || "أخرى";
+    const galleryJobs = computed(() => jobs.value.filter((o) => gAll.value || (o.per_delivered || 0) >= 100));
+    const gGroups = computed(() => { const c = {}; for (const o of galleryJobs.value) c[groupOf(o)] = (c[groupOf(o)] || 0) + 1; return Object.entries(c).sort((a, b) => b[1] - a[1]); });
+    const gallery2 = computed(() => { const list = galleryJobs.value.filter((o) => gGroup.value === "all" || groupOf(o) === gGroup.value);
+      return gSort.value === "price" ? [...list].sort((a, b) => (b.grand_total || 0) - (a.grand_total || 0)) : list; });
+    const specOf = (o) => { const l = (o.lines || [])[0]; if (!l) return o.size || "";
+      return [l.size || o.size, l.qty ? (Number.isInteger(l.qty) ? l.qty.toLocaleString("en-US") : fig(l.qty)) + " " + (l.uom || "") : "", (o.lines.length > 1 ? "+" + (o.lines.length - 1) + " بنود" : "")].filter(Boolean).join(" · "); };
+    const unitOf = (o) => { const l = (o.lines || [])[0]; return l && l.rate && o.lines.length === 1 && l.qty > 1 ? fig(l.rate) + " / " + (/m|م/i.test(l.uom || "") ? (l.uom || "") : "وحدة") : ""; };
+    const coverOf = (o) => o.cover || (isImg({ file_name: o.final || "" }) ? o.final : null) || imagesOf(o)[0]?.file_url || null;
     // files tab: grouped by job, identity first, kind = final / source / reference (guessed, can be corrected), old versions folded
     const fk = ref("all"), fq = ref(""), fsel = ref(null), verOpen = reactive({});
     const FILE_KINDS = [["final", "نهائي للطباعة"], ["source", "مصدر التصميم"], ["ref", "مراجع وصور"], ["identity", "الهوية"]];
@@ -2026,7 +2037,7 @@ const SimpleCustomers = {
       kpi, quick, open, bal, lastWord, exportList, newOrderFor, pay, pmenu, merging, editNote, note, startNote, saveExtra, remind, startRemind, sendRemind, toggleDisabled,
       doMerge, exportOrders, reorder, uploading, onFile, copyText, LOG_KINDS, logKind, logText, addLog, months6, maxMonth, stFrom, stTo, statementUrl, sendStatement, STATE_DOT,
       owesNow, TABS, labelStyle, isImg, waLink, money, fig, date, ago, state, go, t,
-      account, remaining, showNote, chips, fk, fq, fsel, verOpen, FILE_KINDS, kindOf, verOf, kindCount, fileGroups, shownGroups, setKind, fileSize, viewFile, allFiles, extOf, jf, jobChips, stOpen, logAll, filesAll, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
+      account, remaining, showNote, chips, gGroup, gSort, gAll, groupOf, galleryJobs, gGroups, gallery2, specOf, unitOf, coverOf, fk, fq, fsel, verOpen, FILE_KINDS, kindOf, verOf, kindCount, fileGroups, shownGroups, setKind, fileSize, viewFile, allFiles, extOf, jf, jobChips, stOpen, logAll, filesAll, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
   },
   template: `
   <div class="cl">
@@ -2207,10 +2218,27 @@ const SimpleCustomers = {
             </table>
             <div class="muted cp-pad" style="padding-top:8px">انقر على أي عمل لفتح بطاقته.</div>
           </div>
-          <div v-else class="cp-gallery">
-            <button v-for="(g, gi) in gallery" :key="gi" type="button" class="cp-gtile" :aria-label="(g.o.atelier_subject || g.o.name) + (g.url ? '' : ' — بلا صورة')" @click="g.url ? showImages(g.o, g.url) : openCard(g.o)">
-              <span class="cp-gimg" :style="g.url ? {} : {background: g.o.cover_color || '#98A2B3'}"><img v-if="g.url" :src="g.url" alt="" loading="lazy"><span v-else>{{ initial(g.o.atelier_subject || g.o.name) }}</span></span>
-              <span class="cp-gcap"><b class="ellipsis">{{ g.o.atelier_subject || g.o.name }}</b><span class="muted">{{ date(g.o.transaction_date) }}</span></span></button>
+          <div v-else class="cpg">
+            <div class="cpg-bar"><button type="button" class="bd-chip" :aria-pressed="gGroup === 'all'" @click="gGroup = 'all'">كل الخدمات <span class="cl-quick-n">{{ galleryJobs.length }}</span></button>
+              <button v-for="g in gGroups" :key="g[0]" type="button" class="bd-chip" :aria-pressed="gGroup === g[0]" @click="gGroup = g[0]">{{ g[0] }} <span class="cl-quick-n">{{ g[1] }}</span></button>
+              <span class="spacer"></span>
+              <label class="cpg-chk"><input type="checkbox" v-model="gAll">مع الجارية</label>
+              <select class="input cpg-sort" v-model="gSort" aria-label="الترتيب"><option value="new">الأحدث</option><option value="price">الأعلى سعرًا</option></select></div>
+            <div v-if="!gallery2.length" class="muted cp-pad">{{ gAll ? 'لا أعمال.' : 'لا أعمال مسلَّمة بعد — فعّل «مع الجارية» لرؤية الكل.' }}</div>
+            <div class="cpg-grid">
+              <article v-for="o in gallery2" :key="o.name" class="cpg-it">
+                <button type="button" class="cpg-ph" :style="coverOf(o) ? {} : {background: o.cover_color || '#98A2B3'}" :aria-label="'صور ' + (o.atelier_subject || o.name)" @click="coverOf(o) ? showImages(o, imagesOf(o)[0]?.file_url) : openCard(o)">
+                  <img v-if="coverOf(o)" :src="coverOf(o)" alt="" loading="lazy"><span v-else class="cpg-ini">{{ initial(o.atelier_subject || o.name) }}</span>
+                  <span class="cpg-tag">{{ groupOf(o) }}</span><span v-if="(o.per_delivered || 0) < 100" class="cpg-tag run">جارٍ</span></button>
+                <div class="cpg-in">
+                  <button type="button" class="cpg-t" :title="o.atelier_subject || o.name" @click="openCard(o)">{{ o.atelier_subject || o.name }}</button>
+                  <span class="cpg-spec">{{ specOf(o) || '—' }}</span>
+                  <div class="cpg-pr"><div><b v-if="!o.price_pending">{{ money(o.grand_total) }}</b><b v-else class="warn">بلا سعر</b>
+                    <small v-if="unitOf(o)">{{ unitOf(o) }}</small><small>{{ date(o.transaction_date) }}</small></div>
+                    <button v-if="state.boot.can.order" type="button" class="cl-btn sm cpg-again" title="بطاقة جديدة بنفس البنود في اللوحة" @click="reorder(o)">طلب مشابه</button></div>
+                </div>
+              </article>
+            </div>
           </div>
         </section>
 
