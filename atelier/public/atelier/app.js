@@ -1979,11 +1979,11 @@ const SimpleCustomers = {
     </div>
 
     <div v-else class="cp">
-      <div class="cp-top"><button type="button" class="cl-btn" @click="closeCustomer"><Icon name="back" :size="16"/>العملاء</button></div>
       <div v-if="err" class="alert error">{{ err }}</div>
       <div v-else-if="!d" class="ws-loading">جارٍ التحميل…</div>
       <template v-else>
         <header class="cp-card cp-head">
+          <button type="button" class="cl-btn icon cp-back" aria-label="العودة إلى العملاء" title="العملاء" @click="closeCustomer"><Icon name="back" :size="16"/></button>
           <div class="cp-id">
             <h1>{{ d.customer_name }}<span class="cp-type">{{ d.customer_type === 'Company' ? 'مؤسسة' : 'فرد' }}</span>
               <button v-if="d.can_edit" type="button" class="cl-star-btn" :aria-pressed="!!d.vip" :title="d.vip ? 'إلغاء زبون مميز' : 'زبون مميز'" @click="saveExtra({vip: d.vip ? 0 : 1})"><Icon name="star" :size="16"/></button></h1>
@@ -2529,10 +2529,10 @@ const SuppliersPage = {
     </div>
 
     <div v-else class="cp">
-      <div class="cp-top"><button type="button" class="cl-btn" @click="closeSupplier"><Icon name="back" :size="16"/>الموردون</button></div>
       <div v-if="!d" class="ws-loading">{{ err || 'جارٍ التحميل…' }}</div>
       <template v-else>
         <header v-if="d.name" class="cp-card cp-head">
+          <button type="button" class="cl-btn icon cp-back" aria-label="العودة إلى الموردين" title="الموردون" @click="closeSupplier"><Icon name="back" :size="16"/></button>
           <div class="cp-id">
             <h1>{{ d.supplier_name }}<span v-if="d.disabled" class="cp-type">موقوف</span></h1>
             <span class="muted">{{ [d.supplies, d.phone, d.tax_id ? 'NIF ' + d.tax_id : ''].filter(Boolean).join(' · ') || 'مورد' }}</span>
