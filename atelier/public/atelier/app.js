@@ -1002,7 +1002,8 @@ const BoardPanel = {
     const dropTpl = async (tp) => { if (!confirm(`حذف القالب «${tp.title}»؟`)) return; try { tpls.value = await call("delete_card_template", { id: tp.id }, true); if (tplOn.value === tp.id) tplOn.value = null; } catch (e) { error.value = e.message; } };
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
-    return { draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, showDesc, showCk, showFiles, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    const folderHint = () => setTimeout(() => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة على هذا الحاسوب — استعمل «نسخ المسار»"), 1500);
+    return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, showDesc, showCk, showFiles, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
@@ -1013,15 +1014,8 @@ const BoardPanel = {
       <header class="od-hd"><span class="od-ic"><Icon name="file" :size="22"/></span>
         <div v-if="editing"><h2 id="od-h">{{ ed && ed.title ? ed.title : 'الطلب' }}</h2><span class="m">{{ ed ? ed.name : 'جارٍ التحميل…' }}</span></div>
         <template v-if="editing && ed">
-          <select class="input od-colsel" v-model="f.column" aria-label="العمود"><option v-for="c in boardCols" :key="c.id" :value="c.id" :disabled="c.deliver && c.id !== ed.column">{{ c.name }}</option></select>
           <span class="spacer"></span>
           <span class="od-sv" :class="sv" role="status">{{ sv === 'saving' ? 'جارٍ الحفظ…' : sv === 'saved' ? '✓ حُفظ' : sv === 'pending' ? 'غير محفوظ: ' + svMsg : sv === 'error' ? 'تعذّر الحفظ: ' + svMsg : '' }}</span>
-          <span v-if="state.boot.can.order && !worker" class="od-pop-host"><button type="button" class="cl-btn od-more" :aria-expanded="hdPop === 'docs'" @click.stop="hdPop = hdPop === 'docs' ? null : 'docs'"><Icon name="file" :size="16"/>المستندات<Icon name="down" :size="14"/></button>
-            <div v-if="hdPop === 'docs'" class="tm-pop od-pop" @click.stop>
-              <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('devis')"><Icon name="file" :size="15"/>Devis — عرض سعر</button>
-              <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('proforma')"><Icon name="file" :size="15"/>Pro forma</button>
-              <a class="tm-pop-row" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', ed.name, 'الورشة — عربي')" @click="hdPop = null"><Icon name="printer" :size="15"/>بون الطلب</a>
-              <span v-if="unpriced > 0" class="m tm3-hint">سعّر كل البنود لإصدار Devis أو Pro forma.</span></div></span>
           <span class="od-pop-host"><button type="button" class="cl-btn icon od-more" aria-label="خيارات البطاقة" :aria-expanded="hdPop === 'more'" @click.stop="hdPop = hdPop === 'more' ? null : 'more'"><Icon name="more" :size="16"/></button>
             <div v-if="hdPop === 'more'" class="tm-pop od-pop" @click.stop>
               <button v-if="!worker" type="button" class="tm-pop-row" @click="copyIt"><Icon name="file" :size="15"/>نسخ البطاقة</button>
@@ -1096,10 +1090,10 @@ const BoardPanel = {
             <button v-if="!showDesc && !f.description.trim()" type="button" class="od-addline" @click="showDesc = true"><Icon name="plus" :size="14"/>وصف</button>
             <button v-if="!showCk && !f.checklist.length" type="button" class="od-addline" @click="showCk = true"><Icon name="plus" :size="14"/>قائمة مهام</button>
             <button v-if="!showFiles && !(editing ? files.length : queued.length)" type="button" class="od-addline" @click="showFiles = true"><Icon name="plus" :size="14"/>مرفق أو غلاف</button></div>
-          <section v-if="showDesc || f.description.trim()" class="od-card"><div class="od-ch"><Icon name="file" :size="18"/><b>الوصف</b><span class="m od-r">يظهر في البون والعرض إن فُعّل في الإعدادات</span></div>
+          <section v-if="showDesc || f.description.trim()" class="od-card"><div class="od-ch"><Icon name="file" :size="18"/><b>الوصف</b><button v-if="!f.description.trim()" type="button" class="od-fold" aria-label="إخفاء الوصف" title="إخفاء" @click="showDesc = false"><Icon name="x" :size="14"/></button><span class="m od-r">يظهر في البون والعرض إن فُعّل في الإعدادات</span></div>
             <div class="od-pad"><textarea class="input od-desc" v-model="f.description" rows="3" placeholder="المقاسات، الورق، الكمية، ملاحظات العميل…" aria-label="الوصف"></textarea></div></section>
 
-          <section v-if="showCk || f.checklist.length" class="od-card"><div class="od-ch"><Icon name="check" :size="18"/><b>قائمة المهام</b><span v-if="f.checklist.length" class="m">{{ f.checklist.filter((c) => c.done).length }} / {{ f.checklist.length }}</span>
+          <section v-if="showCk || f.checklist.length" class="od-card"><div class="od-ch"><Icon name="check" :size="18"/><b>قائمة المهام</b><button v-if="!f.checklist.length" type="button" class="od-fold" aria-label="إخفاء قائمة المهام" title="إخفاء" @click="showCk = false"><Icon name="x" :size="14"/></button><span v-if="f.checklist.length" class="m">{{ f.checklist.filter((c) => c.done).length }} / {{ f.checklist.length }}</span>
               <span class="od-r od-pop-host"><button type="button" class="cl-link" @click.stop="openCkTpls">من قالب ▾</button>
                 <div v-if="ckTpls" class="tm-pop od-pop" @click.stop><button v-for="tp in ckTpls" :key="tp.title" type="button" class="tm-pop-row" @click="useCkTpl(tp)">{{ tp.title }} <span class="m">· {{ tp.items.length }}</span></button>
                   <span v-if="!ckTpls.length" class="m tm3-hint">لا قوالب بعد.</span>
@@ -1109,7 +1103,7 @@ const BoardPanel = {
                 <input class="input lb-in" :class="{done: c.done}" v-model="c.text" :aria-label="'مهمة ' + (i + 1)"><button type="button" class="lb-del" :aria-label="'حذف ' + c.text" @click="f.checklist.splice(i, 1)"><Icon name="x" :size="14"/></button></div>
               <input class="input lb-in" v-model="newItem" placeholder="+ مهمة جديدة ثم Enter" aria-label="مهمة جديدة" @keydown.enter.prevent="addItem"></div></section>
 
-          <section v-if="showFiles || (editing ? files.length : queued.length)" class="od-card"><div class="od-ch"><Icon name="image" :size="18"/><b>المرفقات</b><span v-if="uploading" class="m">جارٍ الرفع…</span>
+          <section v-if="showFiles || (editing ? files.length : queued.length)" class="od-card"><div class="od-ch"><Icon name="image" :size="18"/><b>المرفقات</b><button v-if="!(editing ? files.length : queued.length) && !(editing ? ed && ed.cover_color : f.cover_color)" type="button" class="od-fold" aria-label="إخفاء المرفقات" title="إخفاء" @click="showFiles = false"><Icon name="x" :size="14"/></button><span v-if="uploading" class="m">جارٍ الرفع…</span>
               <span class="od-r btn-row"><label class="cl-btn sm"><Icon name="image" :size="14"/>تصوير<input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFiles"></label>
                 <label class="cl-btn sm"><Icon name="plus" :size="14"/>إضافة<input ref="fileIn" type="file" multiple class="sr-only" @change="onFiles"></label></span></div>
             <div class="od-pad">
@@ -1129,7 +1123,7 @@ const BoardPanel = {
               <span v-if="(editing ? !files.length : !queued.length)" class="m">لا مرفقات. أضف الشعار أو ملف التصميم أو صورة من الهاتف.</span>
               <div v-if="editing && ed" class="od-cover"><span class="m">لون الغلاف:</span><button v-for="c in COVER_COLORS" :key="c" type="button" class="bs-sw" :style="{background: c}" :aria-pressed="!ed.cover && ed.cover_color === c" :aria-label="'لون ' + c" @click="cardSet({cover: '', cover_color: c})"></button>
                 <button v-if="ed.cover || ed.cover_color" type="button" class="cl-link" @click="cardSet({cover: '', cover_color: ''})">بلا غلاف</button></div>
-              <div v-if="editing && ed && ed.folder" class="od-folder"><span class="m">المجلد:</span><code dir="ltr">{{ ed.folder }}</code><button type="button" class="cl-link" @click="copyPath">نسخ المسار</button></div></div></section>
+              <div v-if="editing && ed && ed.folder" class="od-folder"><span class="m">المجلد:</span><code dir="ltr">{{ ed.folder }}</code><a class="cl-btn sm" :href="folderLink(ed.folder)" title="يفتح المجلد في مستكشف Windows" @click="folderHint"><Icon name="file" :size="14"/>فتح المجلد</a><button type="button" class="cl-link" @click="copyPath">نسخ المسار</button></div></div></section>
 
           <section v-if="editing && ed && state.boot.can.finance" class="od-card"><details class="od-cost"><summary class="od-ch"><Icon name="calc" :size="18"/><b>التكلفة</b><span class="m od-r">اختياري · للمدير</span></summary>
             <div class="od-pad"><CostSection :name="ed.name" :key="ed.name"/></div></details></section>
@@ -1140,6 +1134,7 @@ const BoardPanel = {
             <div class="bd-chips"><button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button></div>
             <div class="od-due"><input type="date" class="input" v-model="f.due" :min="editing ? null : isoIn(0)" aria-label="تاريخ التسليم"><input v-if="editing" type="time" class="input od-time" v-model="f.due_time" aria-label="الساعة"></div>
             <span v-if="editing && f.due && daysFromToday(f.due) < 0 && !(ed && ed.per_delivered >= 100)" class="od-late">متأخر {{ -daysFromToday(f.due) }} {{ -daysFromToday(f.due) <= 10 ? 'أيام' : 'يومًا' }}</span>
+            <label v-if="editing && ed" class="cl-fgroup"><span>العمود</span><select class="input" v-model="f.column" aria-label="العمود"><option v-for="c in boardCols" :key="c.id" :value="c.id" :disabled="c.deliver && c.id !== ed.column">{{ c.name }}</option></select></label>
             <label v-if="startColumns.length > 1 && !editing" class="cl-fgroup" :class="{'od-miss': miss.column && !f.column}"><span>يبدأ في عمود <b class="od-req">*</b></span><select id="qo-column" class="input" v-model="f.column"><option :value="null" disabled>اختر العمود</option><option v-for="c in startColumns" :key="c.id" :value="c.id">{{ c.name }}</option></select>
               <em v-if="miss.column && !f.column" class="od-misstxt">اختر العمود الذي يبدأ فيه الطلب</em></label></div></section>
           <section v-if="editing && ed && !worker" class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>المال</b><span class="m od-r">المجموع {{ money(ed.grand_total) }}</span></div><div class="od-pad">
@@ -1147,6 +1142,12 @@ const BoardPanel = {
             <div class="tm-paybar"><span :style="{width: Math.min(100, ed.grand_total ? ed.paid / ed.grand_total * 100 : 0) + '%'}"></span></div>
             <span class="m">المدفوع: {{ money(ed.paid) }}</span>
             <button v-if="state.boot.can.payment && !ed.price_pending && ed.grand_total - ed.paid > 0.005" type="button" class="cl-btn primary" @click="payNow">استلمت دفعة</button>
+                      <span v-if="state.boot.can.order && !worker" class="od-pop-host od-docs"><button type="button" class="cl-btn od-docbtn" :aria-expanded="hdPop === 'docs'" @click.stop="hdPop = hdPop === 'docs' ? null : 'docs'"><Icon name="file" :size="16"/>المستندات<Icon name="down" :size="14"/></button>
+            <div v-if="hdPop === 'docs'" class="tm-pop od-pop" @click.stop>
+              <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('devis')"><Icon name="file" :size="15"/>Devis — عرض سعر</button>
+              <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('proforma')"><Icon name="file" :size="15"/>Pro forma</button>
+              <a class="tm-pop-row" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', ed.name, 'الورشة — عربي')" @click="hdPop = null"><Icon name="printer" :size="15"/>بون الطلب</a>
+              <span v-if="unpriced > 0" class="m tm3-hint">سعّر كل البنود لإصدار Devis أو Pro forma.</span></div></span>
             <button v-if="ed.materials_pending" type="button" class="cl-btn sm" @click="materials">خصم مواد الطلب من المخزون</button></div></section>
 
           <section v-else class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>تسبيق</b></div><div class="od-pad">
