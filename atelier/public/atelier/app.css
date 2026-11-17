@@ -2422,3 +2422,4 @@ button.rp-rank { all: unset; box-sizing: border-box; width: 100%; cursor: pointe
 .rp-ages > .rp-age { padding: 12px 16px; border-inline-start: 1px solid var(--c-line2); min-width: 0; } .rp-ages > .rp-age:first-child { border-inline-start: 0; }
 button.rp-rank { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--c-line2); }
 .od-fs { border: 0; margin: 0; padding: 0; min-width: 0; } .od-fs:disabled { opacity: .7; } .od-lock { margin: 10px 14px 0; }
+.od-hd .od-more { margin-inline-start: auto; height: 32px; font-size: 13px; }

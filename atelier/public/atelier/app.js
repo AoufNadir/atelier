@@ -81,7 +81,7 @@ function useLoad(fn) {
 // ------------------------------------------------------------------ app state
 const state = reactive({
   path: location.pathname, query: new URLSearchParams(location.search),
-  boot: null, toast: null, sheet: null, online: navigator.onLine, keyboard: false, editing: false,
+  boot: null, toast: null, sheet: null, online: navigator.onLine, keyboard: false, editing: false, cardDetails: null,
   collapsed: !!store.get("atelier.sidebarCollapsed"), rev: 0,
 });
 watch(() => state.collapsed, (v) => store.set("atelier.sidebarCollapsed", v));
@@ -904,7 +904,8 @@ const BoardPanel = {
     <div v-if="mode === 'new'" class="overlay od-ov" @click.self="$emit('close')">
     <form class="od" role="dialog" aria-modal="true" aria-labelledby="od-h" novalidate @submit.prevent="editing ? saveEdit() : save(false)" @keydown.ctrl.enter.prevent="editing ? saveEdit() : save(false)">
       <header class="od-hd"><span class="od-ic"><Icon name="file" :size="22"/></span>
-        <div v-if="editing"><h2 id="od-h">تعديل الطلب</h2><span class="m">{{ ed ? ed.name + (ed.title && ed.title !== ed.name ? ' · ' + ed.title : '') : 'جارٍ التحميل…' }}</span></div>
+        <div v-if="editing"><h2 id="od-h">{{ ed && ed.title ? ed.title : 'الطلب' }}</h2><span class="m">{{ ed ? ed.name : 'جارٍ التحميل…' }}</span></div>
+        <button v-if="editing" type="button" class="cl-btn od-more" @click="state.cardDetails = edit; $emit('close')"><Icon name="image" :size="16"/>المرفقات والتعليقات والمال</button>
         <div v-else><h2 id="od-h">طلب جديد</h2><span class="m">{{ colName ? 'يُضاف إلى لوحة الطلبات في عمود «' + colName + '»' : 'يُضاف إلى لوحة الطلبات' }}</span></div>
         <button type="button" class="od-x" aria-label="إغلاق" @click="$emit('close')"><Icon name="x" :size="18"/></button></header>
       <div class="od-bd">
@@ -1451,7 +1452,7 @@ const CardModal = {
             <div class="tm3-sh"><Icon name="orders" :size="20"/><b>البنود <span class="m" style="display:inline">{{ d.lines.length }}</span></b>
               <span v-if="d.lines_locked.length" class="ln-lock">مقفلة — صدر {{ d.lines_locked.join('، ') }}</span>
               <div v-else-if="d.can_edit" class="btn-row">
-                <button v-if="!edLines" type="button" class="cl-btn sm" @click="state.sheet = {type: 'order', edit: name}">تعديل الطلب</button>
+                <button v-if="!edLines" type="button" class="cl-btn sm" @click="$emit('close'); state.sheet = {type: 'order', edit: name}">تعديل الطلب</button>
                 <template v-else><button type="button" class="cl-btn sm" @click="edLines = null">إلغاء</button><button type="button" class="cl-btn primary sm" :disabled="savingLines" @click="saveLines">{{ savingLines ? 'جارٍ الحفظ…' : 'حفظ البنود' }}</button></template></div></div>
 
             <div v-if="!edLines" class="ln-rows">
@@ -1672,6 +1673,10 @@ const Board = {
     if (props.startNew) { state.sheet = { type: "order", customer: state.quickCustomer || null }; }
     state.quickCustomer = null;
     const open = ref(props.openCard || state.query.get("card") || null);
+    // a card opens in the order window (same as a new order); the full card (files, comments, money) on request
+    const detailsOnce = ref(null);
+    watch(open, (v) => { if (v && state.boot.can.order && detailsOnce.value !== v) { state.sheet = { type: "order", edit: v }; open.value = null; } }, { immediate: true });
+    watch(() => state.cardDetails, (v) => { if (v) { detailsOnce.value = v; open.value = v; state.cardDetails = null; } });
     const busy = ref(null), dragging = ref(null), over = ref(null), before = ref(null);
     async function moveTo(c, col, beforeName) {
       busy.value = c.name;
