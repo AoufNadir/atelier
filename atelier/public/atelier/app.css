@@ -2164,7 +2164,11 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
 .ln-tbl th:nth-child(5) { width: 88px; } .ln-tbl th:nth-child(6) { width: 84px; } .ln-tbl th:nth-child(7) { width: 36px; }
 .ln-tbl .od-size .od-f { width: 58px; }
 /* line description: the widest column; long text wraps and the field grows */
-.od-tbl th:nth-child(1) { width: 34%; } .ln-tbl th:nth-child(1) { width: 36%; } .ln-tbl th:nth-child(3) { width: 150px; } .ln-tbl .od-size .od-f { width: 54px; }
+.od-tbl th:nth-child(1) { width: 34%; }
+/* card lines: the window is narrow, so each line's description takes its own full row above the figures */
+.ln-tbl th:nth-child(1) { width: 112px; } .ln-tbl th:nth-child(2) { width: auto; } .ln-tbl th:nth-child(3) { width: 72px; }
+.ln-tbl th:nth-child(4) { width: 96px; } .ln-tbl th:nth-child(5) { width: 96px; } .ln-tbl th:nth-child(6) { width: 36px; }
+.ln-tbl tr.ln-dr td { border-bottom: 0; padding-bottom: 0; } .ln-tbl tr.ln-nr td { padding-top: 6px; }
 .od-desc { display: block; width: 100%; height: auto !important; field-sizing: content; resize: none; overflow-wrap: anywhere; line-height: 1.45; padding: 7px 10px !important; max-height: 120px; overflow-y: auto; }
 @media (max-width: 900px) { .ln-rows, .ln-note { margin-inline-start: 0; } .ln-row { grid-template-columns: 56px minmax(0, 1fr) auto; } .ln-unit { display: none; } }
 

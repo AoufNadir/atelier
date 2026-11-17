@@ -1398,12 +1398,12 @@ const CardModal = {
 
             <div v-else class="ln-rows">
               <table class="od-tbl ln-tbl">
-                <thead><tr><th>الوصف</th><th>الوحدة</th><th>المقاس</th><th>الكمية</th><th>السعر</th><th class="n">المجموع</th><th><span class="sr-only">حذف</span></th></tr></thead>
-                <tbody><tr v-for="(l, i) in edLines" :key="i">
-                  <td class="od-c-desc"><div class="ol2-desc"><textarea class="input od-f od-strong od-desc" rows="1" v-model="l.text" @input="lnInput(l)" @focus="l.focus = true" @blur="lnBlur(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="لافتة، بطاقات، تصميم…" autocomplete="off"></textarea>
+                <thead><tr><th>الوحدة</th><th>المقاس</th><th>الكمية</th><th>السعر</th><th class="n">المجموع</th><th><span class="sr-only">حذف</span></th></tr></thead>
+                <tbody><template v-for="(l, i) in edLines" :key="i"><tr class="ln-dr">
+                  <td colspan="6" class="od-c-desc"><div class="ol2-desc"><textarea class="input od-f od-strong od-desc" rows="1" v-model="l.text" @input="lnInput(l)" @focus="l.focus = true" @blur="lnBlur(l)" @keydown.enter.prevent :aria-label="'وصف البند ' + (i + 1)" placeholder="لافتة، بطاقات، تصميم…" autocomplete="off"></textarea>
                     <div v-if="l.focus && lnSugg(l).length" class="ol2-sug"><span class="m">من قائمة الأسعار</span>
-                      <button v-for="it in lnSugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="lnPick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b></span></button></div></div></td>
-                  <td><select class="input od-f od-unit" v-model="l.unit" :aria-label="'وحدة البند ' + (i + 1)"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></td>
+                      <button v-for="it in lnSugg(l)" :key="it.item_code" type="button" class="tm-pop-row" @mousedown.prevent="lnPick(l, it)"><span style="flex:1;min-width:0"><b>{{ it.item_name }}</b></span></button></div></div></td></tr>
+                  <tr class="ln-nr"><td><select class="input od-f od-unit" v-model="l.unit" :aria-label="'وحدة البند ' + (i + 1)"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></td>
                   <td><div v-if="lnCalc(l) === 'area'" class="od-size"><input class="input od-f num" :class="{miss: !(+l.width > 0)}" inputmode="decimal" v-model="l.width" placeholder="العرض" :aria-label="'العرض ' + (i + 1)"><span>×</span><input class="input od-f num" :class="{miss: !(+l.height > 0)}" inputmode="decimal" v-model="l.height" placeholder="الارتفاع" :aria-label="'الارتفاع ' + (i + 1)"><span class="m">{{ lnSym(l) }}</span></div>
                     <div v-else-if="lnCalc(l) === 'length'" class="od-size"><input class="input od-f num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"><span class="m">{{ lnSym(l) }}</span></div>
                     <span v-else class="od-none">—</span></td>
@@ -1411,7 +1411,7 @@ const CardModal = {
                   <td><input class="input od-f num od-rate" inputmode="decimal" v-model="l.rate" :placeholder="d.docstatus === 1 ? 'مطلوب' : 'لاحقًا'" :aria-label="'سعر البند ' + (i + 1)"></td>
                   <td class="n od-tot"><template v-if="lnTotal(l) !== null">{{ fig(lnTotal(l)) }}</template><span v-else-if="l.text.trim()" class="od-pending">{{ l.rate !== '' && lnCalc(l) !== 'count' ? 'أدخل المقاس' : 'بلا سعر' }}</span></td>
                   <td><button v-if="edLines.length > 1" type="button" class="od-del" :aria-label="'حذف البند ' + (i + 1)" @click="edLines.splice(i, 1)"><Icon name="x" :size="16"/></button></td>
-                </tr></tbody></table>
+                </tr></template></tbody></table>
               <div class="od-add"><button type="button" class="od-addb" @click="edLines.push(newLine())"><Icon name="plus" :size="16"/>بند جديد</button></div>
               <div class="ln-sum"><span v-if="d.docstatus === 1" class="m">الطلب مؤكَّد: يلزم سعر لكل بند.</span><span class="spacer"></span><span>المجموع <b>{{ money(edTotal) }}</b></span></div>
             </div>
