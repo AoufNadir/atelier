@@ -39,9 +39,9 @@
     </td>
     <td>
       <div class="title">{{ c.title }}</div>
-      <div style="text-align:left"><span class="num">{{ doc.name }}</span></div>
+      <div style="text-align:left;font-size:15px;font-weight:600">رقم <span class="num">{{ c.number }}</span></div>
+      <div style="text-align:left" class="muted"><span class="num">{{ doc.name }}</span></div>
       <div style="text-align:left" class="muted">التاريخ: <span class="num">{{ c.date }}</span></div>
-      {%- if dt == "Sales Order" and doc.delivery_date %}<div style="text-align:left" class="muted">موعد التسليم: <span class="num">{{ frappe.utils.formatdate(doc.delivery_date, "dd/MM/yyyy") }}</span></div>{% endif %}
       {%- if dt == "Sales Invoice" and doc.due_date %}<div style="text-align:left" class="muted">تاريخ الاستحقاق: <span class="num">{{ frappe.utils.formatdate(doc.due_date, "dd/MM/yyyy") }}</span></div>{% endif %}
     </td>
   </tr></table>
@@ -51,7 +51,8 @@
     <small>{{ "وثيقة لتحضير الدفع فقط، ليست فاتورة نهائية ولا إثبات دفع" if proforma else "عرض مقترح للعميل، وليس فاتورة ولا إثبات دفع" }}</small></div>
   {%- endif %}
 
-  <div class="box" style="margin:12px 0">
+  <table style="margin:12px 0"><tr><td style="vertical-align:top">
+  <div class="box" style="height:100%">
     <div class="muted">{{ "استلمنا من" if dt == "Payment Entry" else "العميل" }}</div>
     <div style="font-weight:600;font-size:14px"><bdi>{{ c.customer.name }}</bdi></div>
     {%- if c.customer.address %}<div class="muted">{{ c.customer.address }}</div>{% endif %}
@@ -60,7 +61,15 @@
     {%- if doc.get("atelier_subject") %}<div style="margin-top:4px">الموضوع: {{ doc.atelier_subject }}</div>{% endif %}
     {%- if c.show_description and doc.get("atelier_description") %}<div class="muted" style="margin-top:4px;white-space:pre-line">{{ doc.atelier_description }}</div>{% endif %}
     {%- if dt == "Quotation" and doc.get("valid_till") %}<div class="valid" style="margin-top:4px">صالح حتى: <span class="num">{{ frappe.utils.formatdate(doc.valid_till, "dd/MM/yyyy") }}</span></div>{% endif %}
-  </div>
+  </div></td>
+  {%- if dt == "Sales Order" %}
+  <td style="width:34%;vertical-align:top;padding-right:10px"><div class="box" style="height:100%">
+    <div class="muted">موعد الاستلام</div>
+    <div style="font-weight:600;font-size:14px">{% if doc.delivery_date %}<span class="num">{{ frappe.utils.formatdate(doc.delivery_date, "dd/MM/yyyy") }}</span>{% if doc.get("atelier_due_time") %} <span class="num">{{ doc.atelier_due_time }}</span>{% endif %}{% else %}يُحدَّد لاحقًا{% endif %}</div>
+    {%- if c.company.phone %}<div class="muted" style="margin-top:6px">للاستفسار: <span class="num">{{ c.company.phone }}</span></div>{% endif %}
+  </div></td>
+  {%- endif %}
+  </tr></table>
 
   {%- if dt == "Payment Entry" %}
     <table class="totals">
@@ -95,7 +104,10 @@
           <tr><td>الخصم</td><td style="text-align:left">− {{ dz_money(doc.discount_amount) }}</td></tr>{% endif %}
         {%- for tx in doc.taxes %}<tr><td>{{ tx.description }}</td><td style="text-align:left">{{ dz_money(tx.tax_amount) }}</td></tr>{% endfor %}
         <tr class="grand"><td>{{ "إجمالي البنود المسعّرة" if any_pending else "الإجمالي" }}</td><td style="text-align:left">{{ dz_money(doc.grand_total) }}</td></tr>
-        {%- if dt == "Sales Order" and doc.advance_paid %}<tr><td>التسبيق المدفوع</td><td style="text-align:left">{{ dz_money(doc.advance_paid) }}</td></tr>{% endif %}
+        {%- if dt == "Sales Order" and not any_pending %}
+          <tr><td>المدفوع</td><td style="text-align:left">{{ dz_money(doc.advance_paid or 0) }}</td></tr>
+          <tr><td><b>الباقي</b></td><td style="text-align:left"><b>{{ dz_money((doc.grand_total or 0) - (doc.advance_paid or 0)) }}</b></td></tr>
+        {%- endif %}
         {%- if dt == "Sales Invoice" %}
           {%- if doc.total_advance %}<tr><td>التسبيق المخصوم</td><td style="text-align:left">− {{ dz_money(doc.total_advance) }}</td></tr>{% endif %}
           <tr><td><b>الباقي للدفع</b></td><td style="text-align:left"><b>{{ dz_money(doc.outstanding_amount) }}</b></td></tr>
@@ -113,5 +125,6 @@
     <table class="sign" style="margin-top:24px"><tr>
       <td>{{ "توقيع المستلم" if dt == "Delivery Note" else ("موافقة العميل وتوقيعه" if dt == "Quotation" else "توقيع العميل") }}</td><td>الختم والتوقيع</td></tr></table>
   {%- endif %}
-  {%- if c.footer or c.company.rib %}<div class="muted" style="margin-top:14px;border-top:1px solid #D9DDE2;padding-top:6px;text-align:center">{{ c.footer or "" }}{% if c.company.rib %} · <span class="num">RIB: {{ c.company.rib }}</span>{% endif %}</div>{% endif %}
+  {%- set foot = [c.footer, ("الهاتف: " ~ c.company.phone) if c.company.phone else None, c.company.address] | select | list %}
+  {%- if foot or c.company.rib %}<div class="muted" style="margin-top:14px;border-top:1px solid #D9DDE2;padding-top:6px;text-align:center">{{ foot | join(" · ") }}{% if c.company.rib %} · <span class="num">RIB: {{ c.company.rib }}</span>{% endif %}</div>{% endif %}
 </div>

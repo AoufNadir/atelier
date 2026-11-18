@@ -93,7 +93,10 @@ def print_context(doc):
 		"title": "فاتورة شكلية Pro forma" if doc.get("atelier_kind") == "proforma" else TITLES.get(doc.doctype, doc.doctype),
 		"show_description": _show_description(),
 		"date": formatdate(doc.get("posting_date") or doc.get("transaction_date"), "dd/MM/yyyy"),
-		"is_demo": "DÉMO" in company.name or "تجريبي" in company.name,
+		# the demo banner only while the workshop has not given its own name in Settings → بيانات المطبعة
+		"is_demo": ("DÉMO" in company.name or "Démo" in company.name or "تجريبي" in company.name)
+			and (prof.get("name_ar") or "") in ("", "مطبعة الرؤية", company.company_name),
+		"number": (doc.name.rsplit("-", 1)[-1].lstrip("0") or doc.name) if "-" in doc.name else doc.name,
 		"company": {"name": prof.get("name_ar") or company.company_name, "name_fr": prof.get("name_fr"),
 			"phone": " · ".join(x for x in (prof.get("phone") or company.phone_no, prof.get("phone2")) if x),
 			"email": prof.get("email") or company.email, "tax_id": prof.get("nif") or company.tax_id,
