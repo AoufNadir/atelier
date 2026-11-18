@@ -63,14 +63,22 @@ def material_cfg(raw):
 	if isinstance(v, list):
 		p = v[0] if v else {}
 		v = {"width": p.get("width"), "length": p.get("length"), "pack": p.get("name"), "pack_qty": p.get("qty")}
+	color = v.get("color") or ""
 	return {"width": flt(v.get("width")), "length": flt(v.get("length")), "pack": (v.get("pack") or "")[:40],
-		"pack_qty": flt(v.get("pack_qty")), "waste": flt(v.get("waste"))}
+		"pack_qty": flt(v.get("pack_qty")), "waste": flt(v.get("waste")),
+		"color": color if isinstance(color, str) and color.startswith("#") and len(color) in (4, 7) else "",
+		"kind": (v.get("kind") or "")[:40], "gsm": flt(v.get("gsm")), "size": (v.get("size") or "")[:30]}
 
 
 def _packs(packs):
 	"""Purchase units of a material: [{name, qty}] where qty is in the stock unit (a roll of 3.20 × 50 = 160 م²)."""
 	out, seen = [], set()
-	for p in frappe.parse_json(packs) or []:
+	p_all = frappe.parse_json(packs) or []
+	if isinstance(p_all, dict):
+		p_all = [p_all]
+	for p in p_all:
+		if not isinstance(p, dict):
+			continue
 		n, q = (p.get("name") or "").strip()[:60], flt(p.get("qty"))
 		if n and q > 0 and n not in seen:
 			seen.add(n)

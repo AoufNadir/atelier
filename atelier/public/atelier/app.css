@@ -2819,3 +2819,22 @@ body.show-hints .hint { display: revert !important; font-size: 12px; color: #667
 .stk-open legend { font-size: 13px; font-weight: 700; padding: 0 6px; color: #17202A; }
 .stk-open legend .m { font-weight: 400; font-size: 12px; }
 .stk-open legend { white-space: nowrap; }
+.stk-row3 { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 10px; }
+.stk-colors { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.stk-sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #D0D5DD; cursor: pointer; padding: 0; position: relative; }
+.stk-sw[aria-pressed="true"] { box-shadow: 0 0 0 2px #4F35D2; }
+.stk-custom { display: flex; align-items: center; justify-content: center; background: conic-gradient(#00AEEF, #EC008C, #FFE600, #00AEEF); color: #fff; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.4); overflow: hidden; }
+.stk-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.stk-ink { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-inline-end: 6px; vertical-align: middle; box-shadow: 0 0 0 1px rgba(16,24,40,.15); }
+/* new material: compact */
+.stk-wayseg { display: flex; margin-bottom: 12px; } .stk-wayseg button { flex: 1; height: 34px; font-size: 13px; }
+.stk-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.stk-in { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #475467; }
+.stk-in .input { height: 34px; width: 90px; }
+.stk-in select.input { width: 110px; }
+.stk-in em { font-style: normal; color: #667085; font-size: 13px; }
+.stk-w4 { width: 60px !important; } .stk-w5 { width: 76px !important; } .stk-w6 { width: 100px !important; }
+.stk-eq { font-size: 14px; color: #17202A; white-space: nowrap; }
+.stk-colors { margin-bottom: 12px; }
+.stk-have { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #F9FAFB; border: 1px solid #E4E7EC; border-radius: 10px; padding: 10px 12px; }
+.stk-have-t { font-weight: 700; font-size: 13px; margin-inline-end: 4px; }

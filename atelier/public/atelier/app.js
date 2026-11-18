@@ -3916,6 +3916,10 @@ const CalcPage = {
 // stock: three ways a material is used. roll: kept in م², bought by the roll (width × length); bottle: bought and swapped one at a time; count: sheets, pieces (optionally bought by the pack)
 const STOCK_WAYS = { roll: { label: "لفّة", hint: "باش، فينيل، One Way" }, bottle: { label: "قارورة / علبة", hint: "حبر، غراء" }, count: { label: "بالعدد", hint: "ورق، هياكل، عيون" } };
 const COUNT_UNITS = ["ورقة", "قطعة", "علبة", "متر طولي", "لتر"];
+// suggestions only: any other value can be typed, and values already used come back as suggestions
+const INK_COLORS = [["Cyan", "#00AEEF"], ["Magenta", "#EC008C"], ["Yellow", "#FFE600"], ["Black", "#231F20"], ["Light Cyan", "#7FD6F7"], ["Light Magenta", "#F49AC1"], ["White", "#FFFFFF"]];
+const PAPER_KINDS = ["كوشيه", "أوتوكولون", "أوفست", "بريستول", "كرتون", "كالك"];
+const PAPER_SIZES = ["A4", "A3", "A3+", "SRA3", "32×45", "50×70", "70×100"];
 const wayOf = (i) => (STOCK_WAYS[i?.family] ? i.family : /م²|m²|m2/.test(i?.uom || "") ? "roll" : "count");
 const rollLen = (i) => (i.cfg?.width > 0 ? i.qty / i.cfg.width : null);
 const StockPage = {
@@ -3932,8 +3936,8 @@ const StockPage = {
     const selItem = computed(() => (s.data?.items || []).find((i) => i.item_code === sel.value) || null);
     const subOf = (i) => { const c = i.cfg || {}, w = wayOf(i);
       if (w === "roll") return c.width > 0 && c.length > 0 ? `لفّة ${num(c.width)} × ${num(c.length)} م = ${num(+(c.width * c.length).toFixed(2))} م²` : "تُحسب بالمتر المربع";
-      if (w === "bottle") return i.daily ? "" : "تُركَّب واحدة واحدة";
-      return c.pack && c.pack_qty ? `${c.pack} = ${num(c.pack_qty)} ${uom(i.uom)}` : uom(i.uom); };
+      if (w === "bottle") return (INK_COLORS.find((x) => x[1].toLowerCase() === (c.color || "").toLowerCase()) || [""])[0] || "قارورة";
+      return [c.kind, c.gsm ? num(c.gsm) + " غ" : "", c.size, c.pack && c.pack_qty ? `${c.pack} = ${num(c.pack_qty)} ${uom(i.uom)}` : uom(i.uom)].filter(Boolean).join(" · "); };
     const qtySub = (i) => { const c = i.cfg || {}, w = wayOf(i), parts = [];
       if (w === "roll" && rollLen(i) !== null) parts.push(`≈ ${num(Math.floor(rollLen(i)))} م طولًا`);
       if (c.pack_qty > 0 && i.qty > 0) parts.push(`${num(+(i.qty / c.pack_qty).toFixed(1))} ${c.pack || ""}`);
@@ -3954,13 +3958,23 @@ const StockPage = {
       err.value = null;
       const c = item?.cfg || {};
       sheet.value = { kind, item, name: item?.item_name || "", way: item ? wayOf(item) : "roll", uom: item?.uom || "ورقة", min_qty: item?.safety_stock || 0,
-        width: c.width || "", length: c.length || "", pack: c.pack || "", pack_qty: c.pack_qty || "", waste: c.waste || "",
+        width: c.width || "", length: c.length || "", pack: c.pack || "", color: c.color || "", ptype: c.kind || "", gsm: c.gsm || "", size: c.size || "", autoName: !item, min_n: item ? +((item.safety_stock || 0) / (c.pack_qty > 0 ? c.pack_qty : 1)).toFixed(2) || "" : "", pack_qty: c.pack_qty || "", waste: c.waste || "",
         qty: kind === "count" ? (item?.qty ?? "") : "", n: "", price: "", rate: "", supplier: "", order: "", note: "", bill: "", by: "pack", open_n: "", open_price: "",
         len: item && c.width > 0 ? +(item.qty / c.width).toFixed(2) : "", len0: item && c.width > 0 ? +(item.qty / c.width).toFixed(2) : "", packs: item && c.pack_qty > 0 ? Math.floor(item.qty / c.pack_qty) : "", loose: item && c.pack_qty > 0 ? +(item.qty % c.pack_qty).toFixed(3) : "" };
       if (kind === "issue") { try { orders.value = (await call("board2")).cards; } catch { orders.value = []; } }
     };
     const TITLES = { add: "مادة جديدة", edit: "تعديل المادة", buy: "شراء من مورد", issue: "صرف مادة", count: "جرد" };
     watch(() => sheet.value?.way, (w) => { const f = sheet.value; if (f && w === "count" && !COUNT_UNITS.includes(f.uom)) f.uom = "ورقة"; });
+    // paper: the name follows type, weight and size until the user writes their own
+    watch(() => sheet.value && [sheet.value.ptype, sheet.value.gsm, sheet.value.size, sheet.value.way], () => { const f = sheet.value;
+      if (!f || !f.autoName || f.way !== "count" || !(f.ptype || f.gsm || f.size)) return;
+      f.name = [f.ptype.trim(), n2(f.gsm) ? n2(f.gsm) + " غ" : "", f.size.trim()].filter(Boolean).join(" "); });
+    const kinds = computed(() => [...new Set([...PAPER_KINDS, ...(s.data?.items || []).map((i) => i.cfg?.kind).filter(Boolean)])]);
+    const sizes = computed(() => [...new Set([...PAPER_SIZES, ...(s.data?.items || []).map((i) => i.cfg?.size).filter(Boolean)])]);
+    // the alert threshold is typed in rolls / packs / bottles and kept in the stock unit
+    const unitPer = () => { const f = sheet.value; return f.way === "roll" ? rollArea.value || 1 : f.way === "count" && n2(f.pack_qty) > 0 ? n2(f.pack_qty) : 1; };
+    const minQty = () => +(n2(sheet.value.min_n) * unitPer()).toFixed(4);
+    const unitName = computed(() => { const f = sheet.value; if (!f) return ""; return f.way === "roll" ? "لفّة" : f.way === "bottle" ? "قارورة" : f.pack && n2(f.pack_qty) > 0 ? f.pack : f.uom; });
     const n2 = (v) => +String(v ?? "").replace(/[\s,]/g, "") || 0;
     // buying: by the roll, by the bottle, by the pack or by the unit; the stock always moves in the stock unit
     // what is bought / counted, in the material's own words: rolls and m², bottles, packs and sheets
@@ -3990,7 +4004,8 @@ const StockPage = {
       const f = sheet.value, code = f.item?.item_code, c = conv.value;
       busy.value = true; err.value = null;
       try {
-        const cfg = JSON.stringify({ width: n2(f.width), length: n2(f.length), pack: f.way === "roll" ? "لفّة" : f.pack, pack_qty: f.way === "roll" ? rollArea.value : n2(f.pack_qty), waste: n2(f.waste) });
+        const cfg = JSON.stringify({ width: n2(f.width), length: n2(f.length), pack: f.way === "roll" ? "لفّة" : f.pack, pack_qty: f.way === "roll" ? rollArea.value : n2(f.pack_qty), waste: n2(f.waste),
+          color: f.way === "bottle" ? f.color : "", kind: f.way === "count" ? f.ptype.trim() : "", gsm: f.way === "count" ? n2(f.gsm) : 0, size: f.way === "count" ? f.size.trim() : "" });
         if (f.kind === "add" || f.kind === "edit") {
           if (!f.name.trim()) throw new Error("اكتب اسم المادة");
           if (f.way === "roll" && !(rollArea.value > 0)) throw new Error("اكتب عرض اللفّة وطولها");
@@ -3999,10 +4014,10 @@ const StockPage = {
         if (f.kind === "add") {
           const o = opening.value;
           if (o.n > 0 && !(o.price > 0)) throw new Error("اكتب سعر الشراء للكمية الموجودة، حتى تُحسب تكلفة المخزون");
-          const newCode = await call("add_material", { name: f.name, uom: f.uom, min_qty: f.min_qty, family: f.way, packs: cfg }, true);
+          const newCode = await call("add_material", { name: f.name, uom: f.uom, min_qty: minQty(), family: f.way, packs: cfg }, true);
           if (o.n > 0) await call("stock_count", { item_code: newCode, qty: o.qty, rate: +(o.price / o.per).toFixed(6) }, true);
         }
-        if (f.kind === "edit") await call("update_material", { item_code: code, name: f.name, min_qty: f.min_qty, family: f.way, packs: cfg, uom: f.uom }, true);
+        if (f.kind === "edit") await call("update_material", { item_code: code, name: f.name, min_qty: minQty(), family: f.way, packs: cfg, uom: f.uom }, true);
         if (f.kind === "buy") { if (!(c.stockQty > 0)) throw new Error("اكتب العدد"); if (!(c.total > 0)) throw new Error("اكتب السعر");
           await call("stock_purchase", { item_code: code, qty: c.stockQty, rate: +c.stockRate.toFixed(6), supplier: f.supplier, bill_no: f.bill }, true); }
         if (f.kind === "issue") await call("stock_issue", { item_code: code, qty: n2(f.qty), sales_order: f.order, note: f.note }, true);
@@ -4015,7 +4030,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -4034,7 +4049,7 @@ const StockPage = {
       <div class="stk-grid" :class="{open: selItem}">
       <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>المادة</th><th>المتوفر</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n"><span class="sr-only">إجراء</span></th></tr></thead>
         <tbody><tr v-for="i in items" :key="i.item_code" :class="{low: i.low, sel: sel === i.item_code}" class="stk-row" tabindex="0" @click="pick(i)" @keydown.enter="pick(i)">
-          <td><b>{{ i.item_name }}<span class="stk-how">{{ STOCK_WAYS[wayOf(i)].label }}</span></b><span class="m stk-sub">{{ subOf(i) }}</span></td>
+          <td><b><i v-if="i.cfg && i.cfg.color" class="stk-ink" :style="{background: i.cfg.color}"></i>{{ i.item_name }}<span class="stk-how">{{ STOCK_WAYS[wayOf(i)].label }}</span></b><span class="m stk-sub">{{ subOf(i) }}</span></td>
           <td><div class="stk-lvl"><span class="stk-meter" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><b class="stk-qty" :class="{bad: i.low}">{{ num(i.qty) }} <small>{{ uom(i.uom) }}</small></b></div><span v-if="qtySub(i)" class="m stk-pk">{{ qtySub(i) }}</span></td>
           <td class="n"><span class="m">{{ i.safety_stock ? num(i.safety_stock) : '—' }}</span></td>
           <td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
@@ -4071,19 +4086,29 @@ const StockPage = {
     </div>
     <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><h2>{{ TITLES[sheet.kind] }}<template v-if="sheet.item"> · {{ sheet.item.item_name }}</template></h2></div>
       <div v-if="err" class="alert error">{{ err }}</div>
-      <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'"><div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" v-model="sheet.name" placeholder="مثلًا: Bâche 440g — 1.05 م"></div>
-        <div class="field"><label>كيف تُستهلك؟</label><span v-if="sheet.kind === 'edit' && sheet.item.has_moves" class="m hint">لهذه المادة حركات، فلا تتغير طريقتها.</span><div class="stk-ways"><button v-for="(w, k) in STOCK_WAYS" :key="k" type="button" class="stk-way" :aria-pressed="sheet.way === k" :disabled="sheet.kind === 'edit' && sheet.item.has_moves && sheet.way !== k" @click="sheet.way = k"><b>{{ w.label }}</b><span>{{ w.hint }}</span></button></div></div>
-        <template v-if="sheet.way === 'roll'"><div class="stk-row2"><div class="field"><label for="st-w">عرض اللفّة (م)</label><input id="st-w" class="input" inputmode="decimal" v-model="sheet.width"></div><div class="field"><label for="st-l">طول اللفّة (م)</label><input id="st-l" class="input" inputmode="decimal" v-model="sheet.length"></div></div>
-          <div v-if="rollArea" class="stk-calc">اللفّة = <b>{{ num(rollArea) }} م²</b> · المخزون يُحسب بالمتر المربع</div></template>
-        <template v-if="sheet.way === 'count'"><div class="stk-row2"><div class="field"><label for="st-u">يُعدّ بـ</label><select id="st-u" class="input" v-model="sheet.uom" :disabled="sheet.kind === 'edit' && sheet.item.has_moves"><option v-for="u in COUNT_UNITS" :key="u" :value="u">{{ u }}</option></select></div>
-          <div class="field"><label for="st-pk">يُشترى بـ (اختياري)</label><div class="stk-pair"><input id="st-pk" class="input" v-model="sheet.pack" placeholder="رزمة"><span class="m">=</span><input class="input" inputmode="decimal" v-model="sheet.pack_qty" :aria-label="'كم ' + sheet.uom" placeholder="500"></div></div></div></template>
-        <div class="stk-row2"><div class="field"><label for="st-min">الحد الأدنى ({{ sheet.way === 'roll' ? 'م²' : sheet.way === 'bottle' ? 'قارورة' : sheet.uom }})</label><input id="st-min" class="input" inputmode="decimal" v-model="sheet.min_qty"></div>
-          <div v-if="sheet.way === 'roll'" class="field"><label for="st-ws">تالف متوقع %</label><input id="st-ws" class="input" inputmode="decimal" v-model="sheet.waste" placeholder="5"></div></div>
-        <fieldset v-if="sheet.kind === 'add'" class="stk-open"><legend>الموجود الآن في الورشة <span class="m">(اختياري)</span></legend>
-          <div class="stk-row2"><div class="field"><label for="st-on">عدد {{ plural(opening.word) }}</label><input id="st-on" class="input" inputmode="decimal" v-model="sheet.open_n" placeholder="0"></div>
-            <div class="field"><label for="st-op">سعر شراء {{ opening.word === 'لفّة' ? 'اللفّة' : 'ال' + opening.word }} (دج)</label><input id="st-op" class="input" inputmode="decimal" v-model="sheet.open_price" :disabled="!opening.n"></div></div>
-          <div v-if="opening.n" class="stk-calc">يدخل المخزون <b>{{ num(opening.qty) }} {{ sheet.way === 'roll' ? 'م²' : sheet.way === 'bottle' ? 'قارورة' : sheet.uom }}</b><template v-if="opening.price"> بقيمة <b>{{ money(opening.n * opening.price) }}</b></template><span v-else class="bad"> — اكتب السعر</span></div>
-          <span v-else class="m hint">إن لم يكن عندك شيء منها الآن، اتركه فارغًا وسجّل الشراء حين تشتري.</span></fieldset></template>
+      <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'">
+        <div class="cal2-seg stk-wayseg" role="group" aria-label="نوع المادة"><button v-for="(w, k) in STOCK_WAYS" :key="k" type="button" :aria-pressed="sheet.way === k" :disabled="sheet.kind === 'edit' && sheet.item.has_moves && sheet.way !== k" @click="sheet.way = k">{{ k === 'roll' ? 'لفّة' : k === 'bottle' ? 'قارورة حبر' : 'ورق / قطع' }}</button></div>
+        <template v-if="sheet.way === 'count'"><div class="stk-row3"><div class="field"><label for="st-k">النوع</label><input id="st-k" class="input" list="stk-kinds" v-model="sheet.ptype" placeholder="كوشيه"></div>
+          <div class="field"><label for="st-g">الوزن غ</label><input id="st-g" class="input" inputmode="decimal" v-model="sheet.gsm" placeholder="135"></div>
+          <div class="field"><label for="st-sz">المقاس</label><input id="st-sz" class="input" list="stk-sizes" v-model="sheet.size" placeholder="A3"></div></div>
+          <datalist id="stk-kinds"><option v-for="k in kinds" :key="k" :value="k"></option></datalist><datalist id="stk-sizes"><option v-for="k in sizes" :key="k" :value="k"></option></datalist></template>
+        <div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" v-model="sheet.name" :placeholder="sheet.way === 'roll' ? 'Bâche 440g 1.05' : sheet.way === 'bottle' ? 'حبر Magenta' : 'كوشيه 135 غ A3'" @input="sheet.autoName = false"></div>
+        <div v-if="sheet.way === 'roll'" class="stk-line"><label class="stk-in"><span>العرض</span><input class="input" inputmode="decimal" v-model="sheet.width" aria-label="عرض اللفّة بالمتر"><em>م</em></label>
+          <span class="m">×</span><label class="stk-in"><span>الطول</span><input class="input" inputmode="decimal" v-model="sheet.length" aria-label="طول اللفّة بالمتر"><em>م</em></label>
+          <b v-if="rollArea" class="stk-eq">= {{ num(rollArea) }} م²</b></div>
+        <div v-if="sheet.way === 'bottle'" class="stk-colors" role="group" aria-label="اللون">
+          <button v-for="c in INK_COLORS" :key="c[1]" type="button" class="stk-sw" :style="{background: c[1]}" :title="c[0]" :aria-label="c[0]" :aria-pressed="(sheet.color || '').toLowerCase() === c[1].toLowerCase()" @click="sheet.color = c[1]; if (sheet.autoName || !sheet.name) { sheet.name = 'حبر ' + c[0]; sheet.autoName = true; }"></button>
+          <label class="stk-sw stk-custom" title="لون آخر"><input type="color" :value="sheet.color || '#888888'" aria-label="لون آخر" @input="sheet.color = $event.target.value">+</label></div>
+        <div v-if="sheet.way === 'count'" class="stk-line"><label class="stk-in"><span>يُعدّ بـ</span><select class="input" v-model="sheet.uom" :disabled="sheet.kind === 'edit' && sheet.item.has_moves" aria-label="يُعدّ بـ"><option v-for="u in COUNT_UNITS" :key="u" :value="u">{{ u }}</option></select></label>
+          <label class="stk-in"><span>ويُشترى بـ</span><input class="input stk-w6" v-model="sheet.pack" placeholder="رزمة" aria-label="وحدة الشراء"></label>
+          <label class="stk-in"><span>فيها</span><input class="input stk-w5" inputmode="decimal" v-model="sheet.pack_qty" placeholder="500" aria-label="كم في وحدة الشراء"><em>{{ sheet.uom }}</em></label></div>
+        <div class="stk-line"><label class="stk-in"><span>نبّهني إذا بقي أقل من</span><input class="input stk-w5" inputmode="decimal" v-model="sheet.min_n" placeholder="0" aria-label="الحد الأدنى"><em>{{ unitName }}</em></label>
+          <label v-if="sheet.way === 'roll'" class="stk-in"><span>تالف</span><input class="input stk-w4" inputmode="decimal" v-model="sheet.waste" placeholder="5" aria-label="نسبة التالف"><em>%</em></label></div>
+        <div v-if="sheet.kind === 'add'" class="stk-have"><span class="stk-have-t">عندي الآن</span>
+          <label class="stk-in"><input class="input stk-w5" inputmode="decimal" v-model="sheet.open_n" placeholder="0" aria-label="العدد الموجود"><em>{{ unitName }}</em></label>
+          <span class="m">×</span><label class="stk-in"><input class="input stk-w6" inputmode="decimal" v-model="sheet.open_price" placeholder="السعر" aria-label="سعر الواحدة"><em>دج</em></label>
+          <b v-if="opening.n && opening.price" class="stk-eq">= {{ money(opening.n * opening.price) }}</b></div>
+      </template>
       <template v-else-if="sheet.kind === 'buy'">
         <div v-if="wayOf(sheet.item) === 'roll' && !pack" class="alert warn stk-fix">لم يُحدَّد عرض اللفّة وطولها لهذه المادة. <button type="button" class="cl-link" @click="open('edit', sheet.item)">أكملها الآن</button> لتشتري باللفّة.</div>
         <div v-if="pack" class="cal2-seg stk-by" role="group" aria-label="الشراء بـ"><button type="button" :aria-pressed="sheet.by !== 'unit'" @click="sheet.by = 'pack'">ب{{ pack.name === 'لفّة' ? 'اللفّة' : 'ال' + pack.name }} ({{ num(pack.qty) }} {{ unitWord }})</button><button type="button" :aria-pressed="sheet.by === 'unit'" @click="sheet.by = 'unit'">ب{{ unitWord === 'م²' ? 'المتر المربع' : 'ال' + unitWord }}</button></div>
