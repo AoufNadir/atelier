@@ -430,7 +430,7 @@ def order_materials(order):
 			# the narrowest roll that takes the shorter side, else the widest
 			side = min(w, h) * (0.01 if scale[line.atelier_unit] < 1 else 1) if w and h else 0
 			fit = sorted((r for r in rolls.values() if r["width"] >= side), key=lambda r: r["width"]) or sorted(rolls.values(), key=lambda r: -r["width"])
-			pick = fit[0]
+			pick = rolls.get(line.get("atelier_material") or "") or fit[0]  # the roll chosen on the order, else the narrowest that fits
 			rows.append({"item_code": pick["item_code"], "item_name": pick["item_name"], "uom": "م²", "line": (line.description or line.item_name or "")[:80],
 				"size": line.get("atelier_size") or "", "area": round(area, 3), "waste": pick["waste"],
 				"need": round(area * (1 + pick["waste"] / 100), 3), "on_hand": pick["on_hand"],
@@ -444,8 +444,11 @@ def order_materials(order):
 			unit = line.get("atelier_unit") or {"Nos": "قطعة", "Feuille": "ورقة"}.get(line.uom, line.uom)
 			if unit not in counted or flt(line.qty) <= 0 or any(r["item_code"] in sheets for r in _recipe(line.item_code)):
 				continue
-			rows.append({"item_code": "", "item_name": "", "uom": "", "line": (line.description or line.item_name or "")[:80],
-				"size": line.get("atelier_size") or "", "base": flt(line.qty), "per": 1, "waste": 0, "need": flt(line.qty), "on_hand": 0, "ask": 1,
+			chosen, per = sheets.get(line.get("atelier_material") or ""), max(1, flt(line.get("atelier_per_sheet")) or 1)
+			need = math.ceil(round(flt(line.qty) / per * (1 + (chosen["waste"] if chosen else 0) / 100), 6)) if chosen else flt(line.qty)
+			rows.append({"item_code": chosen["item_code"] if chosen else "", "item_name": chosen["item_name"] if chosen else "", "uom": chosen["uom"] if chosen else "",
+				"line": (line.description or line.item_name or "")[:80], "size": line.get("atelier_size") or "", "base": flt(line.qty), "per": per,
+				"waste": chosen["waste"] if chosen else 0, "need": need, "on_hand": chosen["on_hand"] if chosen else 0, "ask": 1,
 				"choices": [{k: r[k] for k in ("item_code", "item_name", "on_hand", "waste", "uom")} for r in sheets.values()]})
 	for code, qty in needed.items():
 		item = frappe.db.get_value("Item", code, ["item_name", "stock_uom", "disabled"], as_dict=True)

@@ -88,6 +88,11 @@ def _order_lines(d):
 		line = {"item_code": code or _general_item(), "qty": flt(row.get("qty")) or 1, "description": text,
 			"rate": None if rate in (None, "") else flt(rate)}
 		line.update(_measure(row, line["qty"]))
+		if row.get("material"):  # optional: which stock material this line will use, and how many fit on a sheet
+			if not frappe.db.has_column("Sales Order Item", "atelier_material"):
+				line_fields()
+			line["atelier_material"] = row["material"] if frappe.db.exists("Item", {"name": row["material"], "is_stock_item": 1}) else None
+			line["atelier_per_sheet"] = max(1, flt(row.get("per")) or 1)
 		_allow_fraction(line)
 		lines.append(line)
 	return lines
@@ -112,6 +117,8 @@ LINE_FIELDS = [
 	{"fieldname": "atelier_pieces", "label": "القطع", "fieldtype": "Float", "insert_after": "atelier_length"},
 	{"fieldname": "atelier_size", "label": "المقاس", "fieldtype": "Data", "insert_after": "atelier_pieces"},
 	{"fieldname": "atelier_category", "label": "التصنيف", "fieldtype": "Data", "insert_after": "atelier_size"},
+	{"fieldname": "atelier_material", "label": "المادة", "fieldtype": "Data", "insert_after": "atelier_category"},
+	{"fieldname": "atelier_per_sheet", "label": "في كل ورقة", "fieldtype": "Float", "insert_after": "atelier_material"},
 ]
 LINE_KEYS = [f["fieldname"] for f in LINE_FIELDS]
 
@@ -779,7 +786,7 @@ def _card_lines(so):
 			"unit": i.get("atelier_unit") or {"Nos": "قطعة", "Feuille": "ورقة"}.get(i.uom, i.uom) or "", "width": flt(i.get("atelier_width")), "height": flt(i.get("atelier_height")),
 			"length": flt(i.get("atelier_length")), "pieces": flt(i.get("atelier_pieces")) or 1, "qty": flt(i.qty),
 			"rate": None if cint(i.get("atelier_price_pending")) else flt(i.rate), "amount": flt(i.amount),
-			"size": i.get("atelier_size"), "category": i.get("atelier_category")})
+			"size": i.get("atelier_size"), "category": i.get("atelier_category"), "material": i.get("atelier_material") or "", "per": flt(i.get("atelier_per_sheet")) or 1})
 	return out
 
 
@@ -795,7 +802,7 @@ def update_lines(name, lines):
 	rows = _order_lines({"lines": frappe.parse_json(lines) or []})
 	if not rows:
 		frappe.throw(_("أبقِ بندًا واحدًا على الأقل"))
-	numeric = {"atelier_width", "atelier_height", "atelier_length", "atelier_pieces"}
+	numeric = {"atelier_width", "atelier_height", "atelier_length", "atelier_pieces", "atelier_per_sheet"}
 	extra = lambda r: {k: (flt(r.get(k)) if k in numeric else r.get(k)) for k in LINE_KEYS}
 	if so.docstatus == 0:
 		so.set("items", [])

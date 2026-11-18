@@ -2889,3 +2889,10 @@ body.show-hints .hint { display: revert !important; font-size: 12px; color: #667
 .mt-need { border-color: #F79009; background: #FFFCF5; }
 .sh-foot .spacer { flex: 1; }
 .overlay .sheet:has(.mt-line) { width: min(640px, calc(100vw - 32px)); }
+/* optional material under an order line */
+.lb-matadd { font-size: 12px; margin-top: 4px; align-self: flex-start; }
+.lb-mat { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; background: #FAFAFF; border: 1px dashed #D9D2FB; border-radius: 8px; }
+.lb-mat .lb-c { min-width: 220px; } .lb-mat .lb-per { min-width: 90px; width: 100px; }
+.lb-mat .lb-c > span { color: #4F35D2; font-weight: 600; }
+.lb-matinfo { font-size: 12px; color: #475467; line-height: 1.6; padding-bottom: 6px; flex: 1; min-width: 220px; }
+.lb-matinfo b { color: #17202A; } .lb-matinfo b.ok { color: #067647; } .lb-matinfo b.bad { color: #B42318; }

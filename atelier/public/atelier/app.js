@@ -745,7 +745,11 @@ const lineSpec = (l) => { // a small proportional drawing of the piece
   if (c === "length" && +l.length > 0) return { kind: "length" };
   return { kind: "count" };
 };
-const newLine = () => ({ text: "", item_code: null, unit: (state.boot.units || [])[0]?.name || "قطعة", width: "", height: "", length: "", qty: 1, rate: "", auto: false, category: "", focus: false });
+const newLine = () => ({ text: "", item_code: null, unit: (state.boot.units || [])[0]?.name || "قطعة", width: "", height: "", length: "", qty: 1, rate: "", auto: false, category: "", focus: false, material: "", per: 1, matOpen: false });
+// stock materials for the optional «المادة» under a line, loaded once per page
+const matState = reactive({ list: null, loading: false });
+const loadMats = async () => { if (matState.list || matState.loading) return; matState.loading = true;
+  try { matState.list = (await call("stock")).items || []; } catch { matState.list = []; } finally { matState.loading = false; } };
 // Side panel: a new order (one short form) or an existing order card.
 const BoardPanel = {
   props: ["mode", "order", "preset", "columns", "statuses", "labels", "edit"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
@@ -803,6 +807,17 @@ const BoardPanel = {
     const unitOf = (l) => (state.boot.units || []).find((u) => u.name === l.unit) || { calc: "count" };
     const calcOf = (l) => unitOf(l).calc;
     const sym = (l) => (unitOf(l).scale === "cm" ? "سم" : "م");
+    // optional «المادة» under a line: rolls for m² lines, paper and pieces for counted lines
+    const matKind = (l) => (calcOf(l) === "area" ? "roll" : calcOf(l) === "count" && !/خدمة|ساعة/.test(l.unit) ? "sheet" : null);
+    const isRollMat = (i) => i.family === "roll" || (!i.family && /م²|m²/.test(i.uom || ""));
+    const matChoices = (l) => (matState.list || []).filter((i) => (matKind(l) === "roll" ? isRollMat(i) : !isRollMat(i) && i.family !== "bottle" && !/لتر|Litre|قارورة/.test(i.uom || "")));
+    const openMat = (l) => { l.matOpen = true; loadMats(); };
+    const matInfo = (l) => { const m = (matState.list || []).find((i) => i.item_code === l.material); if (!m) return null;
+      const waste = (m.cfg?.waste || 0) / 100, k = matKind(l);
+      const area = (+l.width || 0) * (+l.height || 0) * (+l.qty || 0) * (unitOf(l).scale === "cm" ? 0.0001 : 1);
+      const need = k === "roll" ? +(area * (1 + waste)).toFixed(2) : Math.ceil(((+l.qty || 0) / Math.max(1, +l.per || 1)) * (1 + waste));
+      const unitCost = m.qty > 0 ? m.value / m.qty : 0;
+      return { need, has: m.qty, ok: need <= m.qty, short: +(need - m.qty).toFixed(2), unit: uom(m.uom), cost: need * unitCost, waste: m.cfg?.waste || 0 }; };
     const measure = (l) => { const c = calcOf(l), q = +l.qty || 0;
       return c === "area" ? (+l.width || 0) * (+l.height || 0) * q : c === "length" ? (+l.length || 0) * q : q; };
     const nf = (v) => new Intl.NumberFormat("ar-DZ", { maximumFractionDigits: 2 }).format(v);
@@ -835,7 +850,7 @@ const BoardPanel = {
         const res = await call("quick_order", { data: JSON.stringify({
           customer: f.customer?.name || null, subject: f.subject.trim(), new_customer: f.customer ? {} : { name: newName.value, phone: f.phone, type: f.type },
           lines: filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty, rate: l.rate === "" ? null : +l.rate,
-            unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null })),
+            unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null, material: l.material || null, per: +l.per || 1 })),
           status: f.status, labels: f.labels, checklist: (f.checklist || []).map((c) => c.text), description: f.description || "", advance: +f.advance || 0, mode: f.mode, delivery_date: f.due, assignee: f.assignee, tags: f.tags, column: f.column,
         }) }, true);
         let coverUrl = "";
@@ -878,7 +893,7 @@ const BoardPanel = {
         members.value = [...(d.members || [])]; f.due_time = d.due_time || ""; f.description = plain(d.description || ""); f.checklist = (d.checklist || []).map((c) => ({ ...c }));
         f.lines = (d.lines.length ? d.lines : [{}]).map((l) => { const unit = l.unit || (state.boot.units || [])[0]?.name || "قطعة", count = unitOfName(unit).calc === "count";
           return { text: l.text || "", item_code: l.item_code && l.item_code !== "SRV-GENERAL" ? l.item_code : null, unit, width: l.width || "", height: l.height || "", length: l.length || "",
-            qty: count ? (l.qty || 1) : (l.pieces || 1), rate: l.rate === null || l.rate === undefined ? "" : l.rate, category: l.category || "", auto: false, focus: false }; });
+            qty: count ? (l.qty || 1) : (l.pieces || 1), rate: l.rate === null || l.rate === undefined ? "" : l.rate, category: l.category || "", auto: false, focus: false, material: l.material || "", per: l.per || 1, matOpen: !!l.material }; });
         await nextTick(); lastLines = linesPayload(); ready.value = true;
       } catch (e) { error.value = e.message; }
     });
@@ -900,7 +915,7 @@ const BoardPanel = {
     const sv = ref(""), svMsg = ref(""), ready = ref(false), timers = {};
     const later = (k, fn, ms) => { clearTimeout(timers[k]); timers[k] = setTimeout(fn, ms); };
     const linesPayload = () => JSON.stringify(filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty,
-      rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null })));
+      rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null, material: l.material || null, per: +l.per || 1 })));
     let lastLines = "";
     const run = async (fn) => { sv.value = "saving"; try { await fn(); sv.value = "saved"; svMsg.value = ""; state.rev++; } catch (e) { sv.value = "error"; svMsg.value = e.message; } };
     const saveMeta = () => run(() => call("update_card", { name: props.edit, changes: JSON.stringify({ title: f.subject.trim() || props.edit, status: f.status, labels: f.labels, members: members.value, description: f.description, checklist: f.checklist, due_time: f.due ? f.due_time || "" : "", due: f.due || null }) }, true));
@@ -989,7 +1004,7 @@ const BoardPanel = {
         changes.due = f.due || null;
         await call("update_card", { name: d.name, changes: JSON.stringify(changes) }, true);
         if (!locked.value) await call("update_lines", { name: d.name, lines: JSON.stringify(filled.value.map((l) => ({ text: l.text.trim(), item_code: l.item_code, qty: +l.qty,
-          rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null }))) }, true);
+          rate: l.rate === "" ? null : +l.rate, unit: l.unit, width: +l.width || 0, height: +l.height || 0, length: +l.length || 0, pieces: +l.qty, category: l.category || null, material: l.material || null, per: +l.per || 1 }))) }, true);
         if (f.column && f.column !== d.column) await call("move_card", { name: d.name, column: f.column }, true);
         toast("حُفظت التعديلات"); emit("saved", d.name);
       } catch (e) { error.value = e.message; } finally { saving.value = false; }
@@ -1014,7 +1029,7 @@ const BoardPanel = {
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
     const folderHint = () => setTimeout(() => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة على هذا الحاسوب — استعمل «نسخ المسار»"), 1500);
     return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, secOpen, isOpen, toggleSec, secHas, secLabel, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
-      sugg, pick, blurLine, calcOf, sym, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
+      sugg, pick, blurLine, calcOf, sym, num, matKind, matChoices, openMat, matInfo, matState, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
   template: `
@@ -1087,6 +1102,15 @@ const BoardPanel = {
                 </div>
                 <div v-if="!worker && (lineCalc(l) || (l.text.trim() && !l.item_code && state.boot.can.prices))" class="lb-calc"><span>{{ lineCalc(l) }}</span>
                   <button v-if="l.text.trim() && !l.item_code && state.boot.can.prices" type="button" class="cl-link od-tolist" @click="addToList(l)">+ إلى قائمة الأسعار</button></div>
+                <template v-if="!worker && !ro && l.text.trim() && matKind(l)">
+                  <button v-if="!l.matOpen && !l.material" type="button" class="cl-link lb-matadd" @click="openMat(l)">+ المادة</button>
+                  <div v-else class="lb-mat">
+                    <label class="lb-c"><span>المادة</span><select class="input lb-in" v-model="l.material" @focus="openMat(l)" aria-label="المادة"><option value="">{{ matState.list ? 'بلا مادة' : 'جارٍ التحميل…' }}</option><option v-for="m in matChoices(l)" :key="m.item_code" :value="m.item_code">{{ m.item_name }}</option></select></label>
+                    <label v-if="matKind(l) === 'sheet' && l.material" class="lb-c lb-per"><span>في كل ورقة</span><input class="input lb-in num" inputmode="numeric" v-model="l.per"></label>
+                    <span v-if="matInfo(l)" class="lb-matinfo">يُخصم <b>{{ num(matInfo(l).need) }} {{ matInfo(l).unit }}</b><template v-if="matInfo(l).waste"> (مع تالف {{ num(matInfo(l).waste) }}%)</template> · المتوفر {{ num(matInfo(l).has) }}
+                      <b :class="matInfo(l).ok ? 'ok' : 'bad'">· {{ matInfo(l).ok ? 'يكفي' : 'لا يكفي، ينقص ' + num(matInfo(l).short) }}</b><template v-if="matInfo(l).cost"> · التكلفة ≈ {{ money(matInfo(l).cost) }}</template></span>
+                    <button v-if="!l.material" type="button" class="cl-link" @click="l.matOpen = false">إخفاء</button></div>
+                </template>
               </div></fieldset>
             <div v-if="!ro" class="od-add"><button type="button" class="od-addb" @click="addLine"><Icon name="plus" :size="16"/>بند جديد</button><span class="spacer"></span>
               <template v-if="popular.length"><span class="m">الأكثر طلبًا:</span><button v-for="it in popular" :key="it.item_code" type="button" class="od-sug" @click="addFrom(it)">{{ it.item_name }}</button></template></div>
@@ -3718,7 +3742,7 @@ const SECTION_NAV = [
 async function offerMaterials(order) {
   try {
     const m = await call("order_materials", { order });
-    if (m.rows.length && !m.done) state.sheet = { type: "materials", order, title: m.title, rows: m.rows.map((r) => ({ ...r, qty: r.ask ? "" : +Math.min(r.need, r.on_hand).toFixed(3) })) };
+    if (m.rows.length && !m.done) state.sheet = { type: "materials", order, title: m.title, rows: m.rows.map((r) => ({ ...r, qty: r.ask && !r.item_code ? "" : +Math.min(r.need, r.on_hand).toFixed(3) })) };
   } catch { /* the delivery itself already succeeded */ }
 }
 // printed at a supplier: optional, what it cost, so the order's profit is real

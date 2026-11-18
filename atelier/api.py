@@ -654,7 +654,7 @@ def create_order(data):
 				**({"description": i["description"]} if i.get("description") else {}),
 				"rate": 0 if i.get("rate") in (None, "") else flt(i["rate"]),
 				"atelier_price_pending": 1 if i.get("rate") in (None, "") else 0,
-				**{k: i[k] for k in ("atelier_unit", "atelier_width", "atelier_height", "atelier_length", "atelier_pieces", "atelier_size", "atelier_category") if i.get(k) is not None},
+				**{k: i[k] for k in ("atelier_unit", "atelier_width", "atelier_height", "atelier_length", "atelier_pieces", "atelier_size", "atelier_category", "atelier_material", "atelier_per_sheet") if i.get(k) is not None},
 			}
 			for i in items
 		],
