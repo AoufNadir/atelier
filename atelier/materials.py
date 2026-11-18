@@ -82,6 +82,10 @@ def _packs(packs):
 
 
 def _has(field):
+	"""The unit fields come with migrate; create them on first use so a site that was not migrated yet never loses a setting."""
+	if not frappe.db.has_column("Item", field):
+		custom_fields()
+		frappe.clear_cache(doctype="Item")
 	return frappe.db.has_column("Item", field)
 
 

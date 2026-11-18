@@ -4015,7 +4015,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -4044,7 +4044,7 @@ const StockPage = {
             <button type="button" class="cl-btn sm" :aria-label="'إجراءات أخرى لـ ' + i.item_name" :aria-expanded="rowMenu === i.item_code" @click.stop="rowMenu = rowMenu === i.item_code ? null : i.item_code">▾</button>
             <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop>
               <button v-if="wayOf(i) === 'bottle' && s.data.can_buy" type="button" class="tm-pop-row" @click="rowMenu = null; open('buy', i)">شراء</button>
-              <button v-if="s.data.can_issue && wayOf(i) !== 'bottle'" type="button" class="tm-pop-row" :disabled="i.qty <= 0" @click="rowMenu = null; open('issue', i)">صرف يدوي</button>
+              <button v-if="s.data.can_issue && wayOf(i) !== 'bottle'" type="button" class="tm-pop-row" @click="rowMenu = null; i.qty > 0 ? open('issue', i) : toast('لا كمية في المخزون للصرف — سجّل شراءً أولًا', 'error')">صرف يدوي</button>
               <button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></div></div></td></tr>
           <tr v-if="!items.length"><td :colspan="s.data.can_value ? 5 : 4" class="muted" style="text-align:center;padding:24px">{{ onlyLow ? 'لا مواد تحت الحد الأدنى.' : s.data.items.length ? 'لا مواد تطابق.' : 'لا مواد بعد. أضف مادة ثم سجّل شراءً أو رصيدها بالجرد.' }}</td></tr></tbody></table></section>
       <aside v-if="selItem" class="mn-card stk-side">
