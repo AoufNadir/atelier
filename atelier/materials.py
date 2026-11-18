@@ -50,8 +50,39 @@ def _on_hand(item_code, store):
 	return flt(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": store}, "actual_qty"))
 
 
+FAMILIES = ("area", "length", "count", "volume", "weight")
+
+
+def _packs(packs):
+	"""Purchase units of a material: [{name, qty}] where qty is in the stock unit (a roll of 3.20 × 50 = 160 م²)."""
+	out, seen = [], set()
+	for p in frappe.parse_json(packs) or []:
+		n, q = (p.get("name") or "").strip()[:60], flt(p.get("qty"))
+		if n and q > 0 and n not in seen:
+			seen.add(n)
+			row = {"name": n, "qty": q}
+			if flt(p.get("width")) > 0 and flt(p.get("length")) > 0:
+				row.update({"width": flt(p["width"]), "length": flt(p["length"])})
+			out.append(row)
+	return out
+
+
+def _has(field):
+	return frappe.db.has_column("Item", field)
+
+
+def _set_units(item_code, family=None, packs=None):
+	vals = {}
+	if family is not None and _has("atelier_family"):
+		vals["atelier_family"] = family if family in FAMILIES else ""
+	if packs is not None and _has("atelier_packs"):
+		vals["atelier_packs"] = json.dumps(_packs(packs), ensure_ascii=False)
+	if vals:
+		frappe.db.set_value("Item", item_code, vals)
+
+
 @frappe.whitelist(methods=["POST"])
-def add_material(name, uom, min_qty=0):
+def add_material(name, uom, min_qty=0, family=None, packs=None):
 	_need("Item")
 	name = (name or "").strip()[:140]
 	if not name:
@@ -60,24 +91,27 @@ def add_material(name, uom, min_qty=0):
 		frappe.throw(_("يوجد بند بهذا الاسم"))
 	uom = (uom or "قطعة").strip()
 	if not frappe.db.exists("UOM", uom):
-		frappe.get_doc({"doctype": "UOM", "uom_name": uom}).insert(ignore_permissions=True)
+		frappe.get_doc({"doctype": "UOM", "uom_name": uom, "must_be_whole_number": 1 if family == "count" else 0}).insert(ignore_permissions=True)
 	if not frappe.db.exists("Item Group", GROUP):
 		root = frappe.db.get_value("Item Group", {"is_group": 1, "parent_item_group": ["in", ["", None]]})
 		frappe.get_doc({"doctype": "Item Group", "item_group_name": GROUP, "parent_item_group": root}).insert(ignore_permissions=True)
 	code = frappe.generate_hash(length=8).upper()
-	return frappe.get_doc({"doctype": "Item", "item_code": "MAT-" + code, "item_name": name, "item_group": GROUP, "stock_uom": uom,
+	item = frappe.get_doc({"doctype": "Item", "item_code": "MAT-" + code, "item_name": name, "item_group": GROUP, "stock_uom": uom,
 		"is_stock_item": 1, "is_sales_item": 0, "is_purchase_item": 1, "safety_stock": flt(min_qty),
 		"valuation_method": "Moving Average"}).insert(ignore_permissions=True).name
+	_set_units(item, family, packs)
+	return item
 
 
 @frappe.whitelist(methods=["POST"])
-def update_material(item_code, name, min_qty=0):
+def update_material(item_code, name, min_qty=0, family=None, packs=None):
 	_need("Item")
 	_material(item_code)
 	name = (name or "").strip()[:140]
 	if not name:
 		frappe.throw(_("اكتب اسم المادة"))
 	frappe.db.set_value("Item", item_code, {"item_name": name, "safety_stock": flt(min_qty)})
+	_set_units(item_code, family, packs)
 	return True
 
 
@@ -160,7 +194,9 @@ def custom_fields():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 	create_custom_fields({
-		"Item": [{"fieldname": "atelier_recipe", "label": "وصفة المواد", "fieldtype": "Long Text", "hidden": 1, "insert_after": "atelier_steps", "module": "Atelier"}],
+		"Item": [{"fieldname": "atelier_recipe", "label": "وصفة المواد", "fieldtype": "Long Text", "hidden": 1, "insert_after": "atelier_steps", "module": "Atelier"},
+			{"fieldname": "atelier_family", "label": "عائلة الوحدة", "fieldtype": "Data", "hidden": 1, "insert_after": "atelier_recipe", "module": "Atelier"},
+			{"fieldname": "atelier_packs", "label": "وحدات الشراء", "fieldtype": "Long Text", "hidden": 1, "insert_after": "atelier_family", "module": "Atelier"}],
 		"Sales Order": [{"fieldname": "atelier_materials_done", "label": "خُصمت المواد", "fieldtype": "Check", "read_only": 1, "insert_after": "atelier_due_time", "module": "Atelier"}],
 	})
 

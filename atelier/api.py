@@ -869,8 +869,16 @@ def stock():
 		if r.warehouse:
 			it["qty"] += flt(r.actual_qty); it["reserved"] += flt(r.reserved_qty); it["value"] += flt(r.stock_value)
 			it["warehouses"].append({"warehouse": r.warehouse, "qty": flt(r.actual_qty)})
+	extra = [f for f in ("atelier_family", "atelier_packs") if frappe.db.has_column("Item", f)]
+	units = {r.name: r for r in frappe.get_all("Item", filters={"name": ["in", list(items) or [""]]}, fields=["name", *extra])} if extra else {}
 	for it in items.values():
 		it["low"] = bool(it["safety_stock"]) and it["qty"] < it["safety_stock"]
+		u = units.get(it["item_code"]) or {}
+		it["family"] = u.get("atelier_family") or ""
+		try:
+			it["packs"] = json.loads(u.get("atelier_packs") or "[]")
+		except ValueError:
+			it["packs"] = []
 	moves = frappe.get_list(
 		"Stock Ledger Entry", filters={"is_cancelled": 0},
 		fields=["posting_date", "item_code", "warehouse", "actual_qty", "voucher_type", "voucher_no", "stock_value_difference"],

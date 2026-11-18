@@ -2747,3 +2747,13 @@ body.col-dragging, body.col-dragging * { cursor: grabbing !important; user-selec
 .cpg-share { position: fixed; inset: 0; background: rgba(16,24,40,.35); z-index: 60; display: flex; align-items: center; justify-content: center; }
 .cpg-sbox { background: #fff; border-radius: 12px; padding: 16px; width: 400px; max-width: calc(100vw - 32px); display: flex; flex-direction: column; gap: 10px; box-shadow: 0 20px 50px rgba(16,24,40,.25); }
 .cpg-sbox .od-path { height: 30px; }
+/* stock units */
+.stk-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stk-pack { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.stk-pack .input { height: 34px; min-width: 0; }
+.stk-pack .input:first-child { flex: 1; }
+.stk-n4 { width: 76px; flex: none; }
+.stk-calc { background: #F9FAFB; border: 1px solid #E4E7EC; border-radius: 8px; padding: 8px 10px; font-size: 13px; color: #475467; line-height: 1.8; margin-bottom: 10px; }
+.stk-calc b { color: #17202A; }
+.stk-qty small { font-weight: 400; font-size: 12px; }
+.stk-pk { display: block; font-size: 12px; text-align: left; }
