@@ -1020,7 +1020,9 @@ const BoardPanel = {
   <aside class="bd-panel" :aria-label="mode === 'new' ? 'طلب جديد' : 'الطلب'">
     <div v-if="mode === 'new'" class="overlay od-ov" @click.self="editing ? closeEdit() : $emit('close')">
     <form class="od" role="dialog" aria-modal="true" aria-labelledby="od-h" novalidate @submit.prevent="editing ? closeEdit() : save(false)" @keydown.ctrl.enter.prevent="editing ? closeEdit() : save(false)">
-      <header class="od-hd"><span class="od-ic"><Icon name="file" :size="22"/></span>
+      <header class="od-hd"><a v-if="ed && ed.cover" class="od-ic od-cov" :href="ed.cover" target="_blank" rel="noopener" title="عرض صورة الغلاف"><img :src="ed.cover" alt=""></a>
+        <span v-else-if="ed && ed.cover_color" class="od-ic od-cov" :style="{background: ed.cover_color}"><b>{{ (f.subject || ed.title || '?').trim().charAt(0).toUpperCase() }}</b></span>
+        <span v-else class="od-ic"><Icon name="file" :size="22"/></span>
         <div v-if="editing"><h2 id="od-h">{{ ed && ed.title ? ed.title : 'الطلب' }}</h2><span class="m">{{ ed ? ed.name : 'جارٍ التحميل…' }}</span></div>
         <template v-if="editing && ed">
           <span class="spacer"></span>

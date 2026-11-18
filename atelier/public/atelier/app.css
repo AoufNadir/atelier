@@ -2787,3 +2787,8 @@ body.col-dragging, body.col-dragging * { cursor: grabbing !important; user-selec
 .stk-bar .bd-chip { min-height: 28px; height: 28px; padding: 0 10px; font-size: 12px; color: #17202A; background: #fff; border: 1px solid #D0D5DD; white-space: nowrap; }
 .stk-bar .bd-chip[aria-pressed="true"] { background: #F1EEFF; border-color: #C4B8F3; color: #4F35D2; font-weight: 700; }
 .stk-bar .bd-chip.debt { color: #B42318; background: #FEF3F2; border-color: #FECDCA; }
+/* order window: cover thumbnail in the header */
+.od-ic.od-cov { width: 56px; height: 56px; padding: 0; overflow: hidden; border-radius: 12px; flex: none; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(16,24,40,.08); }
+.od-ic.od-cov img { width: 100%; height: 100%; object-fit: cover; display: block; }
+a.od-ic.od-cov { cursor: zoom-in; transition: transform .15s; } a.od-ic.od-cov:hover { transform: scale(1.04); }
+.od-ic.od-cov b { color: #fff; font-size: 22px; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
