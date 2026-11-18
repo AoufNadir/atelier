@@ -1050,17 +1050,17 @@ const BoardPanel = {
                 <span v-if="f.customer.mobile_no" class="m" dir="ltr">{{ f.customer.mobile_no }}</span></div>
               <button v-if="!editing" type="button" class="cl-link" @click="pickCust = true">تغيير العميل</button></div>
             <div v-else class="f"><label for="qo-customer">العميل</label><CustomerField v-model="f.customer" @input="onCustomerInput"/>
-              <div v-if="!f.customer && newName" class="bd-newc"><span class="m">سيُنشأ عميل جديد عند الحفظ</span><div class="bd-newc-row">
+              <div v-if="!f.customer && newName" class="bd-newc"><span class="m hint">سيُنشأ عميل جديد عند الحفظ</span><div class="bd-newc-row">
                 <input class="input" v-model="f.phone" inputmode="tel" dir="ltr" placeholder="الهاتف (اختياري)" aria-label="هاتف العميل الجديد">
                 <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div></div>
             <div v-if="credit && credit.note" class="sh-note warn">ملاحظة العميل: {{ credit.note }}</div>
             <div v-if="credit && credit.over" class="sc2-alert" role="alert">هذا العميل تجاوز سقف الدين: عليه {{ fig(credit.owes) }} من {{ fig(credit.limit) }} دج</div>
-            <div class="f"><label for="qo-subject">اسم المشروع <span class="m" style="display:inline;font-weight:400">— اختياري، يظهر على البطاقة والمجلد والـ Devis</span></label>
+            <div class="f"><label for="qo-subject">اسم المشروع</label><span class="hint">اختياري، يظهر على البطاقة والمجلد والـ Devis</span>
               <input id="qo-subject" class="input" v-model="f.subject" maxlength="120" placeholder="مثال: هوية مطعم الواحة"></div>
           </section>
 
           <section class="od-card">
-            <div class="od-ch"><Icon name="orders" :size="18"/><b>البنود</b><span class="m od-r">اكتب الوصف بحرية — تظهر اقتراحات من قائمة الأسعار</span></div>
+            <div class="od-ch"><Icon name="orders" :size="18"/><b>البنود</b><span class="m od-r hint">اكتب الوصف بحرية — تظهر اقتراحات من قائمة الأسعار</span></div>
             <div v-if="locked" class="alert warn od-lock">البنود مقفلة: صدر لهذا الطلب {{ ed.lines_locked.join('، ') }}. يمكنك تعديل الباقي.</div>
             <div v-if="tpls.length && !editing" class="od-tpls" role="group" aria-label="ابدأ من قالب"><span class="m">من قالب:</span>
               <span v-for="tp in tpls" :key="tp.id" class="od-tpl" :class="{on: tplOn === tp.id}"><button type="button" :aria-pressed="tplOn === tp.id" @click="useTpl(tp)">{{ tp.title }}<span class="m">{{ (tp.lines || []).length }} بند<template v-if="(tp.checklist || []).length"> · {{ tp.checklist.length }} مهام</template></span></button>
@@ -1100,7 +1100,7 @@ const BoardPanel = {
           <div class="od-secbar" role="group" aria-label="أقسام إضافية">
             <button v-for="k in (editing && ed && state.boot.can.finance ? ['desc', 'ck', 'files', 'cost'] : ['desc', 'ck', 'files'])" :key="k" type="button" class="od-sec" :class="{on: isOpen(k), has: secHas(k)}" :aria-pressed="isOpen(k)" @click="toggleSec(k)">
               <Icon :name="isOpen(k) ? 'down' : 'plus'" :size="13"/>{{ secLabel(k) }}</button></div>
-          <section v-if="isOpen('desc')" class="od-card"><div class="od-ch"><Icon name="file" :size="18"/><b>الوصف</b><button type="button" class="od-fold" aria-label="طي الوصف" title="طي (يبقى المحتوى)" @click="secOpen.desc = false"><Icon name="x" :size="14"/></button><span class="m od-r">يظهر في البون والعرض إن فُعّل في الإعدادات</span></div>
+          <section v-if="isOpen('desc')" class="od-card"><div class="od-ch"><Icon name="file" :size="18"/><b>الوصف</b><button type="button" class="od-fold" aria-label="طي الوصف" title="طي (يبقى المحتوى)" @click="secOpen.desc = false"><Icon name="x" :size="14"/></button><span class="m od-r hint">يظهر في البون والعرض إن فُعّل في الإعدادات</span></div>
             <div class="od-pad"><textarea class="input od-desc" v-model="f.description" rows="3" placeholder="المقاسات، الورق، الكمية، ملاحظات العميل…" aria-label="الوصف"></textarea></div></section>
 
           <section v-if="isOpen('ck')" class="od-card"><div class="od-ch"><Icon name="check" :size="18"/><b>قائمة المهام</b><button type="button" class="od-fold" aria-label="طي قائمة المهام" title="طي (يبقى المحتوى)" @click="secOpen.ck = false"><Icon name="x" :size="14"/></button><span v-if="f.checklist.length" class="m">{{ f.checklist.filter((c) => c.done).length }} / {{ f.checklist.length }}</span>
@@ -1120,7 +1120,7 @@ const BoardPanel = {
               <div v-if="!editing && queued.length" class="od-files"><span v-for="(q, i) in queued" :key="i" class="od-file" :class="{cover: f.coverIdx === i}"><span class="ellipsis">{{ q.name }}</span>
                   <span class="od-file-acts"><button v-if="isImg({file_name: q.name})" type="button" class="cl-link" @click="f.coverIdx = f.coverIdx === i ? -1 : i; f.cover_color = ''">{{ f.coverIdx === i ? '✓ الغلاف' : 'غلاف' }}</button>
                     <button type="button" class="cl-link bad" @click="queued.splice(i, 1); if (f.coverIdx === i) f.coverIdx = -1; else if (f.coverIdx > i) f.coverIdx--">إزالة</button></span></span>
-                <span class="m">تُرفع عند حفظ الطلب.</span></div>
+                <span class="m hint">تُرفع عند حفظ الطلب.</span></div>
               <div v-if="!editing" class="od-cover"><span class="m">لون الغلاف:</span><button v-for="c in COVER_COLORS" :key="c" type="button" class="bs-sw" :style="{background: c}" :aria-pressed="f.coverIdx < 0 && f.cover_color === c" :aria-label="'لون ' + c" @click="f.cover_color = f.cover_color === c ? '' : c; f.coverIdx = -1"></button>
                 <button v-if="f.cover_color || f.coverIdx >= 0" type="button" class="cl-link" @click="f.cover_color = ''; f.coverIdx = -1">بلا غلاف</button></div>
               <div v-if="editing && files.length" class="od-files">
@@ -1130,7 +1130,7 @@ const BoardPanel = {
                   <span class="od-file-acts"><button v-if="isImg(x)" type="button" class="cl-link" @click="cardSet(ed.cover === x.file_url ? {cover: ''} : {cover: x.file_url})">{{ ed.cover === x.file_url ? 'إزالة الغلاف' : 'غلاف' }}</button>
                     <button type="button" class="cl-link" @click="cardSet({final: ed.final === x.file_url ? '' : x.file_url})">{{ ed.final === x.file_url ? '✓ نهائي' : 'نهائي' }}</button>
                     <button type="button" class="cl-link bad" @click="delFile(x)">حذف</button></span></div></div>
-              <span v-if="(editing ? !files.length : !queued.length)" class="m">لا مرفقات. أضف الشعار أو ملف التصميم أو صورة من الهاتف.</span>
+              <span v-if="(editing ? !files.length : !queued.length)" class="m">لا مرفقات.<span class="hint"> أضف الشعار أو ملف التصميم أو صورة من الهاتف.</span></span>
               <div v-if="editing && ed" class="od-meta"><div class="od-cover"><span class="od-k">الغلاف</span><button v-for="c in COVER_COLORS" :key="c" type="button" class="bs-sw" :style="{background: c}" :aria-pressed="!ed.cover && ed.cover_color === c" :aria-label="'لون ' + c" @click="cardSet({cover: '', cover_color: c})"></button>
                 <button type="button" class="bs-sw none" :aria-pressed="!ed.cover && !ed.cover_color" title="بلا غلاف" aria-label="بلا غلاف" @click="cardSet({cover: '', cover_color: ''})"></button></div>
               <div v-if="ed.folder" class="od-folder"><span class="od-k">المجلد</span><div class="od-path"><code dir="ltr" :title="ed.folder">{{ ed.folder }}</code><button type="button" class="od-pbtn" title="نسخ المسار" @click="copyPath">نسخ</button><a class="od-pbtn pri" :href="folderLink(ed.folder)" title="يفتح المجلد في مستكشف Windows" @click="folderHint">فتح المجلد</a></div></div></div></div></section>
@@ -1158,7 +1158,7 @@ const BoardPanel = {
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('devis')"><Icon name="file" :size="15"/>Devis — عرض سعر</button>
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('proforma')"><Icon name="file" :size="15"/>Pro forma</button>
               <a class="tm-pop-row" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', ed.name, 'الورشة — عربي')" @click="hdPop = null"><Icon name="printer" :size="15"/>بون الطلب</a>
-              <span v-if="unpriced > 0" class="m tm3-hint">سعّر كل البنود لإصدار Devis أو Pro forma.</span></div></span>
+              <span v-if="unpriced > 0" class="m tm3-hint hint">سعّر كل البنود لإصدار Devis أو Pro forma.</span></div></span>
             <button v-if="ed.materials_pending" type="button" class="cl-btn sm" @click="materials">خصم مواد الطلب من المخزون</button></div></section>
 
           <section v-else class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>تسبيق</b></div><div class="od-pad">
@@ -1192,7 +1192,7 @@ const BoardPanel = {
         <div class="od-big"><span>الباقي</span><b :class="{bad: remain > 0.005}">{{ money(Math.max(0, remain)) }}</b></div></template>
         <div v-if="error" class="alert error od-err" role="alert">{{ error }}</div>
         <span class="spacer"></span>
-        <span v-if="!editing" class="od-kbd"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> حفظ · <kbd>Esc</kbd> إغلاق</span><span v-else class="od-kbd">كل تعديل يُحفظ مباشرة</span>
+        <span v-if="!editing" class="od-kbd"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> حفظ · <kbd>Esc</kbd> إغلاق</span><span v-else class="od-kbd hint">كل تعديل يُحفظ مباشرة</span>
         <button v-if="editing" type="button" class="cl-btn primary od-btn" @click="closeEdit">إغلاق</button>
         <button v-else type="button" class="cl-btn od-btn" @click="cancelNew">إلغاء</button>
         <button v-if="!editing" type="button" class="cl-btn od-btn" :disabled="saving" @click="save(true)">حفظ وفتح البطاقة</button>
@@ -1237,7 +1237,7 @@ const StatusMenu = {
     const flip = (id) => emit("pick", has(id) ? props.current.filter((x) => x !== id) : [...(props.current || []), id]);
     return { has, flip, inkOn, go, state };
   },
-  template: `<div class="st-menu"><b>الحالات <span class="m" style="display:inline;font-weight:400">— اختر واحدة أو أكثر</span></b>
+  template: `<div class="st-menu"><b>الحالات <span class="m hint" style="font-weight:400">— اختر واحدة أو أكثر</span></b>
     <label v-for="x in statuses" :key="x.id" class="tm-pop-row st-row"><input type="checkbox" :checked="has(x.id)" @change="flip(x.id)">
       <span class="st-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span></label>
     <button v-if="(current || []).length" type="button" class="tm-pop-row" @click="$emit('pick', [])"><i class="st-sw st-none"></i><span style="flex:1">إزالة كل الحالات</span></button>
@@ -1375,19 +1375,25 @@ window.addEventListener("keydown", (e) => {
   const i = SCALES.findIndex((x) => x[0] === sizeState.zoom), next = SCALES[Math.min(SCALES.length - 1, Math.max(0, (i < 0 ? 1 : i) + step))][0];
   if (next !== sizeState.zoom) setScale(next, true);
 });
+// learning mode: long explanations are marked class="hint" and shown only when the user turns them on
+const hintState = reactive({ on: (() => { try { return localStorage.getItem("atelier.hints") === "1"; } catch { return false; } })() });
+const applyHints = () => document.body.classList.toggle("show-hints", hintState.on);
+const setHints = (on) => { hintState.on = on; try { localStorage.setItem("atelier.hints", on ? "1" : "0"); } catch { /* private */ } applyHints(); };
+applyHints();
 const SizeControl = {
   props: ["cls"],
   setup() {
     const open = ref(false);
     const close = () => (open.value = false);
     onMounted(() => document.addEventListener("click", close)); onBeforeUnmount(() => document.removeEventListener("click", close));
-    return { open, sizeState, SCALES, pick: (z) => setScale(z) };
+    return { open, sizeState, SCALES, pick: (z) => setScale(z), hintState, setHints };
   },
   template: `
   <div class="sz-host"><button type="button" :class="cls || 'cl-btn icon'" class="sz-btn" aria-label="حجم العرض" title="حجم العرض" :aria-expanded="open" @click.stop="open = !open">Aa</button>
     <div v-if="open" class="sz-pop" role="group" aria-label="حجم العرض" @click.stop><b>حجم العرض</b>
       <div class="who-seg"><button v-for="x in SCALES" :key="x[0]" type="button" dir="ltr" :aria-pressed="sizeState.zoom === x[0]" @click="pick(x[0])">{{ x[1] }}</button></div>
-      <span class="m">خاص بك ويبقى معك على أي حاسوب.</span><span class="m">من أي مكان: <bdi dir="ltr">Alt +</bdi> للتكبير، <bdi dir="ltr">Alt −</bdi> للتصغير.</span></div></div>`,
+      <span class="m">خاص بك ويبقى معك على أي حاسوب.</span><span class="m">من أي مكان: <bdi dir="ltr">Alt +</bdi> للتكبير، <bdi dir="ltr">Alt −</bdi> للتصغير.</span>
+      <label class="sz-hints"><input type="checkbox" :checked="hintState.on" @change="setHints($event.target.checked)">إظهار الشروح<span class="m">للمستخدم الجديد: شرح تحت الحقول</span></label></div></div>`,
 };
 
 const Board = {
