@@ -4102,21 +4102,25 @@ const StockPage = {
           <div class="field"><label for="st-sz">المقاس</label><input id="st-sz" class="input" list="stk-sizes" v-model="sheet.size" placeholder="A3"></div></div>
           <datalist id="stk-kinds"><option v-for="k in kinds" :key="k" :value="k"></option></datalist><datalist id="stk-sizes"><option v-for="k in sizes" :key="k" :value="k"></option></datalist></template>
         <div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" v-model="sheet.name" :placeholder="sheet.way === 'roll' ? 'Bâche 440g 1.05' : sheet.way === 'bottle' ? 'حبر Magenta' : 'كوشيه 135 غ A3'" @input="sheet.autoName = false"></div>
-        <div v-if="sheet.way === 'roll'" class="stk-line"><label class="stk-in"><span>العرض</span><input class="input" inputmode="decimal" v-model="sheet.width" aria-label="عرض اللفّة بالمتر"><em>م</em></label>
-          <span class="m">×</span><label class="stk-in"><span>الطول</span><input class="input" inputmode="decimal" v-model="sheet.length" aria-label="طول اللفّة بالمتر"><em>م</em></label>
-          <b v-if="rollArea" class="stk-eq">= {{ num(rollArea) }} م²</b></div>
-        <div v-if="sheet.way === 'bottle'" class="stk-colors" role="group" aria-label="اللون">
+        <div v-if="sheet.way === 'roll'" class="stk-g3">
+          <div class="field"><label for="st-w">العرض</label><div class="stk-suf"><input id="st-w" class="input" inputmode="decimal" v-model="sheet.width"><em>م</em></div></div>
+          <div class="field"><label for="st-l">الطول</label><div class="stk-suf"><input id="st-l" class="input" inputmode="decimal" v-model="sheet.length"><em>م</em></div></div>
+          <div class="field"><label>المساحة</label><div class="stk-ro">{{ rollArea ? num(rollArea) + ' م²' : '—' }}</div></div></div>
+        <div v-if="sheet.way === 'bottle'" class="field"><label>اللون</label><div class="stk-colors" role="group" aria-label="اللون">
           <button v-for="c in INK_COLORS" :key="c[1]" type="button" class="stk-sw" :style="{background: c[1]}" :title="c[0]" :aria-label="c[0]" :aria-pressed="(sheet.color || '').toLowerCase() === c[1].toLowerCase()" @click="sheet.color = c[1]; if (sheet.autoName || !sheet.name) { sheet.name = 'حبر ' + c[0]; sheet.autoName = true; }"></button>
-          <label class="stk-sw stk-custom" title="لون آخر"><input type="color" :value="sheet.color || '#888888'" aria-label="لون آخر" @input="sheet.color = $event.target.value">+</label></div>
-        <div v-if="sheet.way === 'count'" class="stk-line"><label class="stk-in"><span>يُعدّ بـ</span><select class="input" v-model="sheet.uom" :disabled="sheet.kind === 'edit' && sheet.item.has_moves" aria-label="يُعدّ بـ"><option v-for="u in COUNT_UNITS" :key="u" :value="u">{{ u }}</option></select></label>
-          <label class="stk-in"><span>ويُشترى بـ</span><input class="input stk-w6" v-model="sheet.pack" placeholder="رزمة" aria-label="وحدة الشراء"></label>
-          <label class="stk-in"><span>فيها</span><input class="input stk-w5" inputmode="decimal" v-model="sheet.pack_qty" placeholder="500" aria-label="كم في وحدة الشراء"><em>{{ sheet.uom }}</em></label></div>
-        <div class="stk-line"><label class="stk-in"><span>نبّهني إذا بقي أقل من</span><input class="input stk-w5" inputmode="decimal" v-model="sheet.min_n" placeholder="0" aria-label="الحد الأدنى"><em>{{ unitName }}</em></label>
-          <label v-if="sheet.way === 'roll'" class="stk-in"><span>تالف</span><input class="input stk-w4" inputmode="decimal" v-model="sheet.waste" placeholder="5" aria-label="نسبة التالف"><em>%</em></label></div>
-        <div v-if="sheet.kind === 'add'" class="stk-have"><span class="stk-have-t">عندي الآن</span>
-          <label class="stk-in"><input class="input stk-w5" inputmode="decimal" v-model="sheet.open_n" placeholder="0" aria-label="العدد الموجود"><em>{{ unitName }}</em></label>
-          <span class="m">×</span><label class="stk-in"><input class="input stk-w6" inputmode="decimal" v-model="sheet.open_price" placeholder="السعر" aria-label="سعر الواحدة"><em>دج</em></label>
-          <b v-if="opening.n && opening.price" class="stk-eq">= {{ money(opening.n * opening.price) }}</b></div>
+          <label class="stk-sw stk-custom" title="لون آخر"><input type="color" :value="sheet.color || '#888888'" aria-label="لون آخر" @input="sheet.color = $event.target.value">+</label></div></div>
+        <div v-if="sheet.way === 'count'" class="stk-g3">
+          <div class="field"><label for="st-u">يُعدّ بـ</label><select id="st-u" class="input" v-model="sheet.uom" :disabled="sheet.kind === 'edit' && sheet.item.has_moves"><option v-for="u in COUNT_UNITS" :key="u" :value="u">{{ u }}</option></select></div>
+          <div class="field"><label for="st-pk">يُشترى بـ</label><input id="st-pk" class="input" v-model="sheet.pack" placeholder="رزمة"></div>
+          <div class="field"><label for="st-pq">فيها</label><div class="stk-suf"><input id="st-pq" class="input" inputmode="decimal" v-model="sheet.pack_qty" placeholder="500"><em>{{ sheet.uom }}</em></div></div></div>
+        <div class="stk-g3">
+          <div class="field stk-span2"><label for="st-mn">نبّهني إذا بقي أقل من</label><div class="stk-suf"><input id="st-mn" class="input" inputmode="decimal" v-model="sheet.min_n" placeholder="0"><em>{{ unitName }}</em></div></div>
+          <div v-if="sheet.way === 'roll'" class="field"><label for="st-ws">التالف</label><div class="stk-suf"><input id="st-ws" class="input" inputmode="decimal" v-model="sheet.waste" placeholder="5"><em>%</em></div></div></div>
+        <div v-if="sheet.kind === 'add'" class="stk-have"><b class="stk-have-t">عندي الآن <span class="m">(اختياري)</span></b>
+          <div class="stk-g3">
+            <div class="field"><label for="st-on">العدد</label><div class="stk-suf"><input id="st-on" class="input" inputmode="decimal" v-model="sheet.open_n" placeholder="0"><em>{{ unitName }}</em></div></div>
+            <div class="field"><label for="st-op">سعر ال{{ unitName }}</label><div class="stk-suf"><input id="st-op" class="input" inputmode="decimal" v-model="sheet.open_price" :disabled="!opening.n"><em>دج</em></div></div>
+            <div class="field"><label>القيمة</label><div class="stk-ro">{{ opening.n && opening.price ? money(opening.n * opening.price) : '—' }}</div></div></div></div>
       </template>
       <template v-else-if="sheet.kind === 'buy'">
         <div v-if="wayOf(sheet.item) === 'roll' && !pack" class="alert warn stk-fix">لم يُحدَّد عرض اللفّة وطولها لهذه المادة. <button type="button" class="cl-link" @click="open('edit', sheet.item)">أكملها الآن</button> لتشتري باللفّة.</div>
