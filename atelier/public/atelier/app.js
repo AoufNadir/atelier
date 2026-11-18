@@ -3938,6 +3938,8 @@ const StockPage = {
     const wayCount = (k) => (s.data?.items || []).filter((i) => wayOf(i) === k).length;
     const pick = async (i) => { sel.value = i.item_code; ledger.value = null; try { ledger.value = await call("material_ledger", { item_code: i.item_code }); } catch (e) { ledger.value = { error: e.message }; } };
     const selItem = computed(() => (s.data?.items || []).find((i) => i.item_code === sel.value) || null);
+    // like the customer page: the side always shows one material (the first until another is picked)
+    watch(() => s.data, (d) => { if (d?.items?.length && !d.items.some((i) => i.item_code === sel.value)) pick(d.items[0]); });
     const subOf = (i) => { const c = i.cfg || {}, w = wayOf(i);
       if (w === "roll") return c.width > 0 && c.length > 0 ? `لفّة ${num(c.width)} × ${num(c.length)} م = ${num(+(c.width * c.length).toFixed(2))} م²` : "تُحسب بالمتر المربع";
       if (w === "bottle") return (INK_COLORS.find((x) => x[1].toLowerCase() === (c.color || "").toLowerCase()) || [""])[0] || "قارورة";
@@ -4072,7 +4074,7 @@ const StockPage = {
               <button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></div></div></td></tr>
           <tr v-if="!items.length"><td :colspan="s.data.can_value ? 5 : 4" class="muted" style="text-align:center;padding:24px">{{ onlyLow ? 'لا مواد تحت الحد الأدنى.' : s.data.items.length ? 'لا مواد تطابق.' : 'لا مواد بعد. أضف مادة ثم سجّل شراءً أو رصيدها بالجرد.' }}</td></tr></tbody></table></section>
       <aside v-if="selItem" class="mn-card stk-side">
-        <div class="stk-sh"><b>{{ selItem.item_name }}</b><button type="button" class="cl-btn icon sm" aria-label="إغلاق" @click="sel = null">×</button></div>
+        <div class="stk-sh"><b>{{ selItem.item_name }}</b><span class="stk-how">{{ STOCK_WAYS[wayOf(selItem)].label }}</span></div>
         <span v-if="ledger && ledger.last_buy" class="m stk-small">آخر شراء {{ date(ledger.last_buy.posting_date) }} · {{ money(ledger.last_buy.rate) }} لكل {{ uom(selItem.uom) }} · {{ ledger.last_buy.supplier_name }}</span>
         <div class="stk-facts"><div><span>المتوفر</span><b>{{ num(selItem.qty) }} {{ uom(selItem.uom) }}</b></div>
           <div><span>يكفي لـ</span><b>{{ ledger && ledger.daily > 0 ? '≈ ' + Math.floor(selItem.qty / ledger.daily) + ' يومًا' : '—' }}</b></div>
