@@ -3718,7 +3718,7 @@ const SECTION_NAV = [
 async function offerMaterials(order) {
   try {
     const m = await call("order_materials", { order });
-    if (m.rows.length && !m.done) state.sheet = { type: "materials", order, title: m.title, column: m.column, rows: m.rows.map((r) => ({ ...r, qty: +Math.min(r.need, r.on_hand).toFixed(3) })) };
+    if (m.rows.length && !m.done) state.sheet = { type: "materials", order, title: m.title, rows: m.rows.map((r) => ({ ...r, qty: r.ask ? "" : +Math.min(r.need, r.on_hand).toFixed(3) })) };
   } catch { /* the delivery itself already succeeded */ }
 }
 // printed at a supplier: optional, what it cost, so the order's profit is real
@@ -3748,27 +3748,34 @@ const MaterialsSheet = {
     const busy = ref(false), err = ref(null), rows = ref(props.opts.rows);
     const close = () => (state.sheet = null);
     const short = (r) => r.need > r.on_hand;
-    const choose = (r, code) => { const c = (r.choices || []).find((x) => x.item_code === code); if (!c) return;
-      Object.assign(r, { item_code: c.item_code, item_name: c.item_name, on_hand: c.on_hand, waste: c.waste, need: +(r.area * (1 + (c.waste || 0) / 100)).toFixed(3) }); r.qty = +Math.min(r.need, r.on_hand).toFixed(3); };
+    // the quantity follows the line: area + waste for rolls; for paper, pieces ÷ how many fit on a sheet, + waste
+    const needOf = (r) => (r.area ? +(r.area * (1 + (r.waste || 0) / 100)).toFixed(3) : Math.ceil((r.base / Math.max(1, +r.per || 1)) * (1 + (r.waste || 0) / 100)));
+    const choose = (r, code) => { const c = (r.choices || []).find((x) => x.item_code === code);
+      if (!c) { Object.assign(r, { item_code: "", item_name: "", qty: "" }); return; }
+      Object.assign(r, { item_code: c.item_code, item_name: c.item_name, on_hand: c.on_hand, waste: c.waste, uom: c.uom || r.uom }); r.need = needOf(r); r.qty = r.need; };
+    const setPer = (r, v) => { r.per = v; if (r.item_code) { r.need = needOf(r); r.qty = r.need; } };
+    const ready = computed(() => rows.value.some((r) => r.item_code && +r.qty > 0));
+    const skip = async () => { busy.value = true; try { await call("skip_materials", { order: props.opts.order }, true); toast("لن يُسأل عن مواد هذا الطلب"); close(); } catch (e) { err.value = e.message; } finally { busy.value = false; } };
     const left = (r) => +(r.on_hand - (+r.qty || 0)).toFixed(3);
     const submit = async () => {
       busy.value = true; err.value = null;
       try { await call("issue_order_materials", { order: props.opts.order, rows: JSON.stringify(rows.value) }, true); toast("خُصمت المواد من المخزون"); state.rev++; close(); }
       catch (e) { err.value = e.message; } finally { busy.value = false; }
     };
-    return { rows, busy, err, close, short, submit, uom, choose, left, num, opts: props.opts };
+    return { rows, busy, err, close, short, submit, uom, choose, left, num, setPer, ready, skip, opts: props.opts };
   },
   template: `
   <div class="overlay" @click.self="close"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><div><h2>مواد هذا الطلب</h2><span class="muted">راجع الكميات الفعلية قبل الخصم</span></div></div>
     <div v-if="err" class="alert error">{{ err }}</div>
-    <p v-if="opts.title" class="muted" style="margin:0 0 6px">«{{ opts.title }}»{{ opts.column ? ' انتقل إلى «' + opts.column + '»' : '' }}. هذه المواد المقترحة للخصم:</p>
+    <p v-if="opts.title" class="muted" style="margin:0 0 6px">«{{ opts.title }}» — راجع المواد المقترحة ثم اخصم. ما لم تختر له مادة لا يُخصم.</p>
     <div v-for="(r, k) in rows" :key="k" class="mt-line">
-      <div class="mt-what"><b>{{ r.line || r.item_name }}</b><span class="muted">{{ r.area ? (r.size ? r.size + ' · ' : '') + num(r.area) + ' م²' + (r.waste ? ' + تالف ' + num(r.waste) + '%' : '') : 'من وصفة الخدمة' }}</span></div>
-      <select v-if="r.choices && r.choices.length > 1" class="input" :value="r.item_code" aria-label="المادة" @change="choose(r, $event.target.value)"><option v-for="c in r.choices" :key="c.item_code" :value="c.item_code">{{ c.item_name }} — {{ num(c.on_hand) }}</option></select>
+      <div class="mt-what"><b>{{ r.line || r.item_name }}</b><span class="muted">{{ r.area ? (r.size ? r.size + ' · ' : '') + num(r.area) + ' م²' + (r.waste ? ' + تالف ' + num(r.waste) + '%' : '') : r.ask ? num(r.base) + ' قطعة' + (+r.per > 1 ? ' ÷ ' + r.per + ' في الورقة' : '') : 'من وصفة الخدمة' }}</span>
+        <label v-if="r.ask && r.item_code" class="mt-per">في كل ورقة <input class="input" inputmode="numeric" :value="r.per" aria-label="كم قطعة في الورقة" @input="setPer(r, $event.target.value)"></label></div>
+      <select v-if="r.choices && (r.choices.length > 1 || r.ask)" class="input" :class="{'mt-need': r.ask && !r.item_code}" :value="r.item_code" aria-label="المادة" @change="choose(r, $event.target.value)"><option v-if="r.ask" value="">{{ r.item_code ? 'بلا خصم' : 'اختر الورق…' }}</option><option v-for="c in r.choices" :key="c.item_code" :value="c.item_code">{{ c.item_name }} — {{ num(c.on_hand) }}</option></select>
       <span v-else class="mt-mat">{{ r.item_name }}</span>
       <label class="mt-q"><input class="input num" inputmode="decimal" v-model="r.qty" :aria-label="'كمية ' + r.item_name"><span>{{ uom(r.uom) }}</span></label>
-      <span class="muted mt-left" :class="{'bd-late': short(r) || left(r) < 0}">{{ left(r) < 0 ? 'لا يكفي — المتوفر ' + num(r.on_hand) : 'يبقى ' + num(left(r)) }}</span></div>
-    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">تخطٍّ</button><button type="submit" class="cl-btn primary" :disabled="busy">خصم المواد</button></div>
+      <span v-if="r.item_code" class="muted mt-left" :class="{'bd-late': short(r) || left(r) < 0}">{{ left(r) < 0 ? 'لا يكفي — المتوفر ' + num(r.on_hand) : 'يبقى ' + num(left(r)) }}</span></div>
+    <div class="sh-foot"><button type="button" class="cl-btn ghost" :disabled="busy" @click="skip">لم يُستهلك من المخزون</button><span class="spacer"></span><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy || !ready">خصم المواد</button></div>
   </form></div>`,
 };
 const RecipesCard = {

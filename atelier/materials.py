@@ -435,6 +435,18 @@ def order_materials(order):
 				"size": line.get("atelier_size") or "", "area": round(area, 3), "waste": pick["waste"],
 				"need": round(area * (1 + pick["waste"] / 100), 3), "on_hand": pick["on_hand"],
 				"choices": [{k: r[k] for k in ("item_code", "item_name", "on_hand", "waste")} for r in sorted(rolls.values(), key=lambda r: r["width"])]})
+	# lines counted by the sheet / piece and printed here: ask which paper (the user picks; nothing is guessed)
+	sheets = {} if _outsourced(so.name) else _sheets(store)
+	if sheets:
+		from atelier.simple import units
+		counted = {u["name"] for u in units() if u["calc"] == "count"} - {"خدمة", "ساعة"}
+		for line in so.items:
+			unit = line.get("atelier_unit") or {"Nos": "قطعة", "Feuille": "ورقة"}.get(line.uom, line.uom)
+			if unit not in counted or flt(line.qty) <= 0 or any(r["item_code"] in sheets for r in _recipe(line.item_code)):
+				continue
+			rows.append({"item_code": "", "item_name": "", "uom": "", "line": (line.description or line.item_name or "")[:80],
+				"size": line.get("atelier_size") or "", "base": flt(line.qty), "per": 1, "waste": 0, "need": flt(line.qty), "on_hand": 0, "ask": 1,
+				"choices": [{k: r[k] for k in ("item_code", "item_name", "on_hand", "waste", "uom")} for r in sheets.values()]})
 	for code, qty in needed.items():
 		item = frappe.db.get_value("Item", code, ["item_name", "stock_uom", "disabled"], as_dict=True)
 		if not item or item.disabled:
@@ -442,7 +454,30 @@ def order_materials(order):
 		if frappe.db.get_value("UOM", item.stock_uom, "must_be_whole_number"):
 			qty = math.ceil(round(qty, 6))
 		rows.append({"item_code": code, "item_name": item.item_name, "uom": item.stock_uom, "need": round(qty, 3), "on_hand": _on_hand(code, store)})
-	return {"rows": rows, "done": cint(so.get("atelier_materials_done")), "delivered": flt(so.per_delivered) >= 100}
+	return {"rows": rows, "done": cint(so.get("atelier_materials_done")), "delivered": flt(so.per_delivered) >= 100,
+		"title": so.get("atelier_subject") or so.name, "outsourced": _outsourced(so.name)}
+
+
+def _sheets(store):
+	"""Materials used by the sheet or the piece (paper, card…): everything stocked that is neither a roll nor an ink bottle."""
+	fam = ["atelier_family"] if _has("atelier_family") else []
+	out = {}
+	for r in frappe.get_all("Item", filters={"disabled": 0, "is_stock_item": 1}, fields=["name", "item_name", "stock_uom", "atelier_packs", *fam]):
+		way = r.get("atelier_family") or ""
+		if way in ("roll", "bottle") or (not way and r.stock_uom in ("م²", "m²", "Litre", "لتر", "قارورة")):
+			continue
+		c = material_cfg(r.atelier_packs)
+		out[r.name] = {"item_code": r.name, "item_name": r.item_name, "uom": r.stock_uom, "waste": c["waste"], "on_hand": _on_hand(r.name, store)}
+	return out
+
+
+@frappe.whitelist(methods=["POST"])
+def skip_materials(order):
+	"""«لم يُستهلك من المخزون»: close the question for this order without moving the stock."""
+	so = frappe.get_doc("Sales Order", order)
+	so.check_permission("write")
+	so.db_set("atelier_materials_done", 1)
+	return True
 
 
 @frappe.whitelist(methods=["POST"])
@@ -453,7 +488,7 @@ def issue_order_materials(order, rows):
 	so.check_permission("write")
 	if cint(so.get("atelier_materials_done")):
 		frappe.throw(_("خُصمت مواد هذا الطلب من قبل"))
-	issued = [stock_issue(r["item_code"], r["qty"], order, _("مواد طلب {0}").format(order)) for r in frappe.parse_json(rows) or [] if flt(r.get("qty")) > 0]
+	issued = [stock_issue(r["item_code"], r["qty"], order, _("مواد طلب {0}").format(order)) for r in frappe.parse_json(rows) or [] if r.get("item_code") and flt(r.get("qty")) > 0]
 	so.db_set("atelier_materials_done", 1)
 	return issued
 
