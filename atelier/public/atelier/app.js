@@ -3941,7 +3941,7 @@ const StockPage = {
     // like the customer page: the side always shows one material (the first until another is picked)
     watch(() => s.data, (d) => { if (d?.items?.length && !d.items.some((i) => i.item_code === sel.value)) pick(d.items[0]); });
     // one rounding everywhere: rolls to 0.1 م², other units to 0.01
-    const q = (i, v) => num(+(+v || 0).toFixed(wayOf(i) === "roll" ? 1 : 2));
+    const qn = (i, v) => num(+(+v || 0).toFixed(wayOf(i) === "roll" ? 1 : 2));
     const lasts = (i) => { const d = ledger.value?.daily || 0; if (!(d > 0) || !(i.qty > 0)) return "—";
       const days = Math.floor(i.qty / d); return days > 365 ? "أكثر من سنة" : days < 1 ? "أقل من يوم" : "≈ " + days + " يومًا"; };
     const subOf = (i) => { const c = i.cfg || {}, w = wayOf(i);
@@ -4050,7 +4050,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { q, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -4065,8 +4065,8 @@ const StockPage = {
       <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>المادة</th><th>المتوفر</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n"><span class="sr-only">إجراء</span></th></tr></thead>
         <tbody><tr v-for="i in items" :key="i.item_code" :class="{low: i.low, sel: sel === i.item_code}" class="stk-row" tabindex="0" @click="pick(i)" @keydown.enter="pick(i)">
           <td><b><i v-if="i.cfg && i.cfg.color" class="stk-ink" :style="{background: i.cfg.color}"></i>{{ i.item_name }}<span class="stk-how">{{ STOCK_WAYS[wayOf(i)].label }}</span></b><span class="m stk-sub">{{ subOf(i) }}</span></td>
-          <td><div class="stk-lvl"><span class="stk-meter" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><span class="stk-qv"><b class="stk-qty" :class="{bad: i.low}">{{ q(i, i.qty) }} <small>{{ uom(i.uom) }}</small></b><span v-if="qtySub(i)" class="m stk-pk">{{ qtySub(i) }}</span></span></div></td>
-          <td class="n"><span class="m">{{ i.safety_stock ? q(i, i.safety_stock) + ' ' + uom(i.uom) : '—' }}</span></td>
+          <td><div class="stk-lvl"><span class="stk-meter" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><span class="stk-qv"><b class="stk-qty" :class="{bad: i.low}">{{ qn(i, i.qty) }} <small>{{ uom(i.uom) }}</small></b><span v-if="qtySub(i)" class="m stk-pk">{{ qtySub(i) }}</span></span></div></td>
+          <td class="n"><span class="m">{{ i.safety_stock ? qn(i, i.safety_stock) + ' ' + uom(i.uom) : '—' }}</span></td>
           <td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
           <td class="n" @click.stop><div class="btn-row stk-acts">
             <button v-if="wayOf(i) === 'bottle' && s.data.can_issue" type="button" class="cl-btn sm primary" :disabled="i.qty < 1" @click="fitBottle(i)">ركّبت قارورة</button>
@@ -4080,15 +4080,15 @@ const StockPage = {
       <aside v-if="selItem" class="mn-card stk-side">
         <div class="stk-sh"><b>{{ selItem.item_name }}</b><span class="stk-how">{{ STOCK_WAYS[wayOf(selItem)].label }}</span></div>
         <span v-if="ledger && ledger.last_buy" class="m stk-small">آخر شراء {{ date(ledger.last_buy.posting_date) }} · {{ money(ledger.last_buy.rate) }} لكل {{ uom(selItem.uom) }} · {{ ledger.last_buy.supplier_name }}</span>
-        <div class="stk-facts"><div><span>المتوفر</span><b>{{ q(selItem, selItem.qty) }} {{ uom(selItem.uom) }}</b></div>
+        <div class="stk-facts"><div><span>المتوفر</span><b>{{ qn(selItem, selItem.qty) }} {{ uom(selItem.uom) }}</b></div>
           <div><span>يكفي لـ</span><b>{{ ledger ? lasts(selItem) : '…' }}</b></div>
-          <div><span>استُهلك هذا الشهر</span><b>{{ ledger ? q(selItem, ledger.month_used) + ' ' + uom(selItem.uom) : '…' }}</b></div>
+          <div><span>استُهلك هذا الشهر</span><b>{{ ledger ? qn(selItem, ledger.month_used) + ' ' + uom(selItem.uom) : '…' }}</b></div>
           <div v-if="s.data.can_value"><span>متوسط السعر</span><b>{{ selItem.qty > 0 ? money(selItem.value / selItem.qty) : '—' }} <small>/ {{ uom(selItem.uom) }}</small></b></div></div>
         <div v-if="!ledger" class="m stk-small">جارٍ التحميل…</div><div v-else-if="ledger.error" class="alert error">{{ ledger.error }}</div>
         <table v-else class="cl-table stk-led"><thead><tr><th>التاريخ</th><th>الحركة</th><th class="n">الكمية</th><th class="n">الرصيد</th></tr></thead>
           <tbody><tr v-for="(m, k) in ledger.rows" :key="k"><td class="m">{{ date(m.posting_date) }}</td>
             <td><span class="stk-tag" :class="MOVE_TAG[m.voucher_type]">{{ MOVE[m.voucher_type] || m.voucher_type }}</span> <a v-if="m.order" class="cl-link" href="#" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">{{ m.order_title }}</a><span v-else-if="m.note" class="m">{{ m.note }}</span></td>
-            <td class="n" dir="ltr" :class="m.voucher_type === 'Stock Reconciliation' ? '' : m.actual_qty < 0 ? 'stk-minus' : 'stk-plus'">{{ (m.actual_qty < 0 ? '−' : '+') + q(selItem, Math.abs(m.actual_qty)) }}</td><td class="n">{{ q(selItem, m.qty_after_transaction) }}</td></tr>
+            <td class="n" dir="ltr" :class="m.voucher_type === 'Stock Reconciliation' ? '' : m.actual_qty < 0 ? 'stk-minus' : 'stk-plus'">{{ (m.actual_qty < 0 ? '−' : '+') + qn(selItem, Math.abs(m.actual_qty)) }}</td><td class="n">{{ qn(selItem, m.qty_after_transaction) }}</td></tr>
             <tr v-if="!ledger.rows.length"><td colspan="4" class="m" style="text-align:center">لا حركات بعد.</td></tr></tbody></table>
       </aside></div>
 
