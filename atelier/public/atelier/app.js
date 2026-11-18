@@ -2815,18 +2815,20 @@ const SuppliersPage = {
         </header>
         <div v-if="err" class="alert error">{{ err }}</div>
 
-        <form v-if="form && form.kind === 'edit'" class="cp-card cp-pad cp-form" @submit.prevent="saveSupplier">
-          <b>{{ form.name ? 'تعديل المورد' : 'مورد جديد' }}</b>
-          <div class="cp-form-grid">
-            <label class="cl-fgroup"><span>الاسم *</span><input class="input" v-model="form.supplier_name" required></label>
-            <label class="cl-fgroup"><span>ما نشتريه منه</span><input class="input" v-model="form.supplies" placeholder="ورق، حبر، طباعة أوفست، نقل…"></label>
-            <label class="cl-fgroup"><span>الهاتف</span><input class="input" v-model="form.phone" dir="ltr" inputmode="tel"></label>
+        <form v-if="form && form.kind === 'edit'" class="cp-card sp-form" @submit.prevent="saveSupplier">
+          <div class="sp-fh"><b>{{ form.name ? 'تعديل المورد' : 'مورد جديد' }}</b></div>
+          <div class="sp-sec"><span class="sp-st">الأساسي</span><div class="sp-grid">
+            <label class="cl-fgroup sp-wide"><span>الاسم <b class="od-req">*</b></span><input class="input" v-model="form.supplier_name" required placeholder="مثلًا: ADS"></label>
+            <label class="cl-fgroup sp-wide"><span>ما نشتريه منه</span><input class="input" v-model="form.supplies" placeholder="باش، أوتوكولون، حبر…"></label></div></div>
+          <div class="sp-sec"><span class="sp-st">الاتصال</span><div class="sp-grid">
+            <label class="cl-fgroup"><span>الهاتف</span><input class="input" v-model="form.phone" dir="ltr" inputmode="tel" placeholder="0555 00 00 00"></label>
             <label class="cl-fgroup"><span>البريد</span><input class="input" v-model="form.email" dir="ltr" type="email"></label>
-            <label class="cl-fgroup"><span>العنوان</span><input class="input" v-model="form.address"></label>
-            <label class="cl-fgroup"><span>الرقم الجبائي NIF</span><input class="input" v-model="form.tax_id" dir="ltr"></label>
-            <label class="cl-fgroup"><span>السجل التجاري RC</span><input class="input" v-model="form.rc" dir="ltr"></label>
-            <label class="cl-fgroup"><span>ملاحظة</span><input class="input" v-model="form.note"></label></div>
-          <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'save' || !form.supplier_name.trim()">حفظ المورد</button><button type="button" class="cl-btn" @click="form = null; if (!d.name) closeSupplier()">إلغاء</button></div>
+            <label class="cl-fgroup sp-wide"><span>العنوان</span><input class="input" v-model="form.address"></label></div></div>
+          <div class="sp-sec"><span class="sp-st">البيانات القانونية</span><div class="sp-grid">
+            <label class="cl-fgroup"><span>NIF</span><input class="input" v-model="form.tax_id" dir="ltr"></label>
+            <label class="cl-fgroup"><span>RC</span><input class="input" v-model="form.rc" dir="ltr"></label></div></div>
+          <div class="sp-sec"><span class="sp-st">ملاحظة</span><div class="sp-grid"><label class="cl-fgroup sp-wide"><span class="sr-only">ملاحظة</span><textarea class="input" rows="2" v-model="form.note" placeholder="شروط الدفع، أوقات التوصيل…"></textarea></label></div></div>
+          <div class="sp-ft btn-row"><button type="button" class="cl-btn" @click="form = null; if (!d.name) closeSupplier()">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="busy === 'save' || !form.supplier_name.trim()">حفظ المورد</button></div>
         </form>
 
         <template v-if="d.name">
@@ -3954,7 +3956,13 @@ const StockPage = {
     onMounted(() => document.addEventListener("click", closeRow)); onBeforeUnmount(() => document.removeEventListener("click", closeRow));
     const MOVE_TAG = { "Purchase Invoice": "st-buy", "Stock Entry": "st-out", "Stock Reconciliation": "st-cnt" };
     const units = computed(() => state.boot.units || []);
-    const suppliers = computed(() => state.boot.suppliers || []);
+    const suppliers = ref([]);
+    const loadSuppliers = async () => { try { suppliers.value = await call("supplier_names"); } catch { suppliers.value = []; } };
+    // a supplier not on the list yet: add it by name without leaving the purchase
+    const quickSupplier = async () => { const n = (prompt("اسم المورد الجديد") || "").trim(); if (!n) return;
+      try { const r = await call("save_supplier", { data: JSON.stringify({ supplier_name: n }) }, true); await loadSuppliers();
+        const hit = suppliers.value.find((x) => x.name === (r?.name || r) || x.supplier_name === n); if (hit) sheet.value.supplier = hit.name; toast("أُضيف المورد"); }
+      catch (e) { err.value = e.message; } };
     const open = async (kind, item) => {
       err.value = null;
       const c = item?.cfg || {};
@@ -3962,6 +3970,7 @@ const StockPage = {
         width: c.width || "", length: c.length || "", pack: c.pack || "", color: c.color || "", ptype: c.kind || "", gsm: c.gsm || "", size: c.size || "", autoName: !item, min_n: item ? +((item.safety_stock || 0) / (c.pack_qty > 0 ? c.pack_qty : 1)).toFixed(2) || "" : "", pack_qty: c.pack_qty || "", waste: c.waste || "",
         qty: kind === "count" ? (item?.qty ?? "") : "", n: "", price: "", rate: "", supplier: "", order: "", note: "", bill: "", by: "pack", open_n: "", open_price: "",
         len: item && c.width > 0 ? +(item.qty / c.width).toFixed(2) : "", len0: item && c.width > 0 ? +(item.qty / c.width).toFixed(2) : "", packs: item && c.pack_qty > 0 ? Math.floor(item.qty / c.pack_qty) : "", loose: item && c.pack_qty > 0 ? +(item.qty % c.pack_qty).toFixed(3) : "" };
+      if (kind === "buy") loadSuppliers();
       if (kind === "issue") { try { orders.value = (await call("board2")).cards; } catch { orders.value = []; } }
     };
     const TITLES = { add: "مادة جديدة", edit: "تعديل المادة", buy: "شراء من مورد", issue: "صرف مادة", count: "جرد" };
@@ -4031,7 +4040,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -4116,7 +4125,8 @@ const StockPage = {
         <div class="stk-row2"><div class="field"><label for="st-n">عدد {{ plural(buyWord) }}</label><input id="st-n" class="input" inputmode="decimal" v-model="sheet.n"></div>
           <div class="field"><label for="st-p">سعر {{ buyWord === 'م²' ? 'المتر المربع' : buyWord === 'لفّة' ? 'اللفّة' : 'ال' + buyWord }} (دج)</label><input id="st-p" class="input" inputmode="decimal" v-model="sheet.price"></div></div>
         <div v-if="conv && conv.stockQty" class="stk-calc">يُضاف <b>{{ num(conv.stockQty) }} {{ unitWord }}</b><template v-if="per !== 1"> ({{ num(+sheet.n || 0) }} × {{ num(per) }})</template><template v-if="conv.total"><template v-if="per !== 1"> · سعر {{ unitWord }} <b>{{ money(conv.stockRate) }}</b></template> · المجموع <b>{{ money(conv.total) }}</b></template></div>
-        <div class="field"><label for="st-sup">المورد</label><select id="st-sup" class="input" v-model="sheet.supplier"><option value="" disabled>اختر المورد</option><option v-for="x in suppliers" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select></div>
+        <div class="field"><label for="st-sup">المورد</label><select id="st-sup" class="input" v-model="sheet.supplier"><option value="" disabled>{{ suppliers.length ? 'اختر المورد' : 'لا موردين بعد' }}</option><option v-for="x in suppliers" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select>
+          <button type="button" class="cl-link" style="align-self:flex-start" @click="quickSupplier">+ مورد جديد</button></div>
         <div class="field"><label for="st-bill">رقم فاتورة المورد (اختياري)</label><input id="st-bill" class="input" v-model="sheet.bill"></div></template>
       <template v-else>
         <template v-if="sheet.kind === 'count' && wayOf(sheet.item) === 'roll' && sheet.item.cfg && sheet.item.cfg.width > 0">

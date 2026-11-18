@@ -369,3 +369,9 @@ def issue_order_materials(order, rows):
 	issued = [stock_issue(r["item_code"], r["qty"], order, _("مواد طلب {0}").format(order)) for r in frappe.parse_json(rows) or [] if flt(r.get("qty")) > 0]
 	so.db_set("atelier_materials_done", 1)
 	return issued
+
+
+@frappe.whitelist()
+def supplier_names():
+	"""Suppliers to pick from when buying (fresh each time, so one added a minute ago is there)."""
+	return frappe.get_list("Supplier", filters={"disabled": 0}, fields=["name", "supplier_name"], order_by="supplier_name asc", limit=1000)
