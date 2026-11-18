@@ -2813,3 +2813,5 @@ body.show-hints .hint { display: revert !important; font-size: 12px; color: #667
 .st-menu .st-row input { flex: none; width: 16px; height: 16px; accent-color: #4F35D2; }
 .st-menu .st-row .st-pill { flex: 1; min-width: 150px; height: 30px; display: flex; align-items: center; padding: 0 10px; border-radius: 6px; font-size: 13px; font-weight: 500; }
 .st-menu .st-row:hover .st-pill { filter: brightness(.94); }
+.stk-by { display: flex; margin-bottom: 10px; } .stk-by button { flex: 1; }
+.stk-fix { font-size: 13px; margin-bottom: 10px; }
