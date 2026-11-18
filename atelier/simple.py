@@ -459,7 +459,7 @@ def save_board(config, moves=None):
 	cfg = frappe.parse_json(config)
 	old = get_config()
 	cols = [{"id": (c.get("id") or frappe.generate_hash(length=8)), "name": (c.get("name") or "").strip()[:60],
-		"color": c.get("color") or COLORS[0], **({"deliver": 1} if c.get("deliver") else {}), **({"limit": cint(c["limit"])} if cint(c.get("limit")) > 0 else {}), **({"hidden": 1} if c.get("hidden") else {}), **({"materials": 1} if c.get("materials") else {})} for c in cfg.get("columns") or []]
+		"color": c.get("color") or COLORS[0], **({"deliver": 1} if c.get("deliver") else {}), **({"limit": cint(c["limit"])} if cint(c.get("limit")) > 0 else {}), **({"hidden": 1} if c.get("hidden") else {}), **({"materials": 1} if c.get("materials") else {}), **({"supplier": 1} if c.get("supplier") else {})} for c in cfg.get("columns") or []]
 	labels = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0]}
 		for l in cfg.get("labels") or []]
 	statuses = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0]}

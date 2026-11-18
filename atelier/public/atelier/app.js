@@ -1516,11 +1516,13 @@ const Board = {
     const stockCol = (col) => !!col && (cfg.value.columns.some((x) => x.materials) ? !!col.materials : !!col.deliver);
     const setStockCol = async (id) => { colMenu.value = null; const on = !cfg.value.columns.find((x) => x.id === id)?.materials;
       await saveCols(cfg.value.columns.map((c) => ({ ...c, materials: on && c.id === id ? 1 : 0 }))); toast(on ? "تُخصم المواد عند دخول البطاقة إلى هذا العمود" : "تُخصم المواد عند التسليم"); };
+    const setSupplierCol = async (id) => { colMenu.value = null; const on = !cfg.value.columns.find((x) => x.id === id)?.supplier;
+      await saveCols(cfg.value.columns.map((c) => (c.id === id ? { ...c, supplier: on ? 1 : 0 } : c))); toast(on ? "البطاقات التي تمر بهذا العمود لا تُخصم موادها" : "أُلغيت علامة «عند مورد»"); };
     const sortCol = (id, k) => { if (k) colSort[id] = k; else delete colSort[id]; colMenu.value = null; };
     const moveAll = async (from, to) => {
       colMenu.value = null; const list = (s.data?.cards || []).filter((c) => c.column === from.id); if (!list.length) return;
       busy.value = "*";
-      try { for (const c of list) await call("move_card", { name: c.name, column: to.id }, true); toast(`نُقلت ${list.length} بطاقة إلى «${to.name}»`); if (stockCol(to)) list.forEach((c) => offerMaterials(c.name)); }
+      try { for (const c of list) await call("move_card", { name: c.name, column: to.id }, true); toast(`نُقلت ${list.length} بطاقة إلى «${to.name}»`); if (to.supplier) list.forEach((c) => call("mark_outsourced", { order: c.name }, true).catch(() => {})); if (stockCol(to)) list.forEach((c) => offerMaterials(c.name)); }
       catch (e) { toast(e.message, "error"); } finally { busy.value = null; await load(); }
     };
     // save a card as a template
@@ -1539,7 +1541,9 @@ const Board = {
     async function moveTo(c, col, beforeName) {
       busy.value = c.name;
       try {
-        if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); if (stockCol(cfg.value.columns.find((x) => x.id === col))) offerMaterials(c.name); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
+        if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); const toCol = cfg.value.columns.find((x) => x.id === col);
+          if (toCol?.supplier) { call("mark_outsourced", { order: c.name }, true).catch(() => {}); if (s.data?.manager || state.boot.can.cost) state.sheet = { type: "outsource", order: c.name, title: c.title, column: toCol.name }; }
+          else if (stockCol(toCol)) offerMaterials(c.name); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
         if (beforeName !== undefined) {
           const list = cols.value.find((x) => x.id === col).items.map((x) => x.name).filter((n) => n !== c.name);
           const i = beforeName ? list.indexOf(beforeName) : -1;
@@ -1695,7 +1699,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -1849,6 +1853,7 @@ const Board = {
       <span class="m tb-cm-h">ترتيب البطاقات</span>
       <button v-for="o in [['','الترتيب اليدوي'],['due','حسب الموعد'],['created','حسب تاريخ الإنشاء'],['amount','حسب المبلغ']]" :key="o[0]" type="button" class="tm-pop-row" :aria-pressed="(colSort[colMenu.col.id] || '') === o[0]" @click="sortCol(colMenu.col.id, o[0])">{{ o[1] }}<span v-if="(colSort[colMenu.col.id] || '') === o[0]" class="tb-cm-on">✓</span></button>
       <template v-if="state.boot.can.order && colMenu.col.items.length"><hr class="tm2-hr">
+        <button type="button" class="tm-pop-row" :aria-pressed="!!colMenu.col.supplier" @click="setSupplierCol(colMenu.col.id)">{{ colMenu.col.supplier ? '✓ ' : '' }}عمل عند مورد (لا خصم من المخزون)</button>
         <button type="button" class="tm-pop-row" :aria-pressed="!!colMenu.col.materials" @click="setStockCol(colMenu.col.id)">{{ colMenu.col.materials ? '✓ ' : '' }}خصم المواد عند الدخول إلى هذا العمود</button>
         <button type="button" class="tm-pop-row" :aria-expanded="colMove" @click="colMove = !colMove">نقل كل البطاقات ({{ colMenu.col.items.length }}) إلى…</button>
         <template v-if="colMove"><button v-for="to in cfg.columns.filter(x => x.id !== colMenu.col.id)" :key="to.id" type="button" class="tm-pop-row tb-cm-sub" @click="moveAll(colMenu.col, to)"><i class="st-sw" :style="{background: to.color}"></i>{{ to.name }}</button></template></template>
@@ -3716,6 +3721,27 @@ async function offerMaterials(order) {
     if (m.rows.length && !m.done) state.sheet = { type: "materials", order, title: m.title, column: m.column, rows: m.rows.map((r) => ({ ...r, qty: +Math.min(r.need, r.on_hand).toFixed(3) })) };
   } catch { /* the delivery itself already succeeded */ }
 }
+// printed at a supplier: optional, what it cost, so the order's profit is real
+const OutsourceSheet = {
+  props: ["opts"],
+  setup(props) {
+    const amount = ref(""), supplier = ref(""), note = ref(""), list = ref([]), busy = ref(false), err = ref(null);
+    onMounted(async () => { try { list.value = await call("supplier_names"); } catch { /* optional */ } });
+    const close = () => (state.sheet = null);
+    const save = async () => { busy.value = true; err.value = null;
+      try { await call("outsource_cost", { order: props.opts.order, amount: amount.value, supplier: supplier.value, note: note.value }, true); toast("سُجّلت تكلفة المورد على الطلب"); state.rev++; close(); }
+      catch (e) { err.value = e.message; } finally { busy.value = false; } };
+    return { amount, supplier, note, list, busy, err, close, save, opts: props.opts };
+  },
+  template: `
+  <div class="overlay" @click.self="close"><form class="sheet" @submit.prevent="save"><div class="sh-head"><div><h2>عند مورد</h2><span class="muted">«{{ opts.title }}» انتقل إلى «{{ opts.column }}». لن يُخصم ورق ولا لفّات من مخزنك.</span></div></div>
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <div class="stk-g3"><div class="field stk-span2"><label for="os-s">المورد</label><select id="os-s" class="input" v-model="supplier"><option value="">—</option><option v-for="x in list" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select></div>
+      <div class="field"><label for="os-a">كم كلّفك؟</label><div class="stk-suf"><input id="os-a" class="input" inputmode="decimal" v-model="amount" placeholder="0"><em>دج</em></div></div></div>
+    <div class="field"><label for="os-n">ملاحظة</label><input id="os-n" class="input" v-model="note" placeholder="مثلًا: طباعة أوفست 1000 نسخة"></div>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy || !(+amount > 0)">تسجيل التكلفة</button></div>
+  </form></div>`,
+};
 const MaterialsSheet = {
   props: ["opts"],
   setup(props) {
@@ -4159,7 +4185,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -4247,6 +4273,7 @@ const App = {
     <CustomerSheet2 v-if="state.sheet && state.sheet.type==='customer'" :opts="state.sheet"/>
     <ItemSheet v-if="state.sheet && state.sheet.type==='item'" :opts="state.sheet"/>
     <MaterialsSheet v-if="state.sheet && state.sheet.type==='materials'" :opts="state.sheet"/>
+    <OutsourceSheet v-if="state.sheet && state.sheet.type==='outsource'" :opts="state.sheet"/>
     <div v-if="state.subsheet" class="subsheet-layer"><PaymentSheet v-if="state.subsheet.type === 'payment'" :opts="state.subsheet"/><ItemSheet v-else :opts="state.subsheet"/></div>
     <BoardPanel v-if="state.sheet && state.sheet.type==='order'" :key="state.sheet.edit || 'new'" mode="new" :edit="state.sheet.edit" :preset="state.sheet.customer" @close="state.sheet = null; route.name === 'order-new' && go('/')" @saved="state.sheet = null; state.rev++; route.name === 'order-new' && go('/')"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>

@@ -325,7 +325,8 @@ def custom_fields():
 		"Item": [{"fieldname": "atelier_recipe", "label": "وصفة المواد", "fieldtype": "Long Text", "hidden": 1, "insert_after": "atelier_steps", "module": "Atelier"},
 			{"fieldname": "atelier_family", "label": "عائلة الوحدة", "fieldtype": "Data", "hidden": 1, "insert_after": "atelier_recipe", "module": "Atelier"},
 			{"fieldname": "atelier_packs", "label": "وحدات الشراء", "fieldtype": "Long Text", "hidden": 1, "insert_after": "atelier_family", "module": "Atelier"}],
-		"Sales Order": [{"fieldname": "atelier_materials_done", "label": "خُصمت المواد", "fieldtype": "Check", "read_only": 1, "insert_after": "atelier_due_time", "module": "Atelier"}],
+		"Sales Order": [{"fieldname": "atelier_materials_done", "label": "خُصمت المواد", "fieldtype": "Check", "read_only": 1, "insert_after": "atelier_due_time", "module": "Atelier"},
+			{"fieldname": "atelier_outsourced", "label": "طُبع عند مورد", "fieldtype": "Check", "read_only": 1, "insert_after": "atelier_materials_done", "module": "Atelier"}],
 	})
 
 
@@ -413,7 +414,8 @@ def order_materials(order):
 	so = frappe.get_doc("Sales Order", order)
 	so.check_permission("read")
 	store, rows = store_for(so.company), []
-	rolls = _rolls(store)
+	# printed at a supplier: our rolls and paper were not used, only what the recipes add (stands, eyelets…)
+	rolls = {} if _outsourced(so.name) else _rolls(store)
 	needed = _needed(so)
 	if rolls:
 		from atelier.simple import units
@@ -460,3 +462,41 @@ def issue_order_materials(order, rows):
 def supplier_names():
 	"""Suppliers to pick from when buying (fresh each time, so one added a minute ago is there)."""
 	return frappe.get_list("Supplier", filters={"disabled": 0}, fields=["name", "supplier_name"], order_by="supplier_name asc", limit=1000)
+
+
+
+def _outsourced(order):
+	if not frappe.db.has_column("Sales Order", "atelier_outsourced"):
+		return False
+	return cint(frappe.db.get_value("Sales Order", order, "atelier_outsourced"))
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_outsourced(order, on=1):
+	"""The card went through a «عمل عند مورد» column: remembered on the order even if it moves on later."""
+	so = frappe.get_doc("Sales Order", order)
+	so.check_permission("write")
+	if not frappe.db.has_column("Sales Order", "atelier_outsourced"):
+		custom_fields()
+		frappe.clear_cache(doctype="Sales Order")
+	so.db_set("atelier_outsourced", 1 if cint(on) else 0)
+	return True
+
+
+@frappe.whitelist(methods=["POST"])
+def outsource_cost(order, amount, supplier=None, note=None):
+	"""What the supplier charged for this order, added to its cost (type «عند مورد»)."""
+	from atelier import simple
+
+	amount = flt(amount)
+	if amount <= 0:
+		frappe.throw(_("اكتب المبلغ"))
+	view = simple.card_cost(order)
+	sup = frappe.db.get_value("Supplier", supplier, "supplier_name") if supplier else None
+	text = " — ".join(x for x in (_("طباعة عند مورد"), sup, (note or "").strip()[:60]) if x)[:140]
+	lines = [{k: l.get(k) for k in ("cost_type", "description", "qty", "rate")} for l in view.get("lines") or []]
+	types = simple.custom_list("cost_types")
+	kind = next((c["value"] for c in types if c["value"] == "Sous-traitance"), None) or next((c["value"] for c in types if "مورد" in (c.get("label") or "")), None) or types[0]["value"]
+	lines.append({"cost_type": kind, "description": text, "qty": 1, "rate": amount})
+	simple.save_card_cost(order, json.dumps({"lines": lines, "qty": view.get("qty") or 1, "waste_percent": view.get("waste_percent") or 0}))
+	return True
