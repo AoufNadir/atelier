@@ -877,6 +877,9 @@ def stock():
 		it["family"] = u.get("atelier_family") or ""
 		from atelier.materials import material_cfg
 		it["cfg"] = material_cfg(u.get("atelier_packs"))
+	moved = {r[0] for r in frappe.db.sql("select distinct item_code from `tabStock Ledger Entry` where is_cancelled=0 and item_code in %s", [list(items) or [""]])}
+	for it in items.values():
+		it["has_moves"] = it["item_code"] in moved
 	moves = frappe.get_list(
 		"Stock Ledger Entry", filters={"is_cancelled": 0},
 		fields=["posting_date", "item_code", "warehouse", "actual_qty", "voucher_type", "voucher_no", "stock_value_difference"],

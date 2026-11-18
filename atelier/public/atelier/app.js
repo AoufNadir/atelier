@@ -3959,6 +3959,7 @@ const StockPage = {
       if (kind === "issue") { try { orders.value = (await call("board2")).cards; } catch { orders.value = []; } }
     };
     const TITLES = { add: "مادة جديدة", edit: "تعديل المادة", buy: "شراء من مورد", issue: "صرف مادة", count: "جرد" };
+    watch(() => sheet.value?.way, (w) => { const f = sheet.value; if (f && w === "count" && !COUNT_UNITS.includes(f.uom)) f.uom = "ورقة"; });
     const n2 = (v) => +String(v ?? "").replace(/[\s,]/g, "") || 0;
     // buying: by the roll, by the bottle, by the pack or by the unit; the stock always moves in the stock unit
     const per = computed(() => { const f = sheet.value; if (!f?.item) return 1; const c = f.item.cfg || {}, w = wayOf(f.item);
@@ -3974,7 +3975,7 @@ const StockPage = {
       try {
         const cfg = JSON.stringify({ width: n2(f.width), length: n2(f.length), pack: f.way === "roll" ? "لفّة" : f.pack, pack_qty: f.way === "roll" ? rollArea.value : n2(f.pack_qty), waste: n2(f.waste) });
         if (f.kind === "add") await call("add_material", { name: f.name, uom: f.uom, min_qty: f.min_qty, family: f.way, packs: cfg }, true);
-        if (f.kind === "edit") await call("update_material", { item_code: code, name: f.name, min_qty: f.min_qty, family: f.way, packs: cfg }, true);
+        if (f.kind === "edit") await call("update_material", { item_code: code, name: f.name, min_qty: f.min_qty, family: f.way, packs: cfg, uom: f.uom }, true);
         if (f.kind === "buy") { if (!(c.stockQty > 0)) throw new Error("اكتب العدد"); if (!(c.total > 0)) throw new Error("اكتب السعر");
           await call("stock_purchase", { item_code: code, qty: c.stockQty, rate: +c.stockRate.toFixed(6), supplier: f.supplier, bill_no: f.bill }, true); }
         if (f.kind === "issue") await call("stock_issue", { item_code: code, qty: n2(f.qty), sales_order: f.order, note: f.note }, true);
@@ -4044,10 +4045,10 @@ const StockPage = {
     <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><h2>{{ TITLES[sheet.kind] }}<template v-if="sheet.item"> · {{ sheet.item.item_name }}</template></h2></div>
       <div v-if="err" class="alert error">{{ err }}</div>
       <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'"><div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" v-model="sheet.name" placeholder="مثلًا: Bâche 440g — 1.05 م"></div>
-        <div class="field"><label>كيف تُستهلك؟</label><div class="stk-ways"><button v-for="(w, k) in STOCK_WAYS" :key="k" type="button" class="stk-way" :aria-pressed="sheet.way === k" :disabled="sheet.kind === 'edit' && sheet.way !== k" @click="sheet.way = k"><b>{{ w.label }}</b><span>{{ w.hint }}</span></button></div></div>
+        <div class="field"><label>كيف تُستهلك؟</label><span v-if="sheet.kind === 'edit' && sheet.item.has_moves" class="m hint">لهذه المادة حركات، فلا تتغير طريقتها.</span><div class="stk-ways"><button v-for="(w, k) in STOCK_WAYS" :key="k" type="button" class="stk-way" :aria-pressed="sheet.way === k" :disabled="sheet.kind === 'edit' && sheet.item.has_moves && sheet.way !== k" @click="sheet.way = k"><b>{{ w.label }}</b><span>{{ w.hint }}</span></button></div></div>
         <template v-if="sheet.way === 'roll'"><div class="stk-row2"><div class="field"><label for="st-w">عرض اللفّة (م)</label><input id="st-w" class="input" inputmode="decimal" v-model="sheet.width"></div><div class="field"><label for="st-l">طول اللفّة (م)</label><input id="st-l" class="input" inputmode="decimal" v-model="sheet.length"></div></div>
           <div v-if="rollArea" class="stk-calc">اللفّة = <b>{{ num(rollArea) }} م²</b> · المخزون يُحسب بالمتر المربع</div></template>
-        <template v-if="sheet.way === 'count'"><div class="stk-row2"><div class="field"><label for="st-u">يُعدّ بـ</label><select id="st-u" class="input" v-model="sheet.uom" :disabled="sheet.kind === 'edit'"><option v-for="u in COUNT_UNITS" :key="u" :value="u">{{ u }}</option></select></div>
+        <template v-if="sheet.way === 'count'"><div class="stk-row2"><div class="field"><label for="st-u">يُعدّ بـ</label><select id="st-u" class="input" v-model="sheet.uom" :disabled="sheet.kind === 'edit' && sheet.item.has_moves"><option v-for="u in COUNT_UNITS" :key="u" :value="u">{{ u }}</option></select></div>
           <div class="field"><label for="st-pk">يُشترى بـ (اختياري)</label><div class="stk-pair"><input id="st-pk" class="input" v-model="sheet.pack" placeholder="رزمة"><span class="m">=</span><input class="input" inputmode="decimal" v-model="sheet.pack_qty" :aria-label="'كم ' + sheet.uom" placeholder="500"></div></div></div></template>
         <div class="stk-row2"><div class="field"><label for="st-min">الحد الأدنى ({{ sheet.way === 'roll' ? 'م²' : sheet.way === 'bottle' ? 'قارورة' : sheet.uom }})</label><input id="st-min" class="input" inputmode="decimal" v-model="sheet.min_qty"></div>
           <div v-if="sheet.way === 'roll'" class="field"><label for="st-ws">تالف متوقع %</label><input id="st-ws" class="input" inputmode="decimal" v-model="sheet.waste" placeholder="5"></div></div></template>

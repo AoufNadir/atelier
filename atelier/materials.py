@@ -125,13 +125,23 @@ def add_material(name, uom, min_qty=0, family=None, packs=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def update_material(item_code, name, min_qty=0, family=None, packs=None):
+def update_material(item_code, name, min_qty=0, family=None, packs=None, uom=None):
 	_need("Item")
 	_material(item_code)
 	name = (name or "").strip()[:140]
 	if not name:
 		frappe.throw(_("اكتب اسم المادة"))
-	frappe.db.set_value("Item", item_code, {"item_name": name, "safety_stock": flt(min_qty)})
+	vals = {"item_name": name, "safety_stock": flt(min_qty)}
+	# the way (and so the stock unit) may change only while the material has no moves yet
+	unit = WAYS.get(family) or ((uom or "").strip() if family == "count" else None)
+	if unit and unit != frappe.db.get_value("Item", item_code, "stock_uom"):
+		if frappe.db.exists("Stock Ledger Entry", {"item_code": item_code, "is_cancelled": 0}):
+			frappe.throw(_("لهذه المادة حركات مسجّلة، فلا يمكن تغيير طريقتها. أنشئ مادة جديدة."))
+		if not frappe.db.exists("UOM", unit):
+			frappe.get_doc({"doctype": "UOM", "uom_name": unit, "must_be_whole_number": 1 if family in ("count", "bottle") else 0}).insert(ignore_permissions=True)
+		vals["stock_uom"] = unit
+		frappe.db.sql("update `tabUOM Conversion Detail` set uom=%s where parent=%s and conversion_factor=1", (unit, item_code))
+	frappe.db.set_value("Item", item_code, vals)
 	_set_units(item_code, family, packs)
 	return True
 
