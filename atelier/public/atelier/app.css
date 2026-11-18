@@ -2757,3 +2757,33 @@ body.col-dragging, body.col-dragging * { cursor: grabbing !important; user-selec
 .stk-calc b { color: #17202A; }
 .stk-qty small { font-weight: 400; font-size: 12px; }
 .stk-pk { display: block; font-size: 12px; text-align: left; }
+/* stock v3 */
+.stk-bar { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; margin-bottom: 10px; }
+.stk-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+.stk-grid.open { grid-template-columns: minmax(0, 1fr) 380px; }
+.stk-row { cursor: pointer; } .stk-row.sel td { background: #FAFAFF; }
+.stk-how { font-size: 12px; font-weight: 600; border-radius: 5px; padding: 0 6px; background: #F2F4F7; color: #475467; margin-inline-start: 6px; }
+.stk-qty.bad { color: #B42318; }
+.stk-side { position: sticky; top: 12px; display: flex; flex-direction: column; overflow: hidden; }
+.stk-sh { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 2px; }
+.stk-sh b { font-size: 15px; }
+.stk-small { font-size: 12px; padding: 0 14px 8px; display: block; }
+.stk-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #E4E7EC; border-top: 1px solid #E4E7EC; border-bottom: 1px solid #E4E7EC; }
+.stk-facts div { background: #fff; padding: 7px 14px; } .stk-facts span { display: block; font-size: 12px; color: #667085; } .stk-facts b { font-size: 14px; }
+.stk-led td, .stk-led th { font-size: 12px; padding: 6px 12px; }
+.stk-led { max-height: 460px; }
+.stk-ways { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.stk-way { font: inherit; border: 1px solid #D0D5DD; border-radius: 8px; background: #fff; padding: 7px 6px; cursor: pointer; display: flex; flex-direction: column; gap: 1px; text-align: center; }
+.stk-way b { font-size: 13px; } .stk-way span { font-size: 12px; color: #667085; }
+.stk-way[aria-pressed="true"] { border-color: #4F35D2; background: #F1EEFF; color: #4F35D2; }
+.stk-way:disabled { opacity: .45; cursor: default; }
+.stk-pair { display: flex; align-items: center; gap: 6px; } .stk-pair .input { min-width: 0; }
+/* materials deduction */
+.mt-line { display: grid; grid-template-columns: minmax(0, 1fr) 170px 110px; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #F2F4F7; }
+.mt-what { display: flex; flex-direction: column; min-width: 0; } .mt-what b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .mt-what .muted { font-size: 12px; }
+.mt-mat { font-size: 13px; font-weight: 600; }
+.mt-q { display: flex; align-items: center; gap: 4px; } .mt-q .input { min-width: 0; } .mt-q span { font-size: 12px; color: #667085; }
+.mt-left { grid-column: 2 / -1; font-size: 12px; text-align: left; margin-top: -4px; }
+.stk-bar .bd-chip { min-height: 28px; height: 28px; padding: 0 10px; font-size: 12px; color: #17202A; background: #fff; border: 1px solid #D0D5DD; white-space: nowrap; }
+.stk-bar .bd-chip[aria-pressed="true"] { background: #F1EEFF; border-color: #C4B8F3; color: #4F35D2; font-weight: 700; }
+.stk-bar .bd-chip.debt { color: #B42318; background: #FEF3F2; border-color: #FECDCA; }

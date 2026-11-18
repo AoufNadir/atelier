@@ -1503,11 +1503,15 @@ const Board = {
     const colKey = (e) => { if (e.key !== "Escape" || !cd) return; const d = cd; colEnd(); cd = null; d.ghost?.remove(); flipCols(() => { liveOrder.value = null; }); colDrag.value = null; colOver.value = null; };
     onBeforeUnmount(() => { if (cd) { cd.ghost?.remove(); colEnd(); cd = null; } });
     const colDrop = () => {};
+    // the column where a card's materials are taken from the stock: the one marked, else the delivery column
+    const stockCol = (col) => !!col && (cfg.value.columns.some((x) => x.materials) ? !!col.materials : !!col.deliver);
+    const setStockCol = async (id) => { colMenu.value = null; const on = !cfg.value.columns.find((x) => x.id === id)?.materials;
+      await saveCols(cfg.value.columns.map((c) => ({ ...c, materials: on && c.id === id ? 1 : 0 }))); toast(on ? "تُخصم المواد عند دخول البطاقة إلى هذا العمود" : "تُخصم المواد عند التسليم"); };
     const sortCol = (id, k) => { if (k) colSort[id] = k; else delete colSort[id]; colMenu.value = null; };
     const moveAll = async (from, to) => {
       colMenu.value = null; const list = (s.data?.cards || []).filter((c) => c.column === from.id); if (!list.length) return;
       busy.value = "*";
-      try { for (const c of list) await call("move_card", { name: c.name, column: to.id }, true); toast(`نُقلت ${list.length} بطاقة إلى «${to.name}»`); if (to.deliver) list.forEach((c) => offerMaterials(c.name)); }
+      try { for (const c of list) await call("move_card", { name: c.name, column: to.id }, true); toast(`نُقلت ${list.length} بطاقة إلى «${to.name}»`); if (stockCol(to)) list.forEach((c) => offerMaterials(c.name)); }
       catch (e) { toast(e.message, "error"); } finally { busy.value = null; await load(); }
     };
     // save a card as a template
@@ -1526,7 +1530,7 @@ const Board = {
     async function moveTo(c, col, beforeName) {
       busy.value = c.name;
       try {
-        if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); if (cfg.value.columns.find((x) => x.id === col)?.deliver) offerMaterials(c.name); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
+        if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); if (stockCol(cfg.value.columns.find((x) => x.id === col))) offerMaterials(c.name); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
         if (beforeName !== undefined) {
           const list = cols.value.find((x) => x.id === col).items.map((x) => x.name).filter((n) => n !== c.name);
           const i = beforeName ? list.indexOf(beforeName) : -1;
@@ -1681,7 +1685,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -1835,6 +1839,7 @@ const Board = {
       <span class="m tb-cm-h">ترتيب البطاقات</span>
       <button v-for="o in [['','الترتيب اليدوي'],['due','حسب الموعد'],['created','حسب تاريخ الإنشاء'],['amount','حسب المبلغ']]" :key="o[0]" type="button" class="tm-pop-row" :aria-pressed="(colSort[colMenu.col.id] || '') === o[0]" @click="sortCol(colMenu.col.id, o[0])">{{ o[1] }}<span v-if="(colSort[colMenu.col.id] || '') === o[0]" class="tb-cm-on">✓</span></button>
       <template v-if="state.boot.can.order && colMenu.col.items.length"><hr class="tm2-hr">
+        <button type="button" class="tm-pop-row" :aria-pressed="!!colMenu.col.materials" @click="setStockCol(colMenu.col.id)">{{ colMenu.col.materials ? '✓ ' : '' }}خصم المواد عند الدخول إلى هذا العمود</button>
         <button type="button" class="tm-pop-row" :aria-expanded="colMove" @click="colMove = !colMove">نقل كل البطاقات ({{ colMenu.col.items.length }}) إلى…</button>
         <template v-if="colMove"><button v-for="to in cfg.columns.filter(x => x.id !== colMenu.col.id)" :key="to.id" type="button" class="tm-pop-row tb-cm-sub" @click="moveAll(colMenu.col, to)"><i class="st-sw" :style="{background: to.color}"></i>{{ to.name }}</button></template></template>
       <template v-if="s.data.manager"><hr class="tm2-hr"><button type="button" class="tm-pop-row" @click="hideCol(true, colMenu.col.id)">إخفاء العمود</button></template>
@@ -3696,7 +3701,7 @@ const SECTION_NAV = [
 async function offerMaterials(order) {
   try {
     const m = await call("order_materials", { order });
-    if (m.rows.length && !m.done) state.sheet = { type: "materials", order, rows: m.rows.map((r) => ({ ...r, qty: Math.min(r.need, r.on_hand) })) };
+    if (m.rows.length && !m.done) state.sheet = { type: "materials", order, title: m.title, column: m.column, rows: m.rows.map((r) => ({ ...r, qty: +Math.min(r.need, r.on_hand).toFixed(3) })) };
   } catch { /* the delivery itself already succeeded */ }
 }
 const MaterialsSheet = {
@@ -3705,19 +3710,27 @@ const MaterialsSheet = {
     const busy = ref(false), err = ref(null), rows = ref(props.opts.rows);
     const close = () => (state.sheet = null);
     const short = (r) => r.need > r.on_hand;
+    const choose = (r, code) => { const c = (r.choices || []).find((x) => x.item_code === code); if (!c) return;
+      Object.assign(r, { item_code: c.item_code, item_name: c.item_name, on_hand: c.on_hand, waste: c.waste, need: +(r.area * (1 + (c.waste || 0) / 100)).toFixed(3) }); r.qty = +Math.min(r.need, r.on_hand).toFixed(3); };
+    const left = (r) => +(r.on_hand - (+r.qty || 0)).toFixed(3);
     const submit = async () => {
       busy.value = true; err.value = null;
       try { await call("issue_order_materials", { order: props.opts.order, rows: JSON.stringify(rows.value) }, true); toast("خُصمت المواد من المخزون"); state.rev++; close(); }
       catch (e) { err.value = e.message; } finally { busy.value = false; }
     };
-    return { rows, busy, err, close, short, submit, uom };
+    return { rows, busy, err, close, short, submit, uom, choose, left, num, opts: props.opts };
   },
   template: `
   <div class="overlay" @click.self="close"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><div><h2>مواد هذا الطلب</h2><span class="muted">راجع الكميات الفعلية قبل الخصم</span></div></div>
     <div v-if="err" class="alert error">{{ err }}</div>
-    <div v-for="r in rows" :key="r.item_code" class="field"><label :for="'mt-' + r.item_code">{{ r.item_name }} ({{ uom(r.uom) }})</label><input :id="'mt-' + r.item_code" class="input num" inputmode="decimal" v-model="r.qty">
-      <span class="muted" :class="{'bd-late': short(r)}">المتوقع {{ r.need }} · المتوفر {{ r.on_hand }}</span></div>
-    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy">خصم من المخزون</button></div>
+    <p v-if="opts.title" class="muted" style="margin:0 0 6px">«{{ opts.title }}»{{ opts.column ? ' انتقل إلى «' + opts.column + '»' : '' }}. هذه المواد المقترحة للخصم:</p>
+    <div v-for="(r, k) in rows" :key="k" class="mt-line">
+      <div class="mt-what"><b>{{ r.line || r.item_name }}</b><span class="muted">{{ r.area ? (r.size ? r.size + ' · ' : '') + num(r.area) + ' م²' + (r.waste ? ' + تالف ' + num(r.waste) + '%' : '') : 'من وصفة الخدمة' }}</span></div>
+      <select v-if="r.choices && r.choices.length > 1" class="input" :value="r.item_code" aria-label="المادة" @change="choose(r, $event.target.value)"><option v-for="c in r.choices" :key="c.item_code" :value="c.item_code">{{ c.item_name }} — {{ num(c.on_hand) }}</option></select>
+      <span v-else class="mt-mat">{{ r.item_name }}</span>
+      <label class="mt-q"><input class="input num" inputmode="decimal" v-model="r.qty" :aria-label="'كمية ' + r.item_name"><span>{{ uom(r.uom) }}</span></label>
+      <span class="muted mt-left" :class="{'bd-late': short(r) || left(r) < 0}">{{ left(r) < 0 ? 'لا يكفي — المتوفر ' + num(r.on_hand) : 'يبقى ' + num(left(r)) }}</span></div>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">تخطٍّ</button><button type="submit" class="cl-btn primary" :disabled="busy">خصم المواد</button></div>
   </form></div>`,
 };
 const RecipesCard = {
@@ -3892,24 +3905,11 @@ const CalcPage = {
   </div>`,
 };
 
-// stock units: each material lives in one family; any unit of that family (or one of its purchase units) converts to the stock unit
-const STOCK_FAMILIES = {
-  area: { label: "مساحة", units: [["م²", 1], ["سم²", 0.0001]] },
-  length: { label: "طول", units: [["متر طولي", 1], ["سم طولي", 0.01], ["مم", 0.001]] },
-  count: { label: "عدد", units: [["قطعة", 1], ["ورقة", 1], ["علبة", 1], ["رزمة", 1]] },
-  volume: { label: "حجم", units: [["لتر", 1], ["مل", 0.001]] },
-  weight: { label: "وزن", units: [["كغ", 1], ["غ", 0.001]] },
-};
-const UNIT_ALIAS = { "م": "متر طولي", "متر": "متر طولي", "م2": "م²", "سم2": "سم²", "Nos": "قطعة", "Unit": "قطعة", "kg": "كغ", "Litre": "لتر", "m²": "م²" };
-const stockFamily = (i) => { if (i?.family && STOCK_FAMILIES[i.family]) return i.family; const u = UNIT_ALIAS[i?.uom] || i?.uom;
-  return Object.keys(STOCK_FAMILIES).find((k) => STOCK_FAMILIES[k].units.some((x) => x[0] === u)) || "count"; };
-const unitFactor = (fam, name) => { const u = UNIT_ALIAS[name] || name; return (STOCK_FAMILIES[fam]?.units.find((x) => x[0] === u) || [u, 1])[1]; };
-// what a material can be entered in: its own unit, the other units of its family (not for counted things), and its purchase units
-const stockChoices = (i) => { const fam = stockFamily(i), own = i.uom, base = unitFactor(fam, own);
-  const same = fam === "count" ? [] : STOCK_FAMILIES[fam].units.filter((x) => x[0] !== (UNIT_ALIAS[own] || own)).map((x) => ({ key: "u:" + x[0], label: x[0], per: x[1] / base }));
-  return [{ key: "u:" + own, label: uom(own), per: 1 }, ...same, ...(i.packs || []).map((p) => ({ key: "p:" + p.name, label: p.name + " (" + num(p.qty) + " " + uom(own) + ")", per: p.qty, pack: true }))]; };
-const packLabel = (i) => { const p = (i.packs || [])[0]; return p && i.qty > 0 ? "≈ " + num(+(i.qty / p.qty).toFixed(1)) + " " + p.name.split(" ")[0] : ""; };
-
+// stock: three ways a material is used. roll: kept in م², bought by the roll (width × length); bottle: bought and swapped one at a time; count: sheets, pieces (optionally bought by the pack)
+const STOCK_WAYS = { roll: { label: "لفّة", hint: "باش، فينيل، One Way" }, bottle: { label: "قارورة / علبة", hint: "حبر، غراء" }, count: { label: "بالعدد", hint: "ورق، هياكل، عيون" } };
+const COUNT_UNITS = ["ورقة", "قطعة", "علبة", "متر طولي", "لتر"];
+const wayOf = (i) => (STOCK_WAYS[i?.family] ? i.family : /م²|m²|m2/.test(i?.uom || "") ? "roll" : "count");
+const rollLen = (i) => (i.cfg?.width > 0 ? i.qty / i.cfg.width : null);
 const StockPage = {
   components: { Icon, RecipesCard, SizeControl },
   setup() {
@@ -3917,7 +3917,21 @@ const StockPage = {
     onMounted(load);
     const busy = ref(false), err = ref(null), q = ref(""), sheet = ref(null), orders = ref([]);
     const onlyLow = ref(false), rowMenu = ref(null);
-    const items = computed(() => (s.data?.items || []).filter((i) => i.item_name.toLowerCase().includes(q.value.trim().toLowerCase()) && (!onlyLow.value || i.low)));
+    const way = ref("all"), sel = ref(null), ledger = ref(null);
+    const items = computed(() => (s.data?.items || []).filter((i) => i.item_name.toLowerCase().includes(q.value.trim().toLowerCase()) && (!onlyLow.value || i.low) && (way.value === "all" || wayOf(i) === way.value)));
+    const wayCount = (k) => (s.data?.items || []).filter((i) => wayOf(i) === k).length;
+    const pick = async (i) => { sel.value = i.item_code; ledger.value = null; try { ledger.value = await call("material_ledger", { item_code: i.item_code }); } catch (e) { ledger.value = { error: e.message }; } };
+    const selItem = computed(() => (s.data?.items || []).find((i) => i.item_code === sel.value) || null);
+    const subOf = (i) => { const c = i.cfg || {}, w = wayOf(i);
+      if (w === "roll") return c.width > 0 && c.length > 0 ? `لفّة ${num(c.width)} × ${num(c.length)} م = ${num(+(c.width * c.length).toFixed(2))} م²` : "تُحسب بالمتر المربع";
+      if (w === "bottle") return i.daily ? "" : "تُركَّب واحدة واحدة";
+      return c.pack && c.pack_qty ? `${c.pack} = ${num(c.pack_qty)} ${uom(i.uom)}` : uom(i.uom); };
+    const qtySub = (i) => { const c = i.cfg || {}, w = wayOf(i), parts = [];
+      if (w === "roll" && rollLen(i) !== null) parts.push(`≈ ${num(Math.floor(rollLen(i)))} م طولًا`);
+      if (c.pack_qty > 0 && i.qty > 0) parts.push(`${num(+(i.qty / c.pack_qty).toFixed(1))} ${c.pack || ""}`);
+      return parts.join(" · "); };
+    const fitBottle = async (i) => { rowMenu.value = null; if (i.qty < 1) return toast("لا قارورة في المخزون — سجّل شراءً أولًا", "error");
+      try { await call("stock_issue", { item_code: i.item_code, qty: 1, note: "تركيب قارورة" }, true); toast("سُجّل تركيب قارورة"); await load(); if (sel.value === i.item_code) pick(i); } catch (e) { toast(e.message, "error"); } };
     const low = computed(() => (s.data?.items || []).filter((i) => i.low));
     const totalValue = computed(() => (s.data?.items || []).reduce((a, i) => a + (+i.value || 0), 0));
     // level bar: full at twice the minimum (or any stock when there is no minimum)
@@ -3930,34 +3944,34 @@ const StockPage = {
     const suppliers = computed(() => state.boot.suppliers || []);
     const open = async (kind, item) => {
       err.value = null;
-      const fam = item ? stockFamily(item) : "area";
-      sheet.value = { kind, item, name: item?.item_name || "", family: fam, uom: item?.uom || STOCK_FAMILIES[fam].units[0][0], min_qty: item?.safety_stock || 0,
-        packs: (item?.packs || []).map((p) => ({ ...p })), qty: kind === "count" ? (item?.qty ?? "") : "", unit: item ? "u:" + item.uom : "", rate: "", rateFor: "total", supplier: "", order: "", note: "", bill: "" };
+      const c = item?.cfg || {};
+      sheet.value = { kind, item, name: item?.item_name || "", way: item ? wayOf(item) : "roll", uom: item?.uom || "ورقة", min_qty: item?.safety_stock || 0,
+        width: c.width || "", length: c.length || "", pack: c.pack || "", pack_qty: c.pack_qty || "", waste: c.waste || "",
+        qty: kind === "count" ? (item?.qty ?? "") : "", n: "", price: "", rate: "", supplier: "", order: "", note: "", bill: "" };
       if (kind === "issue") { try { orders.value = (await call("board2")).cards; } catch { orders.value = []; } }
     };
     const TITLES = { add: "مادة جديدة", edit: "تعديل المادة", buy: "شراء من مورد", issue: "صرف مادة", count: "جرد" };
-    // the sheet's numbers in the stock unit
-    const choice = computed(() => { const f = sheet.value; if (!f?.item) return null; return stockChoices(f.item).find((c) => c.key === f.unit) || stockChoices(f.item)[0]; });
-    const conv = computed(() => { const f = sheet.value, c = choice.value; if (!f || !c) return null;
-      const qty = +String(f.qty).replace(",", ".") || 0, stockQty = +(qty * c.per).toFixed(6), price = +String(f.rate).replace(/[\s,]/g, "") || 0;
-      const total = f.kind !== "buy" ? price * stockQty : f.rateFor === "total" ? price : f.rateFor === "unit" ? price * qty : price * stockQty;
-      return { qty, stockQty, total, stockRate: stockQty ? total / stockQty : 0, perChosen: qty ? total / qty : 0, other: c.per !== 1 };
-    });
-    const famUnits = computed(() => STOCK_FAMILIES[sheet.value?.family]?.units.map((x) => x[0]) || []);
-    watch(() => sheet.value?.family, (v, old) => { const f = sheet.value; if (f && f.kind === "add" && old && v !== old) f.uom = STOCK_FAMILIES[v].units[0][0]; });
-    const addPack = () => { const f = sheet.value; f.packs.push(f.family === "area" ? { name: "لفّة", qty: "", width: "", length: "" } : { name: f.family === "count" ? "رزمة" : "", qty: "" }); };
-    const packArea = (p) => { if (+p.width > 0 && +p.length > 0) p.qty = +(p.width * p.length).toFixed(3); };
+    const n2 = (v) => +String(v ?? "").replace(/[\s,]/g, "") || 0;
+    // buying: by the roll, by the bottle, by the pack or by the unit; the stock always moves in the stock unit
+    const per = computed(() => { const f = sheet.value; if (!f?.item) return 1; const c = f.item.cfg || {}, w = wayOf(f.item);
+      return (w === "roll" || w === "count") && c.pack_qty > 0 ? c.pack_qty : 1; });
+    const buyWord = computed(() => { const f = sheet.value; if (!f?.item) return ""; const c = f.item.cfg || {}, w = wayOf(f.item);
+      return w === "roll" ? (c.pack_qty > 0 ? "لفّة" : "م²") : w === "bottle" ? "قارورة" : c.pack_qty > 0 ? (c.pack || "رزمة") : uom(f.item.uom); });
+    const conv = computed(() => { const f = sheet.value; if (!f) return null; const n = n2(f.n), price = n2(f.price);
+      return { stockQty: +(n * per.value).toFixed(4), total: n * price, stockRate: n ? price / per.value : 0 }; });
+    const rollArea = computed(() => { const f = sheet.value; return f && n2(f.width) > 0 && n2(f.length) > 0 ? +(n2(f.width) * n2(f.length)).toFixed(3) : 0; });
     const submit = async () => {
       const f = sheet.value, code = f.item?.item_code, c = conv.value;
       busy.value = true; err.value = null;
       try {
-        const packs = JSON.stringify(f.packs.filter((p) => p.name && +p.qty > 0));
-        if (f.kind === "add") await call("add_material", { name: f.name, uom: f.uom, min_qty: f.min_qty, family: f.family, packs }, true);
-        if (f.kind === "edit") await call("update_material", { item_code: code, name: f.name, min_qty: f.min_qty, family: f.family, packs }, true);
-        if (f.kind === "buy") { if (!(c.total > 0)) throw new Error("اكتب السعر"); await call("stock_purchase", { item_code: code, qty: c.stockQty, rate: +c.stockRate.toFixed(6), supplier: f.supplier, bill_no: f.bill }, true); }
-        if (f.kind === "issue") await call("stock_issue", { item_code: code, qty: c.stockQty, sales_order: f.order, note: f.note }, true);
-        if (f.kind === "count") await call("stock_count", { item_code: code, qty: c.stockQty, rate: c.qty ? +(+String(f.rate).replace(/[\s,]/g, "") / choice.value.per).toFixed(6) || "" : f.rate }, true);
-        sheet.value = null; toast("تم الحفظ"); await load();
+        const cfg = JSON.stringify({ width: n2(f.width), length: n2(f.length), pack: f.way === "roll" ? "لفّة" : f.pack, pack_qty: f.way === "roll" ? rollArea.value : n2(f.pack_qty), waste: n2(f.waste) });
+        if (f.kind === "add") await call("add_material", { name: f.name, uom: f.uom, min_qty: f.min_qty, family: f.way, packs: cfg }, true);
+        if (f.kind === "edit") await call("update_material", { item_code: code, name: f.name, min_qty: f.min_qty, family: f.way, packs: cfg }, true);
+        if (f.kind === "buy") { if (!(c.stockQty > 0)) throw new Error("اكتب العدد"); if (!(c.total > 0)) throw new Error("اكتب السعر");
+          await call("stock_purchase", { item_code: code, qty: c.stockQty, rate: +c.stockRate.toFixed(6), supplier: f.supplier, bill_no: f.bill }, true); }
+        if (f.kind === "issue") await call("stock_issue", { item_code: code, qty: n2(f.qty), sales_order: f.order, note: f.note }, true);
+        if (f.kind === "count") await call("stock_count", { item_code: code, qty: n2(f.qty), rate: f.rate }, true);
+        sheet.value = null; toast("تم الحفظ"); await load(); if (sel.value && code === sel.value) pick(f.item);
       } catch (e) { err.value = e.message; } finally { busy.value = false; }
     };
     const remove = async (i) => {
@@ -3965,7 +3979,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { choice, conv, famUnits, addPack, packArea, STOCK_FAMILIES, stockChoices, packLabel, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { conv, per, buyWord, rollArea, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -3978,17 +3992,39 @@ const StockPage = {
         <div v-if="s.data.can_value" class="stk-kpi"><span>قيمة المخزون</span><b class="money">{{ money(totalValue) }}</b></div>
         <button type="button" class="stk-kpi" :class="{warn: low.length}" :aria-pressed="onlyLow" @click="onlyLow = !onlyLow"><span>تحت الحد الأدنى{{ low.length ? ' — اضغط للعرض' : '' }}</span><b>{{ low.length }}</b></button>
       </div>
-      <div class="stk-bar"><div class="cal2-seg" role="group" aria-label="تصفية"><button type="button" :aria-pressed="!onlyLow" @click="onlyLow = false">الكل</button><button type="button" :aria-pressed="onlyLow" @click="onlyLow = true">تحت الحد الأدنى<span v-if="low.length" class="stk-n">{{ low.length }}</span></button></div></div>
-      <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>المادة</th><th class="n">الكمية</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n">إجراء</th></tr></thead>
-        <tbody><tr v-for="i in items" :key="i.item_code" :class="{low: i.low}">
-          <td><b>{{ i.item_name }}</b><span class="m stk-sub">{{ uom(i.uom) }}<template v-if="i.low"> · ينقص {{ num(shortBy(i)) }}</template></span></td>
-          <td class="n"><div class="stk-lvl"><span class="stk-meter" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><b class="stk-qty">{{ num(i.qty) }} <small class="m">{{ uom(i.uom) }}</small></b></div><span v-if="packLabel(i)" class="m stk-pk">{{ packLabel(i) }}</span></td>
+      <div class="stk-bar"><button type="button" class="bd-chip" :aria-pressed="way === 'all' && !onlyLow" @click="way = 'all'; onlyLow = false">الكل <span class="cl-quick-n">{{ s.data.items.length }}</span></button>
+        <button v-for="(w, k) in STOCK_WAYS" v-show="wayCount(k)" :key="k" type="button" class="bd-chip" :aria-pressed="way === k" @click="way = k; onlyLow = false">{{ w.label }} <span class="cl-quick-n">{{ wayCount(k) }}</span></button>
+        <button v-if="low.length" type="button" class="bd-chip debt" :aria-pressed="onlyLow" @click="onlyLow = !onlyLow; way = 'all'">تحت الحد <span class="cl-quick-n">{{ low.length }}</span></button></div>
+      <div class="stk-grid" :class="{open: selItem}">
+      <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>المادة</th><th>المتوفر</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n"><span class="sr-only">إجراء</span></th></tr></thead>
+        <tbody><tr v-for="i in items" :key="i.item_code" :class="{low: i.low, sel: sel === i.item_code}" class="stk-row" tabindex="0" @click="pick(i)" @keydown.enter="pick(i)">
+          <td><b>{{ i.item_name }}<span class="stk-how">{{ STOCK_WAYS[wayOf(i)].label }}</span></b><span class="m stk-sub">{{ subOf(i) }}</span></td>
+          <td><div class="stk-lvl"><span class="stk-meter" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><b class="stk-qty" :class="{bad: i.low}">{{ num(i.qty) }} <small>{{ uom(i.uom) }}</small></b></div><span v-if="qtySub(i)" class="m stk-pk">{{ qtySub(i) }}</span></td>
           <td class="n"><span class="m">{{ i.safety_stock ? num(i.safety_stock) : '—' }}</span></td>
           <td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
-          <td class="n"><div class="btn-row stk-acts"><button v-if="s.data.can_buy" type="button" class="cl-btn sm" @click="open('buy', i)">شراء</button><button v-if="s.data.can_issue" type="button" class="cl-btn sm" :disabled="i.qty <= 0" @click="open('issue', i)">صرف</button>
+          <td class="n" @click.stop><div class="btn-row stk-acts">
+            <button v-if="wayOf(i) === 'bottle' && s.data.can_issue" type="button" class="cl-btn sm primary" :disabled="i.qty < 1" @click="fitBottle(i)">ركّبت قارورة</button>
+            <button v-else-if="s.data.can_buy" type="button" class="cl-btn sm" @click="open('buy', i)">شراء</button>
             <button type="button" class="cl-btn sm" :aria-label="'إجراءات أخرى لـ ' + i.item_name" :aria-expanded="rowMenu === i.item_code" @click.stop="rowMenu = rowMenu === i.item_code ? null : i.item_code">▾</button>
-            <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop><button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></div></div></td></tr>
-          <tr v-if="!items.length"><td :colspan="s.data.can_value ? 5 : 4" class="muted" style="text-align:center;padding:24px">{{ onlyLow ? 'لا مواد تحت الحد الأدنى.' : 'لا مواد بعد. أضف مادة ثم سجّل رصيدها بالجرد أو الشراء.' }}</td></tr></tbody></table></section>
+            <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop>
+              <button v-if="wayOf(i) === 'bottle' && s.data.can_buy" type="button" class="tm-pop-row" @click="rowMenu = null; open('buy', i)">شراء</button>
+              <button v-if="s.data.can_issue && wayOf(i) !== 'bottle'" type="button" class="tm-pop-row" :disabled="i.qty <= 0" @click="rowMenu = null; open('issue', i)">صرف يدوي</button>
+              <button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></div></div></td></tr>
+          <tr v-if="!items.length"><td :colspan="s.data.can_value ? 5 : 4" class="muted" style="text-align:center;padding:24px">{{ onlyLow ? 'لا مواد تحت الحد الأدنى.' : s.data.items.length ? 'لا مواد تطابق.' : 'لا مواد بعد. أضف مادة ثم سجّل شراءً أو رصيدها بالجرد.' }}</td></tr></tbody></table></section>
+      <aside v-if="selItem" class="mn-card stk-side">
+        <div class="stk-sh"><b>{{ selItem.item_name }}</b><button type="button" class="cl-btn icon sm" aria-label="إغلاق" @click="sel = null">×</button></div>
+        <span v-if="ledger && ledger.last_buy" class="m stk-small">آخر شراء {{ date(ledger.last_buy.posting_date) }} · {{ money(ledger.last_buy.rate) }} لكل {{ uom(selItem.uom) }} · {{ ledger.last_buy.supplier_name }}</span>
+        <div class="stk-facts"><div><span>المتوفر</span><b>{{ num(selItem.qty) }} {{ uom(selItem.uom) }}</b></div>
+          <div><span>يكفي لـ</span><b>{{ ledger && ledger.daily > 0 ? '≈ ' + Math.floor(selItem.qty / ledger.daily) + ' يومًا' : '—' }}</b></div>
+          <div><span>هذا الشهر</span><b>{{ ledger ? num(+ledger.month_used.toFixed(2)) : '…' }}</b></div>
+          <div v-if="s.data.can_value"><span>متوسط السعر</span><b>{{ selItem.qty > 0 ? money(selItem.value / selItem.qty) : '—' }}</b></div></div>
+        <div v-if="!ledger" class="m stk-small">جارٍ التحميل…</div><div v-else-if="ledger.error" class="alert error">{{ ledger.error }}</div>
+        <table v-else class="cl-table stk-led"><thead><tr><th>التاريخ</th><th>الحركة</th><th class="n">الكمية</th><th class="n">الرصيد</th></tr></thead>
+          <tbody><tr v-for="(m, k) in ledger.rows" :key="k"><td class="m">{{ date(m.posting_date) }}</td>
+            <td><span class="stk-tag" :class="MOVE_TAG[m.voucher_type]">{{ MOVE[m.voucher_type] || m.voucher_type }}</span> <a v-if="m.order" class="cl-link" href="#" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">{{ m.order_title }}</a><span v-else-if="m.note" class="m">{{ m.note }}</span></td>
+            <td class="n" dir="ltr" :class="m.voucher_type === 'Stock Reconciliation' ? '' : m.actual_qty < 0 ? 'stk-minus' : 'stk-plus'">{{ (m.actual_qty < 0 ? '−' : '+') + num(Math.abs(+m.actual_qty.toFixed(3))) }}</td><td class="n">{{ num(+m.qty_after_transaction.toFixed(3)) }}</td></tr>
+            <tr v-if="!ledger.rows.length"><td colspan="4" class="m" style="text-align:center">لا حركات بعد.</td></tr></tbody></table>
+      </aside></div>
       <RecipesCard/>
       <section v-if="s.data.moves.length" class="mn-card stk-card"><div class="mn-card-h"><b>آخر الحركات</b></div><table class="cl-table stk-table">
         <thead><tr><th>المادة</th><th>النوع</th><th class="n">الكمية</th><th>الطلب</th><th>التاريخ</th></tr></thead>
@@ -3999,30 +4035,26 @@ const StockPage = {
     </div>
     <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><h2>{{ TITLES[sheet.kind] }}<template v-if="sheet.item"> · {{ sheet.item.item_name }}</template></h2></div>
       <div v-if="err" class="alert error">{{ err }}</div>
-      <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'"><div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" v-model="sheet.name" placeholder="مثلًا: Bâche 440g — 3.20 م"></div>
-        <div class="stk-row2"><div class="field"><label for="st-fam">نوع القياس</label><select id="st-fam" class="input" v-model="sheet.family" :disabled="sheet.kind === 'edit'"><option v-for="(f, k) in STOCK_FAMILIES" :key="k" :value="k">{{ f.label }}</option></select></div>
-          <div class="field"><label for="st-uom">يُخزَّن بـ</label><select v-if="sheet.kind === 'add'" id="st-uom" class="input" v-model="sheet.uom"><option v-for="u in famUnits" :key="u" :value="u">{{ u }}</option></select><input v-else id="st-uom" class="input" :value="uom(sheet.uom)" disabled></div></div>
-        <div class="field"><label>وحدات الشراء <span class="m">(اختياري) — مثل لفّة أو رزمة، وكم تساوي</span></label>
-          <div v-for="(p, n) in sheet.packs" :key="n" class="stk-pack"><input class="input" v-model="p.name" placeholder="الاسم: لفّة 3.20×50" aria-label="اسم وحدة الشراء">
-            <template v-if="sheet.family === 'area'"><input class="input stk-n4" inputmode="decimal" v-model="p.width" placeholder="العرض م" aria-label="العرض" @input="packArea(p)"><span class="m">×</span><input class="input stk-n4" inputmode="decimal" v-model="p.length" placeholder="الطول م" aria-label="الطول" @input="packArea(p)"><span class="m">=</span></template>
-            <input class="input stk-n4" inputmode="decimal" v-model="p.qty" :aria-label="'تساوي كم ' + sheet.uom"><span class="m">{{ uom(sheet.uom) }}</span>
-            <button type="button" class="cl-btn icon sm" aria-label="حذف" @click="sheet.packs.splice(n, 1)">×</button></div>
-          <button type="button" class="cl-link" style="align-self:flex-start" @click="addPack">+ وحدة شراء</button></div>
-        <div class="field"><label for="st-min">الحد الأدنى للتنبيه ({{ uom(sheet.uom) }})</label><input id="st-min" class="input" inputmode="decimal" v-model="sheet.min_qty"></div></template>
+      <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'"><div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" v-model="sheet.name" placeholder="مثلًا: Bâche 440g — 1.05 م"></div>
+        <div class="field"><label>كيف تُستهلك؟</label><div class="stk-ways"><button v-for="(w, k) in STOCK_WAYS" :key="k" type="button" class="stk-way" :aria-pressed="sheet.way === k" :disabled="sheet.kind === 'edit' && sheet.way !== k" @click="sheet.way = k"><b>{{ w.label }}</b><span>{{ w.hint }}</span></button></div></div>
+        <template v-if="sheet.way === 'roll'"><div class="stk-row2"><div class="field"><label for="st-w">عرض اللفّة (م)</label><input id="st-w" class="input" inputmode="decimal" v-model="sheet.width"></div><div class="field"><label for="st-l">طول اللفّة (م)</label><input id="st-l" class="input" inputmode="decimal" v-model="sheet.length"></div></div>
+          <div v-if="rollArea" class="stk-calc">اللفّة = <b>{{ num(rollArea) }} م²</b> · المخزون يُحسب بالمتر المربع</div></template>
+        <template v-if="sheet.way === 'count'"><div class="stk-row2"><div class="field"><label for="st-u">يُعدّ بـ</label><select id="st-u" class="input" v-model="sheet.uom" :disabled="sheet.kind === 'edit'"><option v-for="u in COUNT_UNITS" :key="u" :value="u">{{ u }}</option></select></div>
+          <div class="field"><label for="st-pk">يُشترى بـ (اختياري)</label><div class="stk-pair"><input id="st-pk" class="input" v-model="sheet.pack" placeholder="رزمة"><span class="m">=</span><input class="input" inputmode="decimal" v-model="sheet.pack_qty" :aria-label="'كم ' + sheet.uom" placeholder="500"></div></div></div></template>
+        <div class="stk-row2"><div class="field"><label for="st-min">الحد الأدنى ({{ sheet.way === 'roll' ? 'م²' : sheet.way === 'bottle' ? 'قارورة' : sheet.uom }})</label><input id="st-min" class="input" inputmode="decimal" v-model="sheet.min_qty"></div>
+          <div v-if="sheet.way === 'roll'" class="field"><label for="st-ws">تالف متوقع %</label><input id="st-ws" class="input" inputmode="decimal" v-model="sheet.waste" placeholder="5"></div></div></template>
+      <template v-else-if="sheet.kind === 'buy'">
+        <div class="stk-row2"><div class="field"><label for="st-n">عدد {{ buyWord === 'م²' ? 'الأمتار المربعة' : buyWord === 'لفّة' ? 'اللفّات' : buyWord === 'قارورة' ? 'القارورات' : '(' + buyWord + ')' }}</label><input id="st-n" class="input" inputmode="decimal" v-model="sheet.n"></div>
+          <div class="field"><label for="st-p">سعر {{ buyWord === 'م²' ? 'المتر المربع' : buyWord === 'لفّة' ? 'اللفّة' : buyWord === 'قارورة' ? 'القارورة' : 'الواحدة (' + buyWord + ')' }} (دج)</label><input id="st-p" class="input" inputmode="decimal" v-model="sheet.price"></div></div>
+        <div v-if="conv && conv.stockQty" class="stk-calc">يُضاف <b>{{ num(conv.stockQty) }} {{ uom(sheet.item.uom) }}</b><template v-if="per !== 1"> ({{ num(+sheet.n || 0) }} × {{ num(per) }})</template><template v-if="conv.total"> · سعر {{ uom(sheet.item.uom) }} <b>{{ money(conv.stockRate) }}</b> · المجموع <b>{{ money(conv.total) }}</b></template></div>
+        <div class="field"><label for="st-sup">المورد</label><select id="st-sup" class="input" v-model="sheet.supplier"><option value="" disabled>اختر المورد</option><option v-for="x in suppliers" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select></div>
+        <div class="field"><label for="st-bill">رقم فاتورة المورد (اختياري)</label><input id="st-bill" class="input" v-model="sheet.bill"></div></template>
       <template v-else>
-        <div class="stk-row2"><div class="field"><label for="st-qty">{{ sheet.kind === 'count' ? 'الكمية الفعلية' : 'الكمية' }}</label><input id="st-qty" class="input" inputmode="decimal" v-model="sheet.qty"></div>
-          <div class="field"><label for="st-unit">بالوحدة</label><select id="st-unit" class="input" v-model="sheet.unit"><option v-for="c in stockChoices(sheet.item)" :key="c.key" :value="c.key">{{ c.label }}</option></select></div></div>
-        <div v-if="sheet.kind === 'buy'" class="stk-row2"><div class="field"><label for="st-rate">السعر (دج)</label><input id="st-rate" class="input" inputmode="decimal" v-model="sheet.rate"></div>
-          <div class="field"><label for="st-rfor">عن</label><select id="st-rfor" class="input" v-model="sheet.rateFor"><option value="total">المجموع</option><option v-if="choice && choice.per !== 1" value="unit">كل {{ choice.label.split(' (')[0] }}</option><option value="stock">كل {{ uom(sheet.item.uom) }}</option></select></div></div>
-        <div v-if="sheet.kind === 'count'" class="field"><label for="st-rate">سعر {{ choice ? choice.label.split(' (')[0] : '' }} (دج) — مطلوب للرصيد الأول</label><input id="st-rate" class="input" inputmode="decimal" v-model="sheet.rate"></div>
-        <div v-if="conv && conv.qty" class="stk-calc">
-          <template v-if="sheet.kind === 'buy'">يُضاف: <b>{{ num(conv.stockQty) }} {{ uom(sheet.item.uom) }}</b><template v-if="conv.total"> · سعر {{ uom(sheet.item.uom) }}: <b>{{ money(conv.stockRate) }}</b><template v-if="conv.other"> · كل {{ choice.label.split(' (')[0] }}: <b>{{ money(conv.perChosen) }}</b></template> · المجموع <b>{{ money(conv.total) }}</b></template></template>
-          <template v-else-if="sheet.kind === 'issue'">يُخصم: <b>{{ num(conv.stockQty) }} {{ uom(sheet.item.uom) }}</b> · يبقى {{ num(+(sheet.item.qty - conv.stockQty).toFixed(3)) }}</template>
-          <template v-else>الرصيد يصبح: <b>{{ num(conv.stockQty) }} {{ uom(sheet.item.uom) }}</b> (كان {{ num(sheet.item.qty) }})</template></div>
-        <template v-if="sheet.kind === 'buy'"><div class="field"><label for="st-sup">المورد</label><select id="st-sup" class="input" v-model="sheet.supplier"><option value="" disabled>اختر المورد</option><option v-for="x in suppliers" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select></div>
-          <div class="field"><label for="st-bill">رقم فاتورة المورد (اختياري)</label><input id="st-bill" class="input" v-model="sheet.bill"></div></template>
+        <div class="field"><label for="st-qty">{{ sheet.kind === 'count' ? 'الكمية الفعلية الآن' : 'الكمية' }} ({{ uom(sheet.item.uom) }})</label><input id="st-qty" class="input" inputmode="decimal" v-model="sheet.qty">
+          <span class="m">{{ sheet.kind === 'count' ? 'كان ' + num(sheet.item.qty) : 'المتوفر ' + num(sheet.item.qty) }}</span></div>
+        <div v-if="sheet.kind === 'count'" class="field"><label for="st-rate">سعر {{ uom(sheet.item.uom) }} (دج) — مطلوب للرصيد الأول فقط</label><input id="st-rate" class="input" inputmode="decimal" v-model="sheet.rate"></div>
         <template v-if="sheet.kind === 'issue'"><div class="field"><label for="st-order">الطلب (اختياري)</label><select id="st-order" class="input" v-model="sheet.order"><option value="">بدون طلب</option><option v-for="o in orders" :key="o.name" :value="o.name">{{ o.title || o.name }}</option></select></div>
-          <div class="field"><label for="st-note">ملاحظة</label><input id="st-note" class="input" v-model="sheet.note"></div></template></template>
+          <div class="field"><label for="st-note">ملاحظة</label><input id="st-note" class="input" v-model="sheet.note" placeholder="مثلًا: تجربة، تلف"></div></template></template>
       <div class="sh-foot"><button type="button" class="cl-btn" @click="sheet = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="busy">حفظ</button></div>
     </form></div>
   </div>`,
