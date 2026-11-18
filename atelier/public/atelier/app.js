@@ -1590,6 +1590,7 @@ const Board = {
         const el = document.querySelector(".tb-menu"); if (!el || !m.value) return;
         const h = Math.min(el.scrollHeight, r.vh - 16), below = r.vh - r.bottom - 8, above = r.top - 8;
         m.value.top = h <= below ? r.bottom + 6 : h <= above ? r.top - 6 - h : Math.max(8, r.vh - 8 - h);
+        m.value.maxh = Math.max(160, r.vh - m.value.top - 8);  // never past the bottom of the window: scroll inside instead
       });
     };
     const openMenu = (c, ev) => { stMenu.value = null; menu.value = { c, view: null, ...place(ev, 236) }; menu.anchor = ev.type === "contextmenu" ? { type: "contextmenu", clientX: ev.clientX, clientY: ev.clientY } : { type: "click", currentTarget: ev.currentTarget }; fitPop(menu, ev); };
@@ -1801,7 +1802,7 @@ const Board = {
       </div>
     </div>
 
-    <div v-if="menu" class="tm-pop tb-menu" :style="{top: menu.top + 'px', left: menu.left + 'px'}" @click.stop>
+    <div v-if="menu" class="tm-pop tb-menu" :style="{top: menu.top + 'px', left: menu.left + 'px', maxHeight: menu.maxh ? menu.maxh + 'px' : null}" @click.stop>
       <template v-if="menu.view === 'status'"><b>الحالات</b><StatusMenu :statuses="cfg.statuses || []" :current="menu.c.status" @pick="menuStatus"/>
         <hr class="tm2-hr"><button type="button" class="tm-pop-row tb-back" @click="menuView(null)">‹ رجوع</button></template>
       <template v-else-if="menu.view === 'members'"><b>الأعضاء</b>
@@ -1859,7 +1860,7 @@ const Board = {
         <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="cl-btn" @click="tplAsk = null">إلغاء</button>
           <button type="submit" class="cl-btn primary" :disabled="tplBusy || !tplName.trim()">{{ tplBusy ? 'جارٍ الحفظ…' : 'حفظ القالب' }}</button></div></form>
     </div>
-    <div v-if="stMenu" class="tm-pop tb-menu" :style="{top: stMenu.top + 'px', left: stMenu.left + 'px'}" @click.stop>
+    <div v-if="stMenu" class="tm-pop tb-menu" :style="{top: stMenu.top + 'px', left: stMenu.left + 'px', maxHeight: stMenu.maxh ? stMenu.maxh + 'px' : null}" @click.stop>
       <StatusMenu :statuses="cfg.statuses || []" :current="stMenu.c.status" @pick="pickStatus"/>
     </div>
     <input ref="photoInput" type="file" accept="image/*" capture="environment" class="sr-only" tabindex="-1" aria-hidden="true" @change="onPhoto">
