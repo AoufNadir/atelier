@@ -2815,3 +2815,7 @@ body.show-hints .hint { display: revert !important; font-size: 12px; color: #667
 .st-menu .st-row:hover .st-pill { filter: brightness(.94); }
 .stk-by { display: flex; margin-bottom: 10px; } .stk-by button { flex: 1; }
 .stk-fix { font-size: 13px; margin-bottom: 10px; }
+.stk-open { border: 1px solid #E4E7EC; border-radius: 10px; padding: 8px 12px 4px; margin: 4px 0 6px; }
+.stk-open legend { font-size: 13px; font-weight: 700; padding: 0 6px; color: #17202A; }
+.stk-open legend .m { font-weight: 400; font-size: 12px; }
+.stk-open legend { white-space: nowrap; }
