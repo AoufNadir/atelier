@@ -88,8 +88,20 @@ def _order_lines(d):
 		line = {"item_code": code or _general_item(), "qty": flt(row.get("qty")) or 1, "description": text,
 			"rate": None if rate in (None, "") else flt(rate)}
 		line.update(_measure(row, line["qty"]))
+		_allow_fraction(line)
 		lines.append(line)
 	return lines
+
+
+def _allow_fraction(line):
+	"""A service sold by the m² or the metre has a fractional quantity (2 × 0.85 = 1.7). ERPNext refuses that when the
+	service's unit is a whole-number unit like Nos: let that unit take fractions, for services only (stock items keep their rule)."""
+	qty = flt(line.get("qty"))
+	if abs(qty - round(qty)) < 1e-9:
+		return
+	item = frappe.db.get_value("Item", line["item_code"], ["stock_uom", "is_stock_item"], as_dict=True)
+	if item and not item.is_stock_item and cint(frappe.db.get_value("UOM", item.stock_uom, "must_be_whole_number")):
+		frappe.db.set_value("UOM", item.stock_uom, "must_be_whole_number", 0)
 
 
 LINE_FIELDS = [
