@@ -548,7 +548,7 @@ const PaymentSheet = {
 
 // ------------------------------------------------------------------ services & prices
 const PricesPage = {
-  props: ["embedded"], components: { Icon, LoadState, DataTable },
+  props: ["embedded"], components: { Icon, LoadState, DataTable, get RecipesCard() { return RecipesCard; } },
   setup() {
     const { s, load } = useLoad(() => call("prices"));
     onMounted(load);
@@ -614,6 +614,7 @@ const PricesPage = {
         </template>
       </DataTable>
     </LoadState>
+    <RecipesCard v-if="state.boot.can.stock !== false" style="margin-top:12px"/>
   </div>`,
 };
 
@@ -3926,7 +3927,7 @@ const PAPER_SIZES = ["A4", "A3", "A3+", "SRA3", "32×45", "50×70", "70×100"];
 const wayOf = (i) => (STOCK_WAYS[i?.family] ? i.family : /م²|m²|m2/.test(i?.uom || "") ? "roll" : "count");
 const rollLen = (i) => (i.cfg?.width > 0 ? i.qty / i.cfg.width : null);
 const StockPage = {
-  components: { Icon, RecipesCard, SizeControl },
+  components: { Icon, SizeControl },
   setup() {
     const { s, load } = useLoad(() => call("stock"));
     onMounted(load);
@@ -4051,19 +4052,14 @@ const StockPage = {
       <input class="input stk-q" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><SizeControl/><button type="button" class="cl-btn primary" @click="open('add')"><Icon name="plus" :size="16"/>مادة جديدة</button></div>
     <div v-if="s.error" class="alert error" style="margin:0 28px 12px">{{ s.error }}</div>
     <div v-if="s.data" class="stock-body stk">
-      <div class="stk-kpis">
-        <div class="stk-kpi"><span>عدد المواد</span><b>{{ s.data.items.length }}</b></div>
-        <div v-if="s.data.can_value" class="stk-kpi"><span>قيمة المخزون</span><b class="money">{{ money(totalValue) }}</b></div>
-        <button type="button" class="stk-kpi" :class="{warn: low.length}" :aria-pressed="onlyLow" @click="onlyLow = !onlyLow"><span>تحت الحد الأدنى{{ low.length ? ' — اضغط للعرض' : '' }}</span><b>{{ low.length }}</b></button>
-      </div>
-      <div class="stk-bar"><button type="button" class="bd-chip" :aria-pressed="way === 'all' && !onlyLow" @click="way = 'all'; onlyLow = false">الكل <span class="cl-quick-n">{{ s.data.items.length }}</span></button>
+      <div class="stk-bar"><span v-if="s.data.can_value" class="stk-sum">قيمة المخزون <b class="money">{{ money(totalValue) }}</b></span><span class="stk-sep"></span><button type="button" class="bd-chip" :aria-pressed="way === 'all' && !onlyLow" @click="way = 'all'; onlyLow = false">الكل <span class="cl-quick-n">{{ s.data.items.length }}</span></button>
         <button v-for="(w, k) in STOCK_WAYS" v-show="wayCount(k)" :key="k" type="button" class="bd-chip" :aria-pressed="way === k" @click="way = k; onlyLow = false">{{ w.label }} <span class="cl-quick-n">{{ wayCount(k) }}</span></button>
         <button v-if="low.length" type="button" class="bd-chip debt" :aria-pressed="onlyLow" @click="onlyLow = !onlyLow; way = 'all'">تحت الحد <span class="cl-quick-n">{{ low.length }}</span></button></div>
       <div class="stk-grid" :class="{open: selItem}">
       <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>المادة</th><th>المتوفر</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n"><span class="sr-only">إجراء</span></th></tr></thead>
         <tbody><tr v-for="i in items" :key="i.item_code" :class="{low: i.low, sel: sel === i.item_code}" class="stk-row" tabindex="0" @click="pick(i)" @keydown.enter="pick(i)">
           <td><b><i v-if="i.cfg && i.cfg.color" class="stk-ink" :style="{background: i.cfg.color}"></i>{{ i.item_name }}<span class="stk-how">{{ STOCK_WAYS[wayOf(i)].label }}</span></b><span class="m stk-sub">{{ subOf(i) }}</span></td>
-          <td><div class="stk-lvl"><span class="stk-meter" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><b class="stk-qty" :class="{bad: i.low}">{{ num(i.qty) }} <small>{{ uom(i.uom) }}</small></b></div><span v-if="qtySub(i)" class="m stk-pk">{{ qtySub(i) }}</span></td>
+          <td><div class="stk-lvl"><span class="stk-meter" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><span class="stk-qv"><b class="stk-qty" :class="{bad: i.low}">{{ num(+(+i.qty).toFixed(wayOf(i) === 'roll' ? 1 : 2)) }} <small>{{ uom(i.uom) }}</small></b><span v-if="qtySub(i)" class="m stk-pk">{{ qtySub(i) }}</span></span></div></td>
           <td class="n"><span class="m">{{ i.safety_stock ? num(i.safety_stock) : '—' }}</span></td>
           <td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
           <td class="n" @click.stop><div class="btn-row stk-acts">
@@ -4089,7 +4085,6 @@ const StockPage = {
             <td class="n" dir="ltr" :class="m.voucher_type === 'Stock Reconciliation' ? '' : m.actual_qty < 0 ? 'stk-minus' : 'stk-plus'">{{ (m.actual_qty < 0 ? '−' : '+') + num(Math.abs(+m.actual_qty.toFixed(3))) }}</td><td class="n">{{ num(+m.qty_after_transaction.toFixed(3)) }}</td></tr>
             <tr v-if="!ledger.rows.length"><td colspan="4" class="m" style="text-align:center">لا حركات بعد.</td></tr></tbody></table>
       </aside></div>
-      <RecipesCard/>
       <section v-if="s.data.moves.length" class="mn-card stk-card"><div class="mn-card-h"><b>آخر الحركات</b></div><table class="cl-table stk-table">
         <thead><tr><th>المادة</th><th>النوع</th><th class="n">الكمية</th><th>الطلب</th><th>التاريخ</th></tr></thead>
         <tbody><tr v-for="m in s.data.moves" :key="m.voucher_no + m.item_code"><td>{{ m.item_name }}</td><td><span class="stk-tag" :class="MOVE_TAG[m.voucher_type]">{{ MOVE[m.voucher_type] || m.voucher_type }}</span></td>
