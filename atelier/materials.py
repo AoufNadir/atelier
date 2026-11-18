@@ -112,6 +112,26 @@ def _set_units(item_code, family=None, packs=None):
 			vals["atelier_packs"] = json.dumps(_packs(packs), ensure_ascii=False)
 	if vals:
 		frappe.db.set_value("Item", item_code, vals)
+	if vals.get("atelier_packs", "").startswith("{"):
+		c = json.loads(vals["atelier_packs"])
+		if c.get("pack") and flt(c.get("pack_qty")) > 0:
+			_pack_uom(item_code, c["pack"], flt(c["pack_qty"]))
+
+
+def _pack_uom(item_code, pack, factor):
+	"""The roll / ream as a real purchase unit of the item, so a roll bought at 500 دج is worth exactly 500 دج in stock."""
+	if not frappe.db.exists("UOM", pack):
+		frappe.get_doc({"doctype": "UOM", "uom_name": pack, "must_be_whole_number": 0}).insert(ignore_permissions=True)
+	item = frappe.get_doc("Item", item_code)
+	row = next((u for u in item.uoms if u.uom == pack), None)
+	if row and abs(flt(row.conversion_factor) - factor) < 1e-9:
+		return
+	if row:
+		row.conversion_factor = factor
+	else:
+		item.append("uoms", {"uom": pack, "conversion_factor": factor})
+	item.flags.ignore_permissions = True
+	item.save()
 
 
 @frappe.whitelist(methods=["POST"])
@@ -170,10 +190,22 @@ def remove_material(item_code):
 
 
 @frappe.whitelist(methods=["POST"])
-def stock_purchase(item_code, qty, rate, supplier, bill_no=None):
-	"""Goods in with a debt to the supplier; it appears on the supplier's page."""
+def stock_purchase(item_code, qty, rate, supplier, bill_no=None, uom=None):
+	"""Goods in with a debt to the supplier; it appears on the supplier's page.
+	With uom (a roll, a ream): qty and rate are per that unit, and ERPNext converts to the stock unit with no rounding loss."""
 	_need("Purchase Invoice")
 	item, qty, rate = _material(item_code), _quantity(qty), flt(rate)
+	row = {"item_code": item.name, "qty": qty, "rate": rate}
+	if uom and uom != item.stock_uom:
+		factor = flt(frappe.db.get_value("UOM Conversion Detail", {"parent": item.name, "uom": uom}, "conversion_factor"))
+		if factor <= 0:  # a material saved before purchase units existed: register its roll / ream now
+			c = material_cfg(frappe.db.get_value("Item", item.name, "atelier_packs") if _has("atelier_packs") else None)
+			if c["pack"] == uom and c["pack_qty"] > 0:
+				_pack_uom(item.name, uom, c["pack_qty"])
+				factor = c["pack_qty"]
+		if factor <= 0:
+			frappe.throw(_("وحدة الشراء «{0}» غير معرّفة لهذه المادة. افتح «تعديل» واحفظ المادة مرة.").format(uom))
+		row.update({"uom": uom, "conversion_factor": factor})
 	if rate <= 0:
 		frappe.throw(_("اكتب سعر الوحدة"))
 	if not supplier or not frappe.db.exists("Supplier", supplier):
@@ -181,7 +213,7 @@ def stock_purchase(item_code, qty, rate, supplier, bill_no=None):
 	company = api._company()
 	invoice = frappe.get_doc({"doctype": "Purchase Invoice", "supplier": supplier, "company": company, "posting_date": nowdate(),
 		"update_stock": 1, "set_warehouse": store_for(company), "bill_no": (bill_no or "").strip() or None,
-		"items": [{"item_code": item.name, "qty": qty, "rate": rate, "warehouse": store_for(company)}]})
+		"items": [{**row, "warehouse": store_for(company)}]})
 	invoice.insert()
 	invoice.submit()
 	return invoice.name

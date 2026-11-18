@@ -4029,7 +4029,10 @@ const StockPage = {
         }
         if (f.kind === "edit") await call("update_material", { item_code: code, name: f.name, min_qty: minQty(), family: f.way, packs: cfg, uom: f.uom }, true);
         if (f.kind === "buy") { if (!(c.stockQty > 0)) throw new Error("اكتب العدد"); if (!(c.total > 0)) throw new Error("اكتب السعر");
-          await call("stock_purchase", { item_code: code, qty: c.stockQty, rate: +c.stockRate.toFixed(6), supplier: f.supplier, bill_no: f.bill }, true); }
+          // by the roll / ream: sent in that unit so the value stays exact (2 × 500 = 1,000.00, not 150 × 6.67)
+          const byPack = pack.value && f.by !== "unit";
+          await call("stock_purchase", byPack ? { item_code: code, qty: n2(f.n), rate: n2(f.price), uom: pack.value.name, supplier: f.supplier, bill_no: f.bill }
+            : { item_code: code, qty: c.stockQty, rate: n2(f.price), supplier: f.supplier, bill_no: f.bill }, true); }
         if (f.kind === "issue") await call("stock_issue", { item_code: code, qty: n2(f.qty), sales_order: f.order, note: f.note }, true);
         if (f.kind === "count") await call("stock_count", { item_code: code, qty: counted.value, rate: f.rate }, true);
         sheet.value = null; toast("تم الحفظ"); await load(); if (sel.value && code === sel.value) pick(f.item);
