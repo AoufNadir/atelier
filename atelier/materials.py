@@ -67,7 +67,8 @@ def material_cfg(raw):
 	return {"width": flt(v.get("width")), "length": flt(v.get("length")), "pack": (v.get("pack") or "")[:40],
 		"pack_qty": flt(v.get("pack_qty")), "waste": flt(v.get("waste")),
 		"color": color if isinstance(color, str) and color.startswith("#") and len(color) in (4, 7) else "",
-		"kind": (v.get("kind") or "")[:40], "gsm": flt(v.get("gsm")), "size": (v.get("size") or "")[:30]}
+		"kind": (v.get("kind") or "")[:40], "gsm": flt(v.get("gsm")), "size": (v.get("size") or "")[:30],
+		"closed": cint(v.get("closed")), "opens": (v.get("opens") or [])[-12:] if isinstance(v.get("opens"), list) else []}
 
 
 def _packs(packs):
@@ -104,7 +105,8 @@ def _set_units(item_code, family=None, packs=None):
 	if packs is not None and _has("atelier_packs"):
 		p = frappe.parse_json(packs)
 		if isinstance(p, dict):
-			c = material_cfg(json.dumps(p))
+			old = material_cfg(frappe.db.get_value("Item", item_code, "atelier_packs"))
+			c = material_cfg(json.dumps({**p, "closed": p.get("closed", old["closed"]), "opens": old["opens"]}))
 			if family == "roll" and c["width"] > 0 and c["length"] > 0:
 				c["pack"], c["pack_qty"] = c["pack"] or "لفّة", round(c["width"] * c["length"], 4)
 			vals["atelier_packs"] = json.dumps(c, ensure_ascii=False)
@@ -216,7 +218,58 @@ def stock_purchase(item_code, qty, rate, supplier, bill_no=None, uom=None):
 		"items": [{**row, "warehouse": store_for(company)}]})
 	invoice.insert()
 	invoice.submit()
+	if row.get("uom") and abs(qty - round(qty)) < 1e-9:
+		_bump_closed(item.name, int(round(qty)))
 	return invoice.name
+
+
+def _cfg_of(item_code):
+	return material_cfg(frappe.db.get_value("Item", item_code, "atelier_packs") if _has("atelier_packs") else None)
+
+
+def _save_cfg(item_code, c):
+	frappe.db.set_value("Item", item_code, "atelier_packs", json.dumps(c, ensure_ascii=False))
+
+
+def _bump_closed(item_code, n):
+	c = _cfg_of(item_code)
+	c["closed"] = max(0, c["closed"] + n)
+	_save_cfg(item_code, c)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_closed_packs(item_code, n):
+	"""How many unopened rolls / reams are in the workshop now (a new material, or a count of the closed ones)."""
+	_need("Item")
+	_material(item_code)
+	c = _cfg_of(item_code)
+	c["closed"] = max(0, cint(n))
+	_save_cfg(item_code, c)
+	return c["closed"]
+
+
+@frappe.whitelist(methods=["POST"])
+def open_pack(item_code):
+	"""«فتحت لفّة / رزمة جديدة»: the previous one is finished, so the true stock is known without measuring:
+	closed ones × size + the one just opened (full). The gap with the computed stock is recorded as waste or unrecorded use."""
+	_need("Stock Reconciliation")
+	item = _material(item_code)
+	c = _cfg_of(item.name)
+	size = c["pack_qty"]
+	if size <= 0:
+		frappe.throw(_("لم يُحدَّد حجم اللفّة أو الرزمة لهذه المادة. افتح «تعديل» وأكمله."))
+	if c["closed"] < 1:
+		frappe.throw(_("لا توجد {0} مغلقة مسجّلة. سجّل الشراء أولًا، أو صحّح عدد المغلقة من «جرد».").format(c["pack"] or "لفّة"))
+	store = store_for(api._company())
+	before = _on_hand(item.name, store)
+	c["closed"] -= 1
+	actual = round(c["closed"] * size + size, 4)
+	gap = round(before - actual, 4)  # > 0: more was used than recorded (waste); < 0: recorded more than used
+	if abs(gap) > 1e-6:
+		stock_count(item.name, actual)
+	c["opens"] = (c["opens"] + [{"date": nowdate(), "gap": gap, "size": size}])[-12:]
+	_save_cfg(item.name, c)
+	return {"gap": gap, "closed": c["closed"], "stock": actual, "pack": c["pack"] or "لفّة"}
 
 
 @frappe.whitelist(methods=["POST"])

@@ -3949,9 +3949,16 @@ const StockPage = {
       if (w === "bottle") return (INK_COLORS.find((x) => x[1].toLowerCase() === (c.color || "").toLowerCase()) || [""])[0] || "قارورة";
       return [c.kind, c.gsm ? num(c.gsm) + " غ" : "", c.size, c.pack && c.pack_qty ? `${c.pack} = ${num(c.pack_qty)} ${uom(i.uom)}` : uom(i.uom)].filter(Boolean).join(" · "); };
     const qtySub = (i) => { const c = i.cfg || {}, w = wayOf(i), parts = [];
-      if (w === "roll" && rollLen(i) !== null) parts.push(`≈ ${num(Math.floor(rollLen(i)))} م طولًا`);
-      if (c.pack_qty > 0 && i.qty > 0) parts.push(`${num(+(i.qty / c.pack_qty).toFixed(1))} ${c.pack || ""}`);
+      if (c.pack_qty > 0) parts.push(`${num(c.closed || 0)} ${w === "roll" ? "لفّة" : c.pack || "رزمة"} مغلقة + المفتوحة`);
+      else if (w === "roll" && rollLen(i) !== null) parts.push(`≈ ${num(Math.floor(rollLen(i)))} م طولًا`);
       return parts.join(" · "); };
+    const packWord = (i) => (wayOf(i) === "roll" ? "لفّة" : i.cfg?.pack || "رزمة");
+    const canOpen = (i) => (wayOf(i) === "roll" || wayOf(i) === "count") && i.cfg?.pack_qty > 0;
+    const openPack = async (i) => { rowMenu.value = null;
+      if (!confirm(`فتحت ${packWord(i)} جديدة من «${i.item_name}»؟\nيعني أن السابقة انتهت. يبقى بعدها ${Math.max(0, (i.cfg.closed || 0) - 1)} ${packWord(i)} مغلقة.`)) return;
+      try { const r = await call("open_pack", { item_code: i.item_code }, true);
+        toast(Math.abs(r.gap) < 0.01 ? "سُجّل الفتح — الرصيد مطابق" : r.gap > 0 ? `سُجّل الفتح — صُحّح الرصيد: تالف أو غير مسجّل ${qn(i, r.gap)} ${uom(i.uom)}` : `سُجّل الفتح — صُحّح الرصيد: +${qn(i, -r.gap)} ${uom(i.uom)}`);
+        await load(); if (sel.value === i.item_code) pick(i); } catch (e) { toast(e.message, "error"); } };
     const fitBottle = async (i) => { rowMenu.value = null; if (i.qty < 1) return toast("لا قارورة في المخزون — سجّل شراءً أولًا", "error");
       try { await call("stock_issue", { item_code: i.item_code, qty: 1, note: "تركيب قارورة" }, true); toast("سُجّل تركيب قارورة"); await load(); if (sel.value === i.item_code) pick(i); } catch (e) { toast(e.message, "error"); } };
     const low = computed(() => (s.data?.items || []).filter((i) => i.low));
@@ -3975,7 +3982,7 @@ const StockPage = {
       const c = item?.cfg || {};
       sheet.value = { kind, item, name: item?.item_name || "", way: item ? wayOf(item) : "roll", uom: item?.uom || "ورقة", min_qty: item?.safety_stock || 0,
         width: c.width || "", length: c.length || "", pack: c.pack || "", color: c.color || "", ptype: c.kind || "", gsm: c.gsm || "", size: c.size || "", autoName: !item, min_n: item ? +((item.safety_stock || 0) / (c.pack_qty > 0 ? c.pack_qty : 1)).toFixed(2) || "" : "", pack_qty: c.pack_qty || "", waste: c.waste || "",
-        qty: kind === "count" ? (item?.qty ?? "") : "", n: "", price: "", rate: "", supplier: "", order: "", note: "", bill: "", by: "pack", open_n: "", open_price: "",
+        qty: kind === "count" ? (item?.qty ?? "") : "", n: "", price: "", rate: "", supplier: "", order: "", note: "", bill: "", by: "pack", open_n: "", open_price: "", closed: c.closed ?? 0, part: 0.5,
         len: item && c.width > 0 ? +(item.qty / c.width).toFixed(2) : "", len0: item && c.width > 0 ? +(item.qty / c.width).toFixed(2) : "", packs: item && c.pack_qty > 0 ? Math.floor(item.qty / c.pack_qty) : "", loose: item && c.pack_qty > 0 ? +(item.qty % c.pack_qty).toFixed(3) : "" };
       if (kind === "buy") loadSuppliers();
       if (kind === "issue") { try { orders.value = (await call("board2")).cards; } catch { orders.value = []; } }
@@ -4008,8 +4015,7 @@ const StockPage = {
       return { stockQty: +(n * per.value).toFixed(4), total: n * price, stockRate: n ? price / per.value : 0 }; });
     // counting: a roll by the length left on it; packs + loose sheets
     const counted = computed(() => { const f = sheet.value; if (!f?.item || f.kind !== "count") return null; const c = f.item.cfg || {}, w = wayOf(f.item);
-      if (w === "roll" && c.width > 0) return String(f.len) === String(f.len0) ? f.item.qty : +(n2(f.len) * c.width).toFixed(4);
-      if (pack.value) return n2(f.packs) * pack.value.qty + n2(f.loose);
+      if (pack.value) return +((n2(f.closed) + n2(f.part)) * pack.value.qty).toFixed(4);
       return n2(f.qty); });
     // a new material may arrive with stock already in the workshop: quantity + what it cost, never one without the other
     const opening = computed(() => { const f = sheet.value; if (!f) return { n: 0 };
@@ -4032,7 +4038,8 @@ const StockPage = {
           const o = opening.value;
           if (o.n > 0 && !(o.price > 0)) throw new Error("اكتب سعر الشراء للكمية الموجودة، حتى تُحسب تكلفة المخزون");
           const newCode = await call("add_material", { name: f.name, uom: f.uom, min_qty: minQty(), family: f.way, packs: cfg }, true);
-          if (o.n > 0) await call("stock_count", { item_code: newCode, qty: o.qty, rate: +(o.price / o.per).toFixed(6) }, true);
+          if (o.n > 0) { await call("stock_count", { item_code: newCode, qty: o.qty, rate: +(o.price / o.per).toFixed(6) }, true);
+            if (o.per > 1) await call("set_closed_packs", { item_code: newCode, n: Math.floor(o.n) }, true); }
         }
         if (f.kind === "edit") await call("update_material", { item_code: code, name: f.name, min_qty: minQty(), family: f.way, packs: cfg, uom: f.uom }, true);
         if (f.kind === "buy") { if (!(c.stockQty > 0)) throw new Error("اكتب العدد"); if (!(c.total > 0)) throw new Error("اكتب السعر");
@@ -4041,7 +4048,8 @@ const StockPage = {
           await call("stock_purchase", byPack ? { item_code: code, qty: n2(f.n), rate: n2(f.price), uom: pack.value.name, supplier: f.supplier, bill_no: f.bill }
             : { item_code: code, qty: c.stockQty, rate: n2(f.price), supplier: f.supplier, bill_no: f.bill }, true); }
         if (f.kind === "issue") await call("stock_issue", { item_code: code, qty: n2(f.qty), sales_order: f.order, note: f.note }, true);
-        if (f.kind === "count") await call("stock_count", { item_code: code, qty: counted.value, rate: f.rate }, true);
+        if (f.kind === "count") { await call("stock_count", { item_code: code, qty: counted.value, rate: f.rate }, true);
+          if (pack.value) await call("set_closed_packs", { item_code: code, n: n2(f.closed) }, true); }
         sheet.value = null; toast("تم الحفظ"); await load(); if (sel.value && code === sel.value) pick(f.item);
       } catch (e) { err.value = e.message; } finally { busy.value = false; }
     };
@@ -4050,7 +4058,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -4070,7 +4078,8 @@ const StockPage = {
           <td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
           <td class="n" @click.stop><div class="btn-row stk-acts">
             <button v-if="wayOf(i) === 'bottle' && s.data.can_issue" type="button" class="cl-btn sm primary" :disabled="i.qty < 1" @click="fitBottle(i)">ركّبت قارورة</button>
-            <button v-else-if="s.data.can_buy" type="button" class="cl-btn sm" @click="open('buy', i)">شراء</button>
+            <template v-else><button v-if="canOpen(i) && s.data.can_issue" type="button" class="cl-btn sm primary" :disabled="!(i.cfg.closed > 0)" :title="i.cfg.closed > 0 ? 'السابقة انتهت وفتحت جديدة' : 'لا ' + packWord(i) + ' مغلقة مسجّلة'" @click="openPack(i)">فتحت {{ packWord(i) }}</button>
+              <button v-if="s.data.can_buy" type="button" class="cl-btn sm" @click="open('buy', i)">شراء</button></template>
             <button type="button" class="cl-btn sm" :aria-label="'إجراءات أخرى لـ ' + i.item_name" :aria-expanded="rowMenu === i.item_code" @click.stop="rowMenu = rowMenu === i.item_code ? null : i.item_code">▾</button>
             <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop>
               <button v-if="wayOf(i) === 'bottle' && s.data.can_buy" type="button" class="tm-pop-row" @click="rowMenu = null; open('buy', i)">شراء</button>
@@ -4084,6 +4093,9 @@ const StockPage = {
           <div><span>يكفي لـ</span><b>{{ ledger ? lasts(selItem) : '…' }}</b></div>
           <div><span>استُهلك هذا الشهر</span><b>{{ ledger ? qn(selItem, ledger.month_used) + ' ' + uom(selItem.uom) : '…' }}</b></div>
           <div v-if="s.data.can_value"><span>متوسط السعر</span><b>{{ selItem.qty > 0 ? money(selItem.value / selItem.qty) : '—' }} <small>/ {{ uom(selItem.uom) }}</small></b></div></div>
+        <div v-if="selItem.cfg && selItem.cfg.opens && selItem.cfg.opens.length" class="stk-opens"><b>آخر ما فُتح</b>
+          <div v-for="(o, k) in selItem.cfg.opens.slice().reverse().slice(0, 5)" :key="k"><span class="m">{{ date(o.date) }}</span><span>{{ packWord(selItem) }} · استُهلكت {{ qn(selItem, o.size) }} {{ uom(selItem.uom) }}</span>
+            <span :class="o.gap > 0.01 ? 'bad' : 'm'">{{ o.gap > 0.01 ? 'منها تالف ' + qn(selItem, o.gap) : o.gap < -0.01 ? 'أقل من المسجّل بـ ' + qn(selItem, -o.gap) : 'مطابق' }}</span></div></div>
         <div v-if="!ledger" class="m stk-small">جارٍ التحميل…</div><div v-else-if="ledger.error" class="alert error">{{ ledger.error }}</div>
         <table v-else class="cl-table stk-led"><thead><tr><th>التاريخ</th><th>الحركة</th><th class="n">الكمية</th><th class="n">الرصيد</th></tr></thead>
           <tbody><tr v-for="(m, k) in ledger.rows" :key="k"><td class="m">{{ date(m.posting_date) }}</td>
@@ -4132,16 +4144,13 @@ const StockPage = {
           <button type="button" class="cl-link" style="align-self:flex-start" @click="quickSupplier">+ مورد جديد</button></div>
         <div class="field"><label for="st-bill">رقم فاتورة المورد (اختياري)</label><input id="st-bill" class="input" v-model="sheet.bill"></div></template>
       <template v-else>
-        <template v-if="sheet.kind === 'count' && wayOf(sheet.item) === 'roll' && sheet.item.cfg && sheet.item.cfg.width > 0">
-          <div class="field"><label for="st-len">الطول المتبقي في كل اللفّات (م)</label><input id="st-len" class="input" inputmode="decimal" v-model="sheet.len"></div>
-          <div class="stk-calc">الرصيد يصبح <b>{{ num(counted) }} م²</b> ({{ num(+sheet.len || 0) }} م × {{ num(sheet.item.cfg.width) }}) · كان {{ num(sheet.item.qty) }}</div></template>
-        <template v-else-if="sheet.kind === 'count' && pack">
-          <div class="stk-row2"><div class="field"><label for="st-pk2">{{ plural(pack.name) }} الكاملة</label><input id="st-pk2" class="input" inputmode="decimal" v-model="sheet.packs"></div>
-            <div class="field"><label for="st-ls">+ {{ plural(unitWord) }} المتفرقة</label><input id="st-ls" class="input" inputmode="decimal" v-model="sheet.loose"></div></div>
-          <div class="stk-calc">الرصيد يصبح <b>{{ num(counted) }} {{ unitWord }}</b> · كان {{ num(sheet.item.qty) }}</div></template>
+        <template v-if="sheet.kind === 'count' && pack">
+          <div class="stk-g3"><div class="field"><label for="st-cl">{{ plural(pack.name) }} المغلقة</label><div class="stk-suf"><input id="st-cl" class="input" inputmode="numeric" v-model="sheet.closed"><em>{{ pack.name }}</em></div></div>
+            <div class="field stk-span2"><label>المفتوحة تقريبًا</label><div class="cal2-seg stk-part" role="group" aria-label="المفتوحة"><button v-for="x in [[0, 'لا شيء'], [0.25, 'ربع'], [0.5, 'نصف'], [0.75, 'ثلاثة أرباع'], [1, 'كاملة']]" :key="x[0]" type="button" :aria-pressed="sheet.part === x[0]" @click="sheet.part = x[0]">{{ x[1] }}</button></div></div></div>
+          <div class="stk-calc">الرصيد يصبح <b>≈ {{ qn(sheet.item, counted) }} {{ unitWord }}</b> · كان {{ qn(sheet.item, sheet.item.qty) }}<span class="hint"> — لا تقِس ولا تعدّ: المغلقة فقط، والمفتوحة بالتقدير.</span></div></template>
         <div v-else class="field"><label for="st-qty">{{ sheet.kind === 'count' ? 'الكمية الموجودة الآن' : 'الكمية' }} ({{ unitWord }})</label><input id="st-qty" class="input" inputmode="decimal" v-model="sheet.qty">
           <span class="m">{{ sheet.kind === 'count' ? 'كان ' + num(sheet.item.qty) : 'المتوفر ' + num(sheet.item.qty) }}</span></div>
-        <div v-if="sheet.kind === 'count'" class="field"><label for="st-rate">سعر {{ unitWord === 'م²' ? 'المتر المربع' : 'ال' + unitWord }} (دج)<span class="hint"> — مطلوب للرصيد الأول فقط</span></label><input id="st-rate" class="input" inputmode="decimal" v-model="sheet.rate"></div>
+        <div v-if="sheet.kind === 'count' && !sheet.item.has_moves" class="field"><label for="st-rate">سعر {{ unitWord === 'م²' ? 'المتر المربع' : 'ال' + unitWord }} (دج)<span class="hint"> — مطلوب للرصيد الأول فقط</span></label><input id="st-rate" class="input" inputmode="decimal" v-model="sheet.rate"></div>
         <template v-if="sheet.kind === 'issue'"><div class="field"><label for="st-order">الطلب (اختياري)</label><select id="st-order" class="input" v-model="sheet.order"><option value="">بدون طلب</option><option v-for="o in orders" :key="o.name" :value="o.name">{{ o.title || o.name }}</option></select></div>
           <div class="field"><label for="st-note">ملاحظة</label><input id="st-note" class="input" v-model="sheet.note" placeholder="مثلًا: تجربة، تلف"></div></template></template>
       <div class="sh-foot"><button type="button" class="cl-btn" @click="sheet = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="busy">حفظ</button></div>
