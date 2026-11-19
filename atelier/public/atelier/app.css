@@ -3094,3 +3094,12 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .lp-pop { min-width: 260px; }
 .lp-ph { color: #98A2B3; }
 .lp-pill:not([style]) { background: #F9FAFB; color: #17202A; }
+
+/* order window: statuses / labels editable in place by the manager */
+.od-optw { display: flex; align-items: center; gap: 4px; }
+.od-optw .od-opt { flex: 1; }
+.od-tagh { margin-top: 12px; }
+.od-tagbar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.od-tagbar .od-tagtog { margin-inline-start: auto; font-size: 13px; }
+.od-tagnew { width: auto; flex: 1; margin: 0; }
+.od-tagedit { display: grid; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid #E4E7EC; border-radius: 10px; background: #F9FAFB; }

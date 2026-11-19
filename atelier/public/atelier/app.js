@@ -765,8 +765,19 @@ const BoardPanel = {
     const cfg = ref(null);
     onMounted(async () => { if (props.mode === "new" && !props.columns) { try { cfg.value = (await call("board2")).config; } catch { /* columns stay empty */ } } });
     const boardCols = computed(() => props.columns || cfg.value?.columns || []);
-    const boardStatuses = computed(() => props.statuses || cfg.value?.statuses || []);
-    const boardLabels = computed(() => props.labels || cfg.value?.labels || []);
+    // statuses and labels can be added / renamed / recoloured here by the manager; the board reloads after
+    const tagCfg = ref(null), tagEdit = ref(null), tagMode = reactive({ statuses: false, labels: false }), tagBusy = ref(false);
+    const canTag = computed(() => state.boot.role === "manager");
+    const boardStatuses = computed(() => tagCfg.value?.statuses || props.statuses || cfg.value?.statuses || []);
+    const editTag = (kind, x) => (tagEdit.value = { kind, id: x?.id || null, name: x?.name || "", color: x?.color || BOARD_COLORS[((kind === "labels" ? boardLabels.value : boardStatuses.value).length + 1) % BOARD_COLORS.length] });
+    const saveTag = async () => { const e = tagEdit.value; tagBusy.value = true;
+      try { tagCfg.value = await call("save_board_tag", { kind: e.kind, id: e.id, name: e.name, color: e.color }, true);
+        if (!e.id) { const n = tagCfg.value[e.kind].find((x) => x.name === e.name.trim()); if (n) (e.kind === "labels" ? f.labels : f.status).push(n.id); }
+        tagEdit.value = null; state.rev++; } catch (err) { toast(err.message, "error"); } finally { tagBusy.value = false; } };
+    const delTag = async () => { const e = tagEdit.value; if (!confirm(`حذف «${e.name}»؟ يختفي من كل الطلبات.`)) return; tagBusy.value = true;
+      try { tagCfg.value = await call("delete_board_tag", { kind: e.kind, id: e.id }, true); const l = e.kind === "labels" ? f.labels : f.status; const i = l.indexOf(e.id); if (i >= 0) l.splice(i, 1);
+        tagEdit.value = null; state.rev++; } catch (err) { toast(err.message, "error"); } finally { tagBusy.value = false; } };
+    const boardLabels = computed(() => tagCfg.value?.labels || props.labels || cfg.value?.labels || []);
     const startColumns = computed(() => boardCols.value.filter((c) => !c.deliver));
     // a new order never lands in a column by default: the person chooses (only one column → that one)
     watch(startColumns, (v) => { if (!f.column && v.length === 1) f.column = v[0].id; }, { immediate: true });
@@ -1039,7 +1050,7 @@ const BoardPanel = {
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
     const folderHint = () => setTimeout(() => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة على هذا الحاسوب — استعمل «نسخ المسار»"), 1500);
-    return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, secOpen, isOpen, toggleSec, secHas, secLabel, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, secOpen, isOpen, toggleSec, secHas, secLabel, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, tagEdit, tagMode, tagBusy, canTag, editTag, saveTag, delTag, BOARD_COLORS, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, num, matKind, matChoices, openMat, matInfo, matState, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
@@ -1207,15 +1218,22 @@ const BoardPanel = {
             <template v-if="editing"><button v-for="p in state.boot.team" :key="p" type="button" class="od-person" :aria-pressed="members.includes(p)" @click="flipMember(p)"><Avatar :name="p" :size="28"/><span style="flex:1">{{ p }}</span><span v-if="members.includes(p)" class="tm-tick">✓</span></button></template>
             <button v-else v-for="p in state.boot.team" :key="p" type="button" class="od-person" :aria-pressed="f.assignee === p" @click="f.assignee = f.assignee === p ? '' : p"><Avatar :name="p" :size="28"/><span style="flex:1">{{ p }}</span><span v-if="f.assignee === p" class="tm-tick">✓</span></button>
             <a v-if="!state.boot.team.length" href="/atelier/team" class="m" @click.prevent="go('/team')">أضف أسماء الفريق أولًا</a></div></section>
-          <section v-if="boardStatuses.length || boardLabels.length" class="od-card" :class="{'od-miss': miss.status && !f.status.length && !editing}"><div class="od-ch"><Icon name="tag" :size="18"/><b>الحالات</b><b v-if="!editing && boardStatuses.length" class="od-req">*</b>
+          <section v-if="boardStatuses.length || boardLabels.length || canTag" class="od-card" :class="{'od-miss': miss.status && !f.status.length && !editing}"><div class="od-ch"><Icon name="tag" :size="18"/><b>الحالات</b><b v-if="!editing && boardStatuses.length" class="od-req">*</b>
               <em v-if="miss.status && !f.status.length && !editing" class="od-misstxt od-r">اختر حالة واحدة على الأقل</em></div><div class="od-pad">
-            <div class="od-opts"><button v-for="x in boardStatuses" :key="x.id" type="button" class="od-opt" :aria-pressed="f.status.includes(x.id)" @click="flip(f.status, x.id)">
-                <span class="od-box" :style="f.status.includes(x.id) ? {background: x.color, borderColor: x.color, color: inkOn(x.color)} : {}">{{ f.status.includes(x.id) ? '✓' : '' }}</span>
-                <span class="od-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span></button></div>
-            <template v-if="boardLabels.length"><span class="od-sub">الوسوم</span>
-              <div class="od-opts"><button v-for="x in boardLabels" :key="x.id" type="button" class="od-opt" :aria-pressed="f.labels.includes(x.id)" @click="flip(f.labels, x.id)">
-                <span class="od-box" :style="f.labels.includes(x.id) ? {background: x.color, borderColor: x.color, color: inkOn(x.color)} : {}">{{ f.labels.includes(x.id) ? '✓' : '' }}</span>
-                <span class="od-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span></button></div></template></div></section>
+            <template v-for="grp in [['statuses', boardStatuses, f.status, 'حالة'], ['labels', boardLabels, f.labels, 'وسم']]" :key="grp[0]">
+              <div v-if="grp[0] === 'labels' && (boardLabels.length || canTag)" class="od-sub od-tagh">الوسوم</div>
+              <div class="od-opts"><div v-for="x in grp[1]" :key="x.id" class="od-optw"><button type="button" class="od-opt" :aria-pressed="grp[2].includes(x.id)" @click="flip(grp[2], x.id)">
+                <span class="od-box" :style="grp[2].includes(x.id) ? {background: x.color, borderColor: x.color, color: inkOn(x.color)} : {}">{{ grp[2].includes(x.id) ? '✓' : '' }}</span>
+                <span class="od-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span></button>
+                <button v-if="tagMode[grp[0]]" type="button" class="lp-ed" :aria-label="'تعديل ' + x.name" @click="editTag(grp[0], x)">✎</button></div></div>
+              <form v-if="tagEdit && tagEdit.kind === grp[0]" class="od-tagedit" @submit.prevent="saveTag">
+                <b>{{ tagEdit.id ? 'تعديل «' + grp[1].find((y) => y.id === tagEdit.id)?.name + '»' : grp[3] + ' جديد' + (grp[0] === 'statuses' ? 'ة' : '') }}</b>
+                <input class="input" v-model="tagEdit.name" aria-label="الاسم" placeholder="الاسم">
+                <div class="lp-sw" role="group" aria-label="اللون"><button v-for="c in BOARD_COLORS" :key="c" type="button" :aria-pressed="tagEdit.color === c" :aria-label="c" :style="{background: c}" @click="tagEdit.color = c"></button></div>
+                <div class="btn-row lp-btns"><button v-if="tagEdit.id" type="button" class="cl-btn sm lp-del" :disabled="tagBusy" @click="delTag">حذف</button><span class="spacer"></span><button type="button" class="cl-btn sm" @click="tagEdit = null">إلغاء</button><button type="submit" class="cl-btn sm primary" :disabled="tagBusy || !tagEdit.name.trim()">حفظ</button></div></form>
+              <div v-if="canTag" class="od-tagbar"><button v-if="tagMode[grp[0]]" type="button" class="lp-new od-tagnew" @click="editTag(grp[0], null)">+ {{ grp[3] }} {{ grp[0] === 'statuses' ? 'جديدة' : 'جديد' }}</button>
+                <button type="button" class="cl-link od-tagtog" @click="tagMode[grp[0]] = !tagMode[grp[0]]; tagEdit = null">{{ tagMode[grp[0]] ? 'تم' : 'تخصيص ' + (grp[0] === 'statuses' ? 'الحالات' : 'الوسوم') }}</button></div>
+            </template></div></section>
           <section v-if="editing && ed" class="od-card"><div class="od-ch"><Icon name="msg" :size="18"/><b>التعليقات والنشاط</b></div><div class="od-pad">
             <form class="od-comment" @submit.prevent="addComment"><textarea class="input od-desc" v-model="comment" rows="2" placeholder="اكتب تعليقًا… (Ctrl + Enter للحفظ)" aria-label="تعليق" @keydown.ctrl.enter.prevent.stop="addComment"></textarea>
               <button v-if="comment.trim()" type="submit" class="cl-btn primary sm">حفظ التعليق</button></form>

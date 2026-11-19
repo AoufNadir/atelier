@@ -494,6 +494,38 @@ def save_board(config, moves=None):
 	return new
 
 
+@frappe.whitelist(methods=["POST"])
+def save_board_tag(kind, id=None, name="", color=""):
+	"""Add or edit one status / label from the order window, without sending the whole board."""
+	if not _is_manager():
+		frappe.throw(_("التخصيص للمدير فقط"), frappe.PermissionError)
+	if kind not in ("labels", "statuses"):
+		frappe.throw(_("نوع غير معروف"))
+	name = (name or "").strip()[:60]
+	if not name:
+		frappe.throw(_("اكتب الاسم"))
+	cfg = get_config()
+	rows = [dict(x) for x in cfg[kind]]
+	if any(x["name"] == name and x["id"] != id for x in rows):
+		frappe.throw(_("يوجد بهذا الاسم"))
+	hit = next((x for x in rows if id and x["id"] == id), None)
+	if hit:
+		hit.update({"name": name, "color": color or hit["color"]})
+	else:
+		rows.append({"id": frappe.generate_hash(length=8), "name": name, "color": color or COLORS[len(rows) % len(COLORS)]})
+	return save_board(json.dumps({**cfg, kind: rows}, ensure_ascii=False))
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_board_tag(kind, id):
+	if not _is_manager():
+		frappe.throw(_("التخصيص للمدير فقط"), frappe.PermissionError)
+	if kind not in ("labels", "statuses"):
+		frappe.throw(_("نوع غير معروف"))
+	cfg = get_config()
+	return save_board(json.dumps({**cfg, kind: [x for x in cfg[kind] if x["id"] != id]}, ensure_ascii=False))
+
+
 def _uses_materials(so):
 	from atelier import materials
 
