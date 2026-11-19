@@ -3163,3 +3163,5 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .sv-col i { display: block; width: 100%; max-width: 34px; background: #B9ADF5; border-radius: 4px 4px 0 0; } .sv-col i.cur { background: #4F35D2; }
 .sv-acts { padding: 12px 16px; }
 .sv-table tr.sv-sec td > b, .sv-table tr.sv-sec td > span { display: inline; }
+.noaccess { max-width: 520px; margin: 80px auto; text-align: center; padding: 28px; background: #fff; border: 1px solid #E4E7EC; border-radius: 12px; }
+.noaccess h1 { margin: 0 0 6px; font-size: 20px; }

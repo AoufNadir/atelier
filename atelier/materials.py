@@ -814,7 +814,7 @@ def profit_report(period="month", start=None, end=None):
 	sale_c, cost_c = sum(r["sale"] for r in costed), sum(r["cost"] for r in costed)
 	under = [r for r in costed if r["margin"] < target]
 	return {"target": target, "ink_per_m2": info["ink_per_m2"], "rows": rows,
-		"sales": round(sum(r["sale"] for r in rows), 2), "orders": len(rows), "costed": len(costed),
+		"sales": round(sum(r["sale"] for r in rows), 2), "orders": len(rows), "costed": len(costed), "sales_costed": round(sale_c, 2),
 		"cost": round(cost_c, 2), "parts": {k: round(sum(r["parts"][k] for r in costed), 2) for k in ("materials", "supplier", "recipes", "ink", "other")},
 		"profit": round(sale_c - cost_c, 2), "margin": round((sale_c - cost_c) / sale_c * 100, 1) if sale_c else None,
 		"under": len(under), "lost": round(sum(r["sale"] * target / 100 - (r["sale"] - r["cost"]) for r in under), 2), "losses": sum(1 for r in costed if r["profit"] < 0)}

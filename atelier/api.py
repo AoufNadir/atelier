@@ -688,7 +688,7 @@ def create_order(data):
 
 	payment = None
 	if flt(advance.get("amount")) > 0:
-		payment = _receive(customer, flt(advance["amount"]), advance["mode_of_payment"], so if so.docstatus == 1 else None, so.name)
+		payment = _as_cashier(lambda: _receive(customer, flt(advance["amount"]), advance["mode_of_payment"], so if so.docstatus == 1 else None, so.name))
 
 	return {"customer": customer, "project": project, "sales_order": so.name, "submitted": so.docstatus == 1,
 		"price_pending": price_pending, "estimate": estimate, "payment": payment}
@@ -796,6 +796,28 @@ def record_payment(customer, amount, mode_of_payment, sales_order=None, referenc
 		name = _record_payment(customer, amount, mode_of_payment, sales_order)
 		frappe.db.set_value("Payment Entry", name, "owner", user, update_modified=False)
 		return _with_ref(name, reference_no, reference_date)
+	finally:
+		frappe.set_user(user)
+		frappe.flags.atelier_seller = None
+
+
+def _as_cashier(fn):
+	"""A seller takes money without the accounting role (same rule as record_payment): run it as Administrator,
+	keep the seller as owner and send their cash to their own box."""
+	from atelier.simple import app_role
+
+	if _can("Payment Entry", "create"):
+		return fn()
+	if app_role() != "sales":
+		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	user = frappe.session.user
+	frappe.flags.atelier_seller = user
+	frappe.set_user("Administrator")
+	try:
+		name = fn()
+		if name:
+			frappe.db.set_value("Payment Entry", name, "owner", user, update_modified=False)
+		return name
 	finally:
 		frappe.set_user(user)
 		frappe.flags.atelier_seller = None

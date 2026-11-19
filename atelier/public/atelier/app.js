@@ -615,7 +615,7 @@ const ServicesPage = {
             <div v-if="cur.sales" class="sv-r"><span>بيع فعلًا بمتوسط (3 أشهر)</span><b>{{ money(cur.sales.avg) }}</b></div>
             <div v-if="cur.top" class="sv-r"><span>أكثر عميل</span><span>{{ cur.top.customer }} · {{ cur.top.orders }} {{ cur.top.orders === 1 ? 'طلب' : 'طلبات' }}</span></div>
             <p v-if="!cur.sales && !cur.top" class="m" style="margin:0">لم تُبع في هذه الفترة.</p></div>
-          <div v-if="s.data.can_edit && cur.min_price && priceOf(cur) != null && priceOf(cur) < cur.min_price" class="btn-row sv-acts"><button v-if="cur.min_price && priceOf(cur) != null && priceOf(cur) < cur.min_price" type="button" class="cl-btn primary" @click="setPrice(cur, cur.price_company != null ? 'Company' : 'Individual', Math.ceil(cur.min_price))">استعمل {{ num(Math.ceil(cur.min_price)) }}</button></div>
+          <div v-if="s.data.can_edit && cur.min_price && priceOf(cur) != null && priceOf(cur) < cur.min_price" class="btn-row sv-acts"><button v-if="cur.min_price && priceOf(cur) != null && priceOf(cur) < cur.min_price" type="button" class="cl-btn primary" @click="setPrice(cur, cur.price_company != null ? 'Company' : 'Individual', Math.ceil(cur.min_price))">استعمل {{ num(Math.ceil(cur.min_price)) }} {{ cur.price_company != null ? 'لسعر المؤسسات' : 'لسعر الأفراد' }}</button></div>
         </aside>
       </div>
     </div>
@@ -1069,7 +1069,10 @@ const BoardPanel = {
     const materials = () => offerMaterials(props.edit);
     const copyPath = async () => { try { await navigator.clipboard.writeText(ed.value.folder); toast("نُسخ مسار المجلد"); } catch { /* selectable */ } };
     watch(() => linesPayload(), () => { if (ready.value) later("lines", saveLinesNow, 900); });
-    watch(() => f.column, async (c, old) => { if (ready.value && c && old && c !== old) await run(() => call("move_card", { name: props.edit, column: c }, true)); });
+    watch(() => f.column, async (c, old) => { if (!(ready.value && c && old && c !== old)) return;
+      await run(() => call("move_card", { name: props.edit, column: c }, true));
+      const col = boardCols.value.find((x) => x.id === c), e = ed.value || {};
+      afterColumnEnter({ name: props.edit, title: f.subject || e.title, customer: e.customer, customer_name: e.customer_name, grand_total: e.grand_total, paid: e.paid, price_pending: e.price_pending }, col, state.boot.role === "manager" || state.boot.can.cost, boardCols.value); });
     const flush = async () => { clearTimeout(timers.meta); clearTimeout(timers.lines); if (!ready.value) return; await saveMeta(); await saveLinesNow(); };
     const closeEdit = async () => { if (ready.value && sv.value !== "error") await flush(); emit("close"); };
     // header actions of an opened card
@@ -1650,7 +1653,7 @@ const Board = {
     const moveAll = async (from, to) => {
       colMenu.value = null; const list = (s.data?.cards || []).filter((c) => c.column === from.id); if (!list.length) return;
       busy.value = "*";
-      try { for (const c of list) await call("move_card", { name: c.name, column: to.id }, true); toast(`نُقلت ${list.length} بطاقة إلى «${to.name}»`); if (to.supplier) list.forEach((c) => call("mark_outsourced", { order: c.name }, true).catch(() => {})); if (stockCol(to)) list.forEach((c) => offerMaterials(c.name)); if (to.deliver) list.forEach(offerPayment); }
+      try { for (const c of list) await call("move_card", { name: c.name, column: to.id }, true); toast(`نُقلت ${list.length} بطاقة إلى «${to.name}»`); list.forEach((c) => afterColumnEnter(c, to, s.data?.manager || state.boot.can.cost, cfg.value.columns)); }
       catch (e) { toast(e.message, "error"); } finally { busy.value = null; await load(); }
     };
     // save a card as a template
@@ -1670,9 +1673,7 @@ const Board = {
       busy.value = c.name;
       try {
         if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); const toCol = cfg.value.columns.find((x) => x.id === col);
-          if (toCol?.supplier) { call("mark_outsourced", { order: c.name }, true).catch(() => {}); if (s.data?.manager || state.boot.can.cost) state.sheet = { type: "outsource", order: c.name, title: c.title, column: toCol.name }; }
-          else if (stockCol(toCol)) offerMaterials(c.name);
-          if (toCol?.deliver) offerPayment(c); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
+          afterColumnEnter(c, toCol, s.data?.manager || state.boot.can.cost, cfg.value.columns); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
         if (beforeName !== undefined) {
           const list = cols.value.find((x) => x.id === col).items.map((x) => x.name).filter((n) => n !== c.name);
           const i = beforeName ? list.indexOf(beforeName) : -1;
@@ -1978,12 +1979,13 @@ const Board = {
         <form class="tb-cm-name" @submit.prevent="renameCol"><input class="input" v-model="colName" aria-label="اسم العمود" maxlength="60"><button type="submit" class="cl-btn" :disabled="!colName.trim() || colName.trim() === colMenu.col.name">حفظ</button></form>
         <span class="m tb-cm-h">اللون</span>
         <div class="tb-cm-sw"><button v-for="k in BOARD_COLORS" :key="k" type="button" :style="{background: k}" :aria-pressed="colMenu.col.color === k" :aria-label="'لون ' + k" @click="setColColor(k)"></button></div>
+        <span class="m tb-cm-h">عند دخول طلب إلى هذا العمود</span>
+        <button type="button" class="tm-pop-row" :aria-pressed="!!colMenu.col.supplier" @click="setSupplierCol(colMenu.col.id)">{{ colMenu.col.supplier ? '✓ ' : '' }}عمل عند مورد (لا خصم من المخزون)</button>
+        <button type="button" class="tm-pop-row" :aria-pressed="!!colMenu.col.materials" @click="setStockCol(colMenu.col.id)">{{ colMenu.col.materials ? '✓ ' : '' }}خصم المواد عند الدخول إلى هذا العمود</button>
         <hr class="tm2-hr"></template>
       <span class="m tb-cm-h">ترتيب البطاقات</span>
       <button v-for="o in [['','الترتيب اليدوي'],['due','حسب الموعد'],['created','حسب تاريخ الإنشاء'],['amount','حسب المبلغ']]" :key="o[0]" type="button" class="tm-pop-row" :aria-pressed="(colSort[colMenu.col.id] || '') === o[0]" @click="sortCol(colMenu.col.id, o[0])">{{ o[1] }}<span v-if="(colSort[colMenu.col.id] || '') === o[0]" class="tb-cm-on">✓</span></button>
       <template v-if="state.boot.can.order && colMenu.col.items.length"><hr class="tm2-hr">
-        <button type="button" class="tm-pop-row" :aria-pressed="!!colMenu.col.supplier" @click="setSupplierCol(colMenu.col.id)">{{ colMenu.col.supplier ? '✓ ' : '' }}عمل عند مورد (لا خصم من المخزون)</button>
-        <button type="button" class="tm-pop-row" :aria-pressed="!!colMenu.col.materials" @click="setStockCol(colMenu.col.id)">{{ colMenu.col.materials ? '✓ ' : '' }}خصم المواد عند الدخول إلى هذا العمود</button>
         <button type="button" class="tm-pop-row" :aria-expanded="colMove" @click="colMove = !colMove">نقل كل البطاقات ({{ colMenu.col.items.length }}) إلى…</button>
         <template v-if="colMove"><button v-for="to in cfg.columns.filter(x => x.id !== colMenu.col.id)" :key="to.id" type="button" class="tm-pop-row tb-cm-sub" @click="moveAll(colMenu.col, to)"><i class="st-sw" :style="{background: to.color}"></i>{{ to.name }}</button></template></template>
       <template v-if="s.data.manager"><hr class="tm2-hr"><button type="button" class="tm-pop-row" @click="hideCol(true, colMenu.col.id)">إخفاء العمود</button></template>
@@ -2841,7 +2843,7 @@ const SimpleMoney = {
         <div class="cl-stats mn-stats mn-stats3">
           <div><span>دخل {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money ok">{{ money(d.income) }}</b><small>{{ change(d.income, d.prev_income) }}</small></div>
           <div><span>خرج من الصناديق {{ offset ? 'في الشهر' : 'هذا الشهر' }}</span><b class="money bad">{{ money(d.expenses) }}</b>
-            <small>مصاريف مسجّلة {{ fig(catTotal) }}<template v-if="catTotal - d.expenses > 0.005"> · منها {{ fig(catTotal - d.expenses) }} لم تُدفع بعد</template></small></div>
+            <small>مصاريف الشهر في الحسابات {{ fig(catTotal) }} (منها مواد مصروفة من المخزون)</small></div>
           <div><span>الصافي في الصناديق</span><b class="money" :class="{bad: d.profit < 0}">{{ money(d.profit) }}</b><small>ما دخل ناقص ما خرج<template v-if="d.owner_out || d.owner_in"> · سحب شخصي {{ fig(d.owner_out || 0) }}<template v-if="d.owner_in"> · إيداع {{ fig(d.owner_in) }}</template> (خارج الربح)</template></small></div>
         </div>
 
@@ -2893,7 +2895,7 @@ const SimpleMoney = {
                 <div><span class="muted">أكثر من 60</span><b class="bad">{{ fig(d.ages.c) }}</b></div></div>
               <div v-if="!d.debtors.length" class="mn-empty">لا أحد عليه دين.</div>
               <div v-for="c in d.debtors" :key="c.customer" class="mn-line">
-                <button type="button" class="mn-who" :title="'تسجيل دفعة من ' + c.customer_name" @click="pay(c)"><span class="cl-name">{{ c.customer_name }}</span><span class="muted" :class="{bad: c.late}">{{ c.late ? 'متأخر ' + c.late + ' يومًا' : 'لم يحن موعده' }}</span></button>
+                <button type="button" class="mn-who" :title="'تسجيل دفعة من ' + c.customer_name" @click="pay(c)"><span class="cl-name">{{ c.customer_name }}</span><span class="muted" :class="{bad: c.late}">{{ c.late ? 'متأخر ' + c.late + ' يومًا' : c.invoices > 0.005 ? 'لم يحن موعده' : 'طلبات لم تُفوتر' }}<template v-if="c.invoices > 0.005 && c.unbilled > 0.005"> · فواتير {{ fig(c.invoices) }} + طلبات {{ fig(c.unbilled) }}</template></span></button>
                 <b class="bad">{{ fig(c.amount) }}</b>
                 <button v-if="waLink(c.mobile_no)" type="button" class="cl-btn sm" :aria-label="'تذكير ' + c.customer_name + ' بواتساب'" @click="remind(c)">تذكير</button></div>
               <div class="mn-foot muted">اضغط على الاسم لتسجيل دفعة.</div></section>
@@ -2903,7 +2905,7 @@ const SimpleMoney = {
                 <div class="mn-who" style="cursor:default"><span class="cl-name">{{ p.supplier_name }}</span>
                   <span class="muted" style="white-space:normal">{{ p.what }}<template v-if="p.due_date"> · <span :class="{bad: daysFromToday(p.due_date) < 0}">{{ daysFromToday(p.due_date) < 0 ? 'متأخر ' + -daysFromToday(p.due_date) + ' يومًا' : 'يستحق ' + dueWord(p.due_date) }}</span></template></span></div>
                 <b>{{ fig(p.amount) }}</b>
-                <button v-if="state.boot.can.payment" type="button" class="cl-btn sm" :disabled="paying === p.name" @click="paySupplier(p, supplierMode)">{{ paying === p.name ? '…' : 'دفع' }}</button></div>
+                <button v-if="state.boot.can.payment" type="button" class="cl-btn sm" :disabled="paying === p.name" @click="state.sheet = {type: 'spay', invoice: p.name, outstanding: p.amount, supplier_name: p.supplier_name, ref: p.what, done: load}">دفع</button></div>
               <label v-if="d.payables.length && d.modes.length > 1" class="mn-foot row" style="gap:8px"><span class="muted">طريقة الدفع للمورد</span>
                 <select class="input" style="width:auto;min-height:32px" v-model="supplierMode"><option v-for="m in d.modes" :key="m.value" :value="m.value">{{ m.label }}</option></select></label></section>
             <section class="mn-card"><div class="mn-card-h"><b>أين يذهب المال</b><span class="muted">{{ month }}</span></div>
@@ -2964,8 +2966,8 @@ const SuppliersPage = {
     const saveInvoice = () => run("inv", async () => { const f = form.value;
       await call("create_supplier_invoice", { supplier: d.value.name, description: f.description, amount: +f.amount, account: f.account || null, order: f.order || null, bill_no: f.bill_no, due_date: f.due_date || null, purchase_order: f.purchase_order }, true);
       form.value = null; tab.value = "invoices"; await open(d.value.name, true); load(); }, "سُجّلت فاتورة المورد");
-    const payInvoice = (inv) => { if (!confirm(`دفع ${fig(inv.outstanding_amount)} دج لـ ${d.value.supplier_name} عن ${inv.bill_no || inv.name}؟`)) return;
-      return run("pay", async () => { await call("pay_supplier", { invoice: inv.name, mode_of_payment: mode.value }, true); await open(d.value.name, true); load(); }, "سُجّل الدفع"); };
+    const payInvoice = (inv) => { const name = d.value.name;
+      state.sheet = { type: "spay", invoice: inv.name, outstanding: inv.outstanding_amount, supplier_name: d.value.supplier_name, ref: inv.bill_no || inv.name, done: async () => { await open(name, true); load(); } }; };
     const oldest = computed(() => (d.value?.invoices || []).filter((i) => i.outstanding_amount > 0.005).sort((a, b) => String(a.due_date || "").localeCompare(String(b.due_date || "")))[0]);
     const toggleDisabled = () => { pmenu.value = false; return run("off", async () => { await call("set_supplier_disabled", { name: d.value.name, disabled: d.value.disabled ? 0 : 1 }, true); await open(d.value.name, true); load(); }, d.value.disabled ? "أُعيد تفعيل المورد" : "أُوقف المورد"); };
     const invState = (i) => (i.outstanding_amount <= 0.005 ? ["مدفوعة", "#12B76A"] : i.late ? [`متأخرة ${i.late} يومًا`, "#D92D20"] : ["مفتوحة", "#F79009"]);
@@ -3785,9 +3787,9 @@ const ProfitReport = {
     <div v-else-if="!d" class="ws-loading">جارٍ التحميل…</div>
     <template v-else>
       <div class="mr-kpis">
-        <div><span>المبيعات</span><b class="money">{{ money(d.sales) }}</b><small>{{ d.orders }} بونًا مسعّرًا · {{ d.costed }} بتكلفة معروفة</small></div>
+        <div><span>مبيعات بتكلفة معروفة</span><b class="money">{{ money(d.sales_costed ?? d.sales) }}</b><small>{{ d.costed }} من {{ d.orders }} بونًا<template v-if="d.sales - (d.sales_costed ?? d.sales) > 0.005"> · خارج الحساب {{ num(Math.round(d.sales - d.sales_costed)) }} دج بلا تكلفة</template></small></div>
         <div><span>التكلفة</span><b class="money">{{ money(d.cost) }}</b><small>مواد {{ num(Math.round(d.parts.materials)) }} · مورد {{ num(Math.round(d.parts.supplier)) }} · حبر ≈ {{ num(Math.round(d.parts.ink)) }}</small></div>
-        <div><span>الربح</span><b class="money" :class="d.profit < 0 ? 'bad' : 'ok'">{{ money(d.profit) }}</b><small>هامش {{ d.margin !== null ? d.margin + '%' : '—' }} · الهدف {{ d.target }}%</small></div>
+        <div><span>الربح (للبونات ذات التكلفة)</span><b class="money" :class="d.profit < 0 ? 'bad' : 'ok'">{{ money(d.profit) }}</b><small>هامش {{ d.margin !== null ? d.margin + '%' : '—' }} · الهدف {{ d.target }}%</small></div>
         <div><span>تحت الهدف</span><b :class="{bad: d.under}">{{ d.under }} بونات</b><small>{{ d.under ? 'نقص الهامش ≈ ' + num(Math.round(d.lost)) + ' دج' : 'كل البونات فوق الهدف' }}</small></div></div>
       <div class="mr-grid mr-pf">
         <section class="mn-card mr-scroll"><div class="mn-card-h"><b>البونات</b><span class="muted">الأقل هامشًا أولًا</span><span class="spacer"></span>
@@ -4129,6 +4131,38 @@ const CollectSheet = {
     <div class="sh-foot"><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy">{{ got > 0 ? 'تسجيل التحصيل' : 'تسليم بلا دفع' }}</button></div>
   </form></div>`,
 };
+// paying a supplier: the whole remainder by default, any part of it if typed
+const SupplierPaySheet = {
+  props: ["opts"],
+  setup(props) {
+    const o = props.opts, left = +(+o.outstanding).toFixed(2), amount = ref(left), mode = ref((state.boot.modes || [])[0]?.value || "Cash"), busy = ref(false), err = ref(null);
+    const out = computed(() => Math.min(left, +String(amount.value).replace(/[\s,]/g, "") || 0));
+    const close = () => (state.sheet = null);
+    const save = async () => { if (!(out.value > 0)) return; busy.value = true; err.value = null;
+      try { await call("pay_supplier", { invoice: o.invoice, mode_of_payment: mode.value, amount: out.value }, true);
+        toast(left - out.value > 0.005 ? `سُجّل الدفع — يبقى للمورد ${money(left - out.value)}` : "سُجّل الدفع — خالص"); state.rev++; o.done?.(); close(); }
+      catch (e) { err.value = e.message; } finally { busy.value = false; } };
+    return { o, left, amount, mode, out, busy, err, close, save, money, state, modeLabel: (v) => (state.boot.modes || []).find((m) => m.value === v)?.label || v };
+  },
+  template: `
+  <div class="overlay" @click.self="close"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>دفع للمورد</h2><span class="muted">{{ o.supplier_name }}<template v-if="o.ref"> — {{ o.ref }}</template></span></div></div>
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <div class="stk-res"><div><span>الباقي عليك</span><b class="bad">{{ money(left) }}</b></div><div><span>تدفع الآن</span><b>{{ money(out) }}</b></div><div><span>يبقى بعدها</span><b :class="{warn: left - out > 0.005}">{{ money(left - out) }}</b></div></div>
+    <div class="stk-pay"><div class="stk-g3"><div class="field"><label for="sp-a">المبلغ</label><div class="stk-suf"><input id="sp-a" class="input" inputmode="decimal" v-model="amount"><em>دج</em></div></div>
+      <div class="field stk-span2"><label>الطريقة</label><div class="stk-modes"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="mode === m.value" @click="mode = m.value">{{ m.label }}</button></div></div></div>
+      <p class="stk-payres"><template v-if="out > 0">يخرج <b>{{ money(out) }}</b> ({{ modeLabel(mode) }})</template><template v-else>اكتب المبلغ</template></p></div>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="busy || !(out > 0)">تسجيل الدفع</button></div>
+  </form></div>`,
+};
+// one rule for every way a card enters a column (drag, card menu, the order window, «move all»)
+// (no column marked for materials: the delivery column deducts them, as before)
+function afterColumnEnter(c, col, canCost, cols) {
+  if (!col) return;
+  const stock = (cols || []).some((x) => x.materials) ? !!col.materials : !!col.deliver;
+  if (col.supplier) { call("mark_outsourced", { order: c.name }, true).catch(() => {}); if (canCost) showSheet({ type: "outsource", order: c.name, title: c.title, column: col.name }); }
+  else if (stock) offerMaterials(c.name);
+  if (col.deliver) offerPayment(c);
+}
 async function offerMaterials(order) {
   try {
     const m = await call("order_materials", { order });
@@ -4292,7 +4326,7 @@ const CalcPage = {
         sheet.value = null; toast(f.kind === "devis" ? "أُنشئ الطلب وعرض السعر" : "أُنشئ الطلب"); go("/order/" + so);
       } catch (e) { if (win) win.close(); err.value = e.message; } finally { busy.value = null; }
     };
-    return { s, c, svc, types, isMat, area, units, unitName, pickService, addLine, pickMaterial, amount, missing, matTotal, total, unitCost, suggest, current, curMargin,
+    return { go, s, c, svc, types, isMat, area, units, unitName, pickService, addLine, pickMaterial, amount, missing, matTotal, total, unitCost, suggest, current, curMargin,
       KINDS, PRESETS, busy, err, saveMargins, savePrice, list, save, open, drop, fresh, sheet, customers, startOrder, pickCustomer, submitOrder, money, num, uom, state };
   },
   template: `
@@ -4318,7 +4352,7 @@ const CalcPage = {
               <label class="cl-fgroup"><span>نسبة التلف</span><div class="unit-wrap"><input class="input num" v-model="c.waste_percent" inputmode="decimal"><span class="u">%</span></div></label></div>
             <span v-if="area" class="muted">المساحة: {{ +units.toFixed(2) }} م² · مع التلف {{ +(units * (1 + num(c.waste_percent) / 100)).toFixed(2) }} م²</span>
             <span v-else-if="svc && svc.area" class="muted">هذه الخدمة تُسعَّر بالمتر المربع: أدخل العرض والارتفاع.</span>
-            <span v-if="svc && !svc.recipe.length" class="muted">لا وصفة مواد لهذه الخدمة. أضف المواد يدويًا، أو سجّل الوصفة في صفحة المخزون.</span></div></section>
+            <span v-if="svc && !svc.recipe.length" class="muted">لا وصفة مواد لهذه الخدمة. أضف المواد يدويًا هنا، أو سجّل وصفتها في <a href="/atelier/settings?tab=prices" @click.prevent="go('/settings?tab=prices')">الإعدادات ← الخدمات والأسعار</a>.</span></div></section>
         <section class="mn-card"><div class="mn-card-h"><b>بنود التكلفة</b><span class="muted">تُقترح من وصفة الخدمة، ويمكن تعديلها</span></div>
           <div class="calc-lines">
             <div v-for="(l, i) in c.lines" :key="i" class="calc-line">
@@ -4351,7 +4385,7 @@ const CalcPage = {
           <button type="button" class="cl-link" :disabled="!!busy" @click="saveMargins">اجعل هذه الهوامش افتراضية</button></section>
         <div class="calc-actions"><button type="button" class="cl-btn primary" :disabled="!total || !!busy" @click="startOrder('devis')"><Icon name="file" :size="16"/>إنشاء عرض سعر</button>
           <div class="row" style="gap:8px"><button type="button" class="cl-btn" style="flex:1" :disabled="!total || !!busy" @click="startOrder('order')"><Icon name="plus" :size="16"/>إنشاء طلب</button>
-            <button type="button" class="cl-btn" style="flex:1" :disabled="!c.lines.length || !!busy" @click="save">{{ busy === 'save' ? 'جارٍ…' : 'حفظ الحساب' }}</button></div></div>
+            <button type="button" class="cl-btn" style="flex:1" :disabled="!c.lines.length || !!busy" @click="save">{{ busy === 'save' ? 'جارٍ…' : 'حفظ التقدير' }}</button></div></div>
       </aside>
     </div>
     <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submitOrder"><div class="sh-head"><h2>{{ sheet.kind === 'devis' ? 'إنشاء عرض سعر' : 'إنشاء طلب' }}</h2></div>
@@ -4778,7 +4812,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, SupplierPaySheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -4842,6 +4876,7 @@ const App = {
         <Board v-if="['home', 'orders', 'order-new'].includes(route.name)" :key="route.name === 'order-new' ? state.path : 'board'" :start-new="route.name === 'order-new'"/>
         <Board v-else-if="route.name==='order'" :key="'order-' + route.id" :open-card="route.id"/>
         <SimpleCustomers v-else-if="route.name==='customers' || route.name==='customer'" :key="state.path + state.query" :open-id="route.id"/>
+        <div v-else-if="['money', 'reports', 'suppliers', 'supplier', 'calc'].includes(route.name) && !state.boot.can.finance" class="noaccess"><h1>هذه الصفحة للمدير</h1><p class="muted">لا تظهر بيانات المال والتقارير والموردين إلا للمدير.</p><button type="button" class="cl-btn primary" @click="go('/')">العودة إلى الطلبات</button></div>
         <SimpleMoney v-else-if="route.name==='money'"/>
         <BoxPage v-else-if="route.name==='box'"/>
         <SuppliersPage v-else-if="route.name==='suppliers' || route.name==='supplier'" :key="state.path" :open-id="route.id"/>
@@ -4870,6 +4905,7 @@ const App = {
     <MaterialsSheet v-if="state.sheet && state.sheet.type==='materials'" :opts="state.sheet"/>
     <OutsourceSheet v-if="state.sheet && state.sheet.type==='outsource'" :opts="state.sheet"/>
     <CollectSheet v-if="state.sheet && state.sheet.type==='collect'" :key="state.sheet.order" :opts="state.sheet"/>
+    <SupplierPaySheet v-if="state.sheet && state.sheet.type==='spay'" :key="state.sheet.invoice" :opts="state.sheet"/>
     <div v-if="state.subsheet" class="subsheet-layer"><PaymentSheet v-if="state.subsheet.type === 'payment'" :opts="state.subsheet"/><ItemSheet v-else :opts="state.subsheet"/></div>
     <BoardPanel v-if="state.sheet && state.sheet.type==='order'" :key="state.sheet.edit || 'new'" mode="new" :edit="state.sheet.edit" :preset="state.sheet.customer" @close="state.sheet = null; route.name === 'order-new' && go('/')" @saved="state.sheet = null; state.rev++; route.name === 'order-new' && go('/')"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>

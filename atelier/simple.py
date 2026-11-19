@@ -1251,6 +1251,22 @@ def money3(offset=0):
 		max(case when si.due_date < curdate() then datediff(curdate(), si.due_date) else 0 end) late, c.mobile_no
 		from `tabSales Invoice` si left join `tabCustomer` c on c.name=si.customer
 		where si.docstatus=1 and si.company=%s and si.outstanding_amount > 0.005 group by si.customer order by late desc, amount desc""", company, as_dict=True)
+	# same rule as the customer pages: open invoices + priced orders not invoiced yet (minus what was paid on them)
+	for d in debtors:
+		d.invoices, d.unbilled = flt(d.amount), 0
+	byc = {d.customer: d for d in debtors}
+	for o in api._order_rows({"docstatus": ["<", 2], "per_billed": ["<", 100], "status": ["!=", "Closed"]}, limit=0):
+		left = max(0, flt(o.grand_total) - flt(o.paid))
+		if o.price_pending or left <= 0.005:
+			continue
+		d = byc.get(o.customer)
+		if not d:
+			d = byc[o.customer] = frappe._dict(customer=o.customer, customer_name=o.customer_name, amount=0, invoices=0, unbilled=0, late=0,
+				mobile_no=frappe.db.get_value("Customer", o.customer, "mobile_no"))
+			debtors.append(d)
+		d.unbilled += left
+		d.amount = flt(d.amount) + left
+	debtors.sort(key=lambda d: (-cint(d.late), -flt(d.amount)))
 	ages = frappe.db.sql(
 		"""select sum(case when ifnull(datediff(curdate(), si.due_date), 0) <= 30 then si.outstanding_amount else 0 end) a,
 		sum(case when datediff(curdate(), si.due_date) between 31 and 60 then si.outstanding_amount else 0 end) b,
@@ -1733,6 +1749,17 @@ def no_worker():
 		frappe.throw(_("هذه الصفحة غير متاحة لدورك"), frappe.PermissionError)
 
 
+def _here(link):
+	"""Reset links are built from the site's host_name setting; show them on the address the manager is using."""
+	req = getattr(frappe.local, "request", None)
+	if not link or not req:
+		return link
+	from urllib.parse import urlsplit, urlunsplit
+
+	u, h = urlsplit(link), urlsplit(req.host_url)
+	return urlunsplit((h.scheme, h.netloc, u.path, u.query, u.fragment))
+
+
 @frappe.whitelist(methods=["POST"])
 def save_user(email, full_name, role="sales", enabled=1):
 	"""Create or update a login for a team member. No password is set here: a reset link is returned for the person to choose one."""
@@ -1756,7 +1783,7 @@ def save_user(email, full_name, role="sales", enabled=1):
 		user.append("roles", {"role": r})
 	user.save(ignore_permissions=True)
 	frappe.db.set_default("atelier_role", role, parent=user.name)
-	link = user._reset_password(send_email=False) if new else None
+	link = _here(user._reset_password(send_email=False)) if new else None
 	if new:
 		from atelier.production import link_member
 		link_member(user.name, user.full_name)
@@ -1785,7 +1812,7 @@ def team_accounts():
 @frappe.whitelist(methods=["POST"])
 def reset_link(email):
 	_manager_only()
-	return frappe.get_doc("User", email)._reset_password(send_email=False)
+	return _here(frappe.get_doc("User", email)._reset_password(send_email=False))
 
 
 @frappe.whitelist(methods=["POST"])
