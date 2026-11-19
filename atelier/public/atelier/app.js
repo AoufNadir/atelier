@@ -142,7 +142,7 @@ const route = computed(() => {
   if (p === "/suppliers") return { name: "suppliers" };
   if ((m = p.match(/^\/suppliers\/(.+)$/))) return { name: "supplier", id: decodeURIComponent(m[1]) };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
-  if (["/money", "/reports", "/prices", "/team", "/board-settings", "/settings", "/stock", "/calc"].includes(p)) return { name: p.slice(1) };
+  if (["/money", "/reports", "/prices", "/team", "/board-settings", "/settings", "/stock", "/calc", "/box"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
@@ -2559,8 +2559,68 @@ const CustomerSheet2 = {
   </div>`,
 };
 
+// seller cash boxes: the manager confirms each handover; money moves only then
+const HandoverCard = {
+  emits: ["done"],
+  setup(_, { emit }) {
+    const d = ref(null), busy = ref(null);
+    const load = async () => { try { d.value = await call("boxes"); } catch { d.value = null; } };
+    onMounted(load);
+    const act = async (h, ok) => { if (!ok && !confirm(`رفض تسليم ${h.name}؟ يعود الصندوق إليه ليعيد العدّ.`)) return;
+      busy.value = h.id; try { await call(ok ? "confirm_handover" : "reject_handover", { id: h.id }, true); toast(ok ? `استلمت ${money(h.counted)} من ${h.name}` : "رُفض التسليم"); await load(); emit("done"); }
+      catch (e) { toast(e.message, "error"); } finally { busy.value = null; } };
+    const when = (at) => ago(String(at).replace(" ", "T"));
+    return { d, busy, act, when, money, num };
+  },
+  template: `
+  <section v-if="d && d.pending.length" class="mn-card hv-card"><div class="mn-card-h"><b>تسليمات بانتظار التأكيد ({{ d.pending.length }})</b></div>
+    <table class="cl-table hv-table"><thead><tr><th>البائع</th><th>متى</th><th class="n">المسجّل</th><th class="n">سلّم فعلًا</th><th>الفرق</th><th class="n"><span class="sr-only">إجراء</span></th></tr></thead><tbody>
+      <tr v-for="h in d.pending" :key="h.id"><td><b>{{ h.name }}</b><span class="m hv-sub">{{ h.count }} تحصيل</span></td><td>{{ when(h.at) }}</td><td class="n money">{{ money(h.recorded) }}</td><td class="n money"><b>{{ money(h.counted) }}</b></td>
+        <td><span v-if="Math.abs(h.diff) < 0.01" class="hv-pill ok">مطابق</span><span v-else class="hv-pill" :class="h.diff < 0 ? 'bad' : 'warn'">{{ h.diff > 0 ? '+' : '−' }}{{ money(Math.abs(h.diff)) }}<template v-if="h.reason"> · {{ h.reason }}</template></span></td>
+        <td class="n"><div class="btn-row"><button type="button" class="cl-btn sm primary" :disabled="busy === h.id" @click="act(h, true)">استلمت</button><button type="button" class="cl-btn sm" :disabled="busy === h.id" @click="act(h, false)">رفض</button></div></td></tr>
+    </tbody></table></section>`,
+};
+const BoxPage = {
+  setup() {
+    const { s, load } = useLoad(() => call("my_box"));
+    onMounted(load); watch(() => state.rev, load);
+    const ho = ref(null);
+    const open = () => (ho.value = { counted: s.data ? +(+s.data.balance).toFixed(2) : "", reason: "", busy: false, err: null });
+    const counted = computed(() => +String(ho.value?.counted ?? "").replace(/[\s,]/g, "") || 0);
+    const diff = computed(() => (s.data && ho.value ? Math.round((counted.value - s.data.balance) * 100) / 100 : 0));
+    const send = async () => { const h = ho.value; h.busy = true; h.err = null;
+      try { await call("hand_over", { counted: counted.value, reason: h.reason }, true); toast("أُرسل التسليم إلى المدير"); ho.value = null; await load(); }
+      catch (e) { h.err = e.message; } finally { if (ho.value) ho.value.busy = false; } };
+    const when = (at) => ago(String(at).replace(" ", "T"));
+    return { s, ho, open, counted, diff, send, when, money, date };
+  },
+  template: `
+  <div class="page bx">
+    <div class="stk-head"><h1>صندوقي</h1><span class="spacer"></span></div>
+    <div v-if="s.error" class="alert error" style="margin:0 28px">{{ s.error }}</div>
+    <div v-else-if="s.data" class="bx-body">
+      <section class="mn-card bx-card">
+        <div class="mn-card-h"><b>صندوقي — {{ s.data.name }}</b><span class="spacer"></span><span class="m">{{ s.data.since ? 'منذ آخر تسليم ' + when(s.data.since) : 'لم تسلّم بعد' }}</span></div>
+        <div class="bx-big"><span>في يدي الآن</span><b class="money">{{ money(s.data.balance) }}</b><small>نقدًا فقط · CCP والبنك لا تمر بصندوقك</small></div>
+        <div v-if="s.data.pending" class="alert warn bx-wait">سلّمت {{ money(s.data.pending.counted) }} {{ when(s.data.pending.at) }} — بانتظار تأكيد المدير.</div>
+        <div v-for="c in s.data.collections" :key="c.name" class="bx-li"><span>{{ c.party_name }}<span class="m"> · {{ date(c.posting_date) }}</span></span><b class="money">+{{ money(c.paid_amount) }}</b></div>
+        <p v-if="!s.data.collections.length" class="muted bx-empty">لا تحصيلات نقدية منذ آخر تسليم.</p>
+        <div class="btn-row bx-acts"><button type="button" class="cl-btn primary" :disabled="!!s.data.pending || !(s.data.balance > 0)" @click="open">سلّمت الصندوق</button></div>
+      </section>
+    </div>
+    <div v-if="ho" class="overlay" @click.self="ho = null"><form class="sheet bx-sheet" @submit.prevent="send"><div class="sh-head"><h2>تسليم الصندوق</h2></div>
+      <div v-if="ho.err" class="alert error">{{ ho.err }}</div>
+      <div class="stk-res"><div><span>المسجّل</span><b class="money">{{ money(s.data.balance) }}</b></div><div><span>تحصيلات</span><b>{{ s.data.collections.length }}</b></div><div><span>لمن</span><b>المدير</b></div></div>
+      <div class="field"><label for="bx-c">كم في يدك فعلًا؟ (عُدّ النقود)</label><input id="bx-c" class="input bx-in" inputmode="decimal" v-model="ho.counted"></div>
+      <div v-if="Math.abs(diff) >= 0.01" class="bx-diff" :class="diff < 0 ? 'bad' : 'warn'">{{ diff < 0 ? 'ينقص' : 'يزيد' }} <b>{{ money(Math.abs(diff)) }}</b> عن المسجّل — اكتب السبب (اختياري)
+        <input class="input" v-model="ho.reason" placeholder="مثلًا: أرجعت الباقي لزبون" aria-label="سبب الفرق"></div>
+      <div v-else class="bx-diff ok">مطابق للمسجّل</div>
+      <div class="sh-foot"><button type="button" class="cl-btn" @click="ho = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="ho.busy || counted < 0">إرسال للمدير</button></div>
+    </form></div>
+  </div>`,
+};
 const SimpleMoney = {
-  components: { Icon, Avatar },
+  components: { Icon, Avatar, HandoverCard },
   setup() {
     const offset = ref(0);
     const { s, load } = useLoad(() => call("money3", { offset: offset.value }));
@@ -2677,6 +2737,7 @@ const SimpleMoney = {
           <button v-for="f in d.funds" :key="f.name" type="button" class="mn-fund" :aria-pressed="fundSel === f.name" :title="'عرض حركات ' + f.label + ' فقط'" @click="fundSel = fundSel === f.name ? null : f.name">
             <span>{{ f.label }}</span><b class="money">{{ fig(f.balance) }}</b><small :class="{warn: f.cheques}">{{ fundNote(f) }}</small></button>
         </div>
+        <HandoverCard @done="load"/>
         <div class="cl-stats mn-stats mn-stats3">
           <div><span>دخل {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money ok">{{ money(d.income) }}</b><small>{{ change(d.income, d.prev_income) }}</small></div>
           <div><span>خرج من الصناديق {{ offset ? 'في الشهر' : 'هذا الشهر' }}</span><b class="money bad">{{ money(d.expenses) }}</b>
@@ -3919,6 +3980,7 @@ const NAV = [
   { key: "customers", path: "/customers", icon: "users", label: "nav_customers", match: ["customer", "customers"], need: "customer" },
   { key: "suppliers", path: "/suppliers", icon: "factory", label: "nav_suppliers", match: ["suppliers", "supplier"], need: "finance" },
   { key: "money", path: "/money", icon: "wallet", label: "nav_money_simple", match: ["money"], need: "finance" },
+  { key: "box", path: "/box", icon: "wallet", label: "nav_box", match: ["box"], need: "box" },
 ];
 const SECTION_NAV = [
   { key: "stock", path: "/stock", icon: "box", label: "nav_stock", match: ["stock"], need: "stock" },
@@ -4542,7 +4604,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -4558,7 +4620,7 @@ const App = {
     });
     const isActive = (n) => n.match.includes(route.value.name);
     const titles = { ds: "ds_title", "order-new": "of_title", customer: "c_title", customers: "c_title", order: "nav_orders", orders: "orders_title",
-      money: "nav_money", suppliers: "nav_suppliers", supplier: "nav_suppliers", stock: "nav_stock", calc: "nav_calc", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings", settings: "nav_settings" };
+      money: "nav_money", box: "nav_box", suppliers: "nav_suppliers", supplier: "nav_suppliers", stock: "nav_stock", calc: "nav_calc", machines: "nav_machines", reports: "nav_reports", more: "nav_more", prices: "nav_prices", team: "nav_team", "board-settings": "nav_board_settings", settings: "nav_settings" };
     const back = () => (history.length > 1 ? history.back() : go("/"));
     const initials = (n) => String(n || "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join(" ");
     const logout = async () => {
@@ -4593,7 +4655,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'suppliers', 'supplier', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports', 'calc', 'stock'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
+      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'suppliers', 'supplier', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports', 'calc', 'stock', 'box'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
@@ -4607,6 +4669,7 @@ const App = {
         <Board v-else-if="route.name==='order'" :key="'order-' + route.id" :open-card="route.id"/>
         <SimpleCustomers v-else-if="route.name==='customers' || route.name==='customer'" :key="state.path + state.query" :open-id="route.id"/>
         <SimpleMoney v-else-if="route.name==='money'"/>
+        <BoxPage v-else-if="route.name==='box'"/>
         <SuppliersPage v-else-if="route.name==='suppliers' || route.name==='supplier'" :key="state.path" :open-id="route.id"/>
         <StockPage v-else-if="route.name==='stock'"/>
         <CalcPage v-else-if="route.name==='calc'"/>
@@ -4623,6 +4686,7 @@ const App = {
       <a class="fab" href="/atelier/orders/new" @click.prevent="state.sheet = {type: 'order'}"><span class="fab-circle"><Icon name="plus" :size="22"/></span><span class="lbl">{{ t('new_order') }}</span></a>
       <a href="/atelier/customers" :class="{active: ['customer','customers'].includes(route.name)}" @click.prevent="go('/customers')"><Icon name="users"/>{{ t('nav_customers') }}</a>
       <a v-if="state.boot.can.finance" href="/atelier/money" :class="{active: route.name==='money'}" @click.prevent="go('/money')"><Icon name="wallet"/>{{ t('nav_money_simple') }}</a>
+      <a v-else-if="state.boot.can.box" href="/atelier/box" :class="{active: route.name==='box'}" @click.prevent="go('/box')"><Icon name="wallet"/>{{ t('nav_box') }}</a>
     </nav>
 
     <PaymentSheet v-if="state.sheet && state.sheet.type==='payment'" :opts="state.sheet"/>

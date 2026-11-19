@@ -3016,3 +3016,27 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .stk-sec-low { color: #B54708; font-weight: 700; font-size: 13px; margin-inline-start: 6px; }
 .stk-table tr.stk-sec td > b, .stk-table tr.stk-sec td > span { display: inline; }
 .stk-tabs [role="tab"] { font-size: 15px; }
+
+/* seller cash box and handovers */
+.bx-body { padding: 0 28px 28px; max-width: 760px; }
+.bx-card .mn-card-h .m { font-size: 13px; color: #667085; }
+.bx-big { padding: 14px 18px; border-bottom: 1px solid #E4E7EC; }
+.bx-big span { display: block; font-size: 13px; color: #667085; }
+.bx-big b { display: block; font-size: 28px; }
+.bx-big small { font-size: 12px; color: #667085; }
+.bx-li { display: flex; justify-content: space-between; gap: 8px; padding: 8px 18px; border-bottom: 1px solid #F2F4F7; font-size: 14px; }
+.bx-li .m { color: #667085; font-size: 13px; }
+.bx-empty { padding: 12px 18px; margin: 0; }
+.bx-wait { margin: 12px 18px; }
+.bx-acts { padding: 12px 18px; }
+.overlay .sheet.bx-sheet { width: min(480px, calc(100vw - 32px)); }
+.bx-in { font-size: 18px; height: 44px; }
+.bx-diff { margin-top: 10px; padding: 9px 12px; border-radius: 8px; font-size: 13px; }
+.bx-diff .input { display: block; width: 100%; margin-top: 6px; }
+.bx-diff.bad { background: #FEF3F2; color: #B42318; } .bx-diff.warn { background: #FFFAEB; color: #B54708; } .bx-diff.ok { background: #ECFDF3; color: #067647; }
+.bx-diff .input { height: 34px; font-size: 13px; color: #17202A; }
+.hv-card { margin: 14px 18px; }
+.hv-table td { vertical-align: middle; }
+.hv-sub { display: block; font-size: 12px; }
+.hv-pill { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+.hv-pill.ok { background: #ECFDF3; color: #067647; } .hv-pill.bad { background: #FEF3F2; color: #B42318; } .hv-pill.warn { background: #FFFAEB; color: #B54708; }

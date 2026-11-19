@@ -94,6 +94,7 @@ def boot():
 			"customer": _can("Customer", "create") and not worker,
 			"prices": _can("Item Price", "write"),
 			"payment": (_can("Payment Entry", "create") or role == "sales") and not worker,
+			"box": role == "sales" and not worker,
 			"expense": _can("Journal Entry", "create"),
 			"finance": _can("GL Entry", "read"),
 			"cost": _can("Cost Estimate", "read"),
@@ -719,7 +720,9 @@ def all_modes():
 
 def mode_funds(company):
 	linked = frappe.get_all("Mode of Payment Account", filters={"company": company, "parent": ["in", [m[0] for m in all_modes()]]}, pluck="default_account")
-	funds = set(linked) | {a for a in _stored_list("atelier_funds") if frappe.db.exists("Account", a)}
+	from atelier.cashbox import all_boxes
+
+	funds = set(linked) | {a for a in _stored_list("atelier_funds") if frappe.db.exists("Account", a)} | set(all_boxes())
 	return {a for a in funds if not frappe.db.get_value("Account", a, "disabled")}
 
 
@@ -732,9 +735,21 @@ def _cash_account(mode, company):
 		return frappe.db.get_value("Company", company, "default_cash_account")
 
 
+def _in_account(mode, company):
+	"""Cash a seller collects goes to the seller's own box until the manager confirms the handover (see cashbox)."""
+	acc = _cash_account(mode, company)
+	if acc and frappe.db.get_value("Account", acc, "account_type") == "Cash":
+		from atelier.cashbox import cash_to
+
+		box = cash_to(frappe.flags.get("atelier_seller") or frappe.session.user)
+		if box:
+			return box
+	return acc
+
+
 def _receive(customer, amount, mode, sales_order=None, order_name=None):
 	company = _company()
-	account = _cash_account(mode, company)
+	account = _in_account(mode, company)
 	if sales_order:
 		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
@@ -774,6 +789,7 @@ def record_payment(customer, amount, mode_of_payment, sales_order=None, referenc
 		frappe.get_doc("Sales Order", sales_order).check_permission("read")
 	# ERPNext checks the Payment Entry role itself, so run as Administrator and keep the seller as the owner.
 	user = frappe.session.user
+	frappe.flags.atelier_seller = user
 	frappe.set_user("Administrator")
 	try:
 		name = _record_payment(customer, amount, mode_of_payment, sales_order)
@@ -781,6 +797,7 @@ def record_payment(customer, amount, mode_of_payment, sales_order=None, referenc
 		return _with_ref(name, reference_no, reference_date)
 	finally:
 		frappe.set_user(user)
+		frappe.flags.atelier_seller = None
 
 
 def _with_ref(name, reference_no=None, reference_date=None):
@@ -805,7 +822,7 @@ def _record_payment(customer, amount, mode_of_payment, sales_order=None):
 def _receive_invoice(invoice, amount, mode):
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
-	pe = get_payment_entry("Sales Invoice", invoice, party_amount=amount, bank_account=_cash_account(mode, _company()))
+	pe = get_payment_entry("Sales Invoice", invoice, party_amount=amount, bank_account=_in_account(mode, _company()))
 	pe.mode_of_payment = mode
 	pe.posting_date = nowdate()
 	pe.reference_no = pe.reference_no or "—"
@@ -1281,3 +1298,4 @@ from atelier.simple import save_calendar  # noqa: E402, F401
 from atelier.simple import set_file_kind  # noqa: E402, F401
 from atelier.simple import delete_customer_file  # noqa: E402, F401
 from atelier.sharing import create_share, revoke_share  # noqa: E402, F401
+from atelier.cashbox import my_box, hand_over, boxes, confirm_handover, reject_handover  # noqa: E402, F401
