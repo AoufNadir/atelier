@@ -935,7 +935,14 @@ def stock():
 		m.item_name = names.get(m.item_code, m.item_code)
 		so = orders.get(projects.get(m.voucher_no)) if m.voucher_type == "Stock Entry" else None
 		m.order, m.order_title = (so.name, so.atelier_subject or so.name) if so else (None, None)
-	return {"items": list(items.values()), "moves": moves, "can_value": _can("GL Entry"),
+	can_value = _can("GL Entry")
+	if not can_value:
+		# quantities only: no value from which a unit price could be worked out (value ÷ qty)
+		for it in items.values():
+			it.pop("value", None)
+		for m in moves:
+			m.pop("stock_value_difference", None)
+	return {"items": list(items.values()), "moves": moves, "can_value": can_value,
 		"can_buy": _can("Purchase Invoice", "create"), "can_issue": _can("Stock Entry", "create")}
 
 

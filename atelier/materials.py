@@ -680,7 +680,7 @@ def _real_cost(item_code):
 @frappe.whitelist()
 def materials_report(period="month", start=None, end=None):
 	"""Per material over a period: used (qty and money), waste from finished cycles, purchase vs real unit cost, and how much to trust it."""
-	api._require("Bin")
+	api._require("GL Entry")
 	from atelier.simple import _period
 
 	a, b = _period(period, start, end)[:2]
@@ -734,7 +734,7 @@ def materials_report(period="month", start=None, end=None):
 @frappe.whitelist()
 def material_detail(item_code):
 	"""One material: every finished roll / ream, and what each supplier charged per roll / ream over time."""
-	api._require("Bin")
+	api._require("GL Entry")
 	item = _material(item_code)
 	c = _cfg_of(item.name)
 	cycles = frappe.get_all("Material Cycle", filters={"item": item.name}, fields=["opened_on", "closed_on", "size", "cost", "recorded", "gap", "coverage", "orders"],
@@ -785,7 +785,10 @@ def _ink_per_m2(days=90):
 
 @frappe.whitelist()
 def pricing_info():
-	"""For the price hint under an order line: target margin, ink per m², real unit cost of each material."""
+	"""For the price hint under an order line: target margin, ink per m², real unit cost of each material.
+	Costs are for those who see the books; others get the target only."""
+	if not api._can("GL Entry"):
+		return {"target": target_margin(), "ink_per_m2": None, "real": {}}
 	reals = {}
 	if _cycles_ok():
 		for r in frappe.db.sql("""select item, sum(cost), sum(recorded), count(*) from `tabMaterial Cycle` where coverage>=70 and recorded>0 group by item"""):
@@ -907,7 +910,7 @@ def services_overview():
 
 	from atelier.api import PRICE_LISTS, _with_prices
 
-	api._require("Item Price")
+	api._require("GL Entry")
 	info = pricing_info()
 	target = info["target"]
 	items = frappe.get_list("Item", filters={"disabled": 0, "is_sales_item": 1, "name": ["!=", "SRV-GENERAL"]},
