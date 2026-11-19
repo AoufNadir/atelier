@@ -2778,7 +2778,7 @@ const SimpleMoney = {
             </section>
           </div>
           <div class="mn-col">
-            <section class="mn-card"><div class="mn-card-h"><b>شيكات لم تُحصَّل</b><b v-if="d.cheques.length" class="warn">{{ money(chequeTotal) }}</b></div>
+            <section v-if="d.cheques.length" class="mn-card"><div class="mn-card-h"><b>شيكات لم تُحصَّل</b><b v-if="d.cheques.length" class="warn">{{ money(chequeTotal) }}</b></div>
               <div v-if="!d.cheques.length" class="mn-empty">لا شيكات تنتظر البنك. سجّل الصك من «تسجيل دخل» بطريقة «صك».</div>
               <div v-for="c in d.cheques" :key="c.name" class="mn-line">
                 <div class="mn-who" style="cursor:default"><span class="cl-name">{{ c.party_name }}</span>
@@ -4260,6 +4260,8 @@ const CalcPage = {
 };
 
 // stock: three ways a material is used. roll: kept in م², bought by the roll (width × length); bottle: bought and swapped one at a time; count: sheets, pieces (optionally bought by the pack)
+// used until the server sends the workshop's own list (settings → lists → stock sections)
+const STOCK_SECTIONS = [{ name: "الورق", way: "count" }, { name: "الطباعة الكبيرة", way: "roll" }, { name: "الأحبار", way: "bottle" }, { name: "أخرى", way: "count" }];
 const STOCK_WAYS = { roll: { label: "لفّة", hint: "باش، فينيل، One Way" }, bottle: { label: "قارورة / علبة", hint: "حبر، غراء" }, count: { label: "بالعدد", hint: "ورق، هياكل، عيون" } };
 const COUNT_UNITS = ["ورقة", "قطعة", "علبة", "متر طولي", "لتر"];
 // suggestions only: any other value can be typed, and values already used come back as suggestions
@@ -4280,7 +4282,7 @@ const StockPage = {
     watch(way, (v) => { try { localStorage.setItem("nasaq.stock.tab", v); } catch {} });
     // sections come from settings; a material without a known section goes to the first one with its counting way
     // (paper-like counted items to the first counted section, other counted items to the last)
-    const sections = computed(() => { const l = state.boot.lists?.stock_sections || []; return l.length ? l : [{ name: "المواد", way: "count" }]; });
+    const sections = computed(() => { const l = state.boot.lists?.stock_sections || []; return l.length ? l : STOCK_SECTIONS; });
     const secOf = (i) => { const l = sections.value, n = i.cfg?.section; if (n && l.some((x) => x.name === n)) return n;
       const w = wayOf(i), same = l.filter((x) => x.way === w), paper = !!(i.cfg?.kind || i.cfg?.gsm || i.cfg?.size);
       if (same.length) return (w === "count" && !paper && same.length > 1 ? same[same.length - 1] : same[0]).name;
@@ -4530,7 +4532,7 @@ const StockPage = {
       <button type="button" class="cl-link" style="align-self:flex-start" @click="bill.lines.push({item_code: '', n: '', price: ''})">+ مادة أخرى</button>
       <div class="stk-bltot"><span>المجموع</span><b>{{ money(billTotal) }}</b></div>
       <div class="stk-pay"><div class="stk-g3"><div class="field"><label for="bl-p">دفعت الآن</label><div class="stk-suf"><input id="bl-p" class="input" inputmode="decimal" v-model="bill.paid" @input="bill.paidTouched = true"><em>دج</em></div></div>
-          <div class="field stk-span2"><label>الطريقة</label><div class="stk-modes"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="bill.mode === m.value" :disabled="!(billPaid > 0)" @click="bill.mode = m.value">{{ m.label }}</button></div></div></div>
+          <div class="field stk-span2"><label>الطريقة</label><div class="stk-modes"><button type="button" :aria-pressed="!(billPaid > 0)" @click="bill.paid = 0; bill.paidTouched = true">آجل</button><button v-for="m in state.boot.modes.filter((x) => x.value !== 'Cheque')" :key="m.value" type="button" :aria-pressed="billPaid > 0 && bill.mode === m.value" @click="bill.mode = m.value; if (!(billPaid > 0)) { bill.paid = +billTotal.toFixed(2); bill.paidTouched = false; }">{{ m.label }}</button></div></div></div>
         <p class="stk-payres"><template v-if="billPaid > 0">يخرج <b>{{ money(billPaid) }}</b> ({{ modeLabel(bill.mode) }})</template><template v-else>لا يخرج شيء الآن</template>
           <template v-if="billTotal - billPaid > 0.005"> · يبقى دين للمورد <b class="warn">{{ money(billTotal - billPaid) }}</b></template><template v-else-if="billTotal"> · لا يبقى دين</template></p>
         <div v-if="billTotal - billPaid > 0.005" class="field" style="max-width:220px"><label for="bl-due">يُدفع قبل (اختياري)</label><input id="bl-due" class="input" type="date" v-model="bill.due"></div></div>

@@ -11,7 +11,8 @@ from atelier import production
 # Production-step endpoints live in production.py and are exposed under atelier.api like the rest.
 from atelier.production import save_steps, save_team, set_service_steps, set_tags, step_action, step_order_supplier, step_supplier_invoice, team  # noqa: F401
 
-MODES = [("Cash", "كاش"), ("BaridiMob", "بريدي موب"), ("CCP", "CCP"), ("Wire Transfer", "تحويل بنكي"), ("Cheque", "صك")]
+# the default methods (a workshop can change them in settings): no cheque; CCP and BaridiMob are the same postal account
+MODES = [("Cash", "نقد"), ("CCP", "CCP / بريدي موب"), ("Wire Transfer", "بنك")]
 STAGES = ["جديد", "تصميم", "بانتظار موافقة العميل", "طباعة", "تشطيب", "جاهز للتسليم", "سُلّم"]
 
 
