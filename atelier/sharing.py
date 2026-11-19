@@ -62,7 +62,10 @@ def create_share(items, days=30, prices=0):
 	data[token] = {"items": rows, "created": str(now_datetime()), "by": frappe.session.user,
 		"expires": str(add_days(now_datetime(), days)) if days > 0 else None}
 	_put(data)
-	return {"token": token, "url": frappe.utils.get_url(f"/api/method/atelier.sharing.share_view?t={token}"), "expires": data[token]["expires"]}
+	from atelier.simple import _here
+
+	# on the address the manager is using (the site's host_name may point elsewhere)
+	return {"token": token, "url": _here(frappe.utils.get_url(f"/api/method/atelier.sharing.share_view?t={token}")), "expires": data[token]["expires"]}
 
 
 @frappe.whitelist(methods=["POST"])
