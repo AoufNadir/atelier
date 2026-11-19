@@ -1,0 +1,37 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-11-18 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["item", "item_name", "opened_on", "closed_on", "size", "uom", "cost", "recorded", "gap", "coverage", "orders"],
+ "fields": [
+  {"fieldname": "item", "fieldtype": "Link", "in_list_view": 1, "label": "المادة", "options": "Item", "reqd": 1, "search_index": 1},
+  {"fieldname": "item_name", "fieldtype": "Data", "label": "اسم المادة"},
+  {"fieldname": "opened_on", "fieldtype": "Date", "in_list_view": 1, "label": "فُتحت"},
+  {"fieldname": "closed_on", "fieldtype": "Date", "in_list_view": 1, "label": "انتهت"},
+  {"fieldname": "size", "fieldtype": "Float", "label": "الحجم"},
+  {"fieldname": "uom", "fieldtype": "Data", "label": "الوحدة"},
+  {"fieldname": "cost", "fieldtype": "Currency", "label": "التكلفة"},
+  {"fieldname": "recorded", "fieldtype": "Float", "label": "خُصم على الطلبات"},
+  {"fieldname": "gap", "fieldtype": "Float", "in_list_view": 1, "label": "الفرق"},
+  {"fieldname": "coverage", "fieldtype": "Percent", "label": "التغطية"},
+  {"fieldname": "orders", "fieldtype": "Long Text", "label": "الطلبات"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-18 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Atelier",
+ "name": "Material Cycle",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "write": 1},
+  {"create": 1, "read": 1, "report": 1, "role": "Stock Manager", "write": 1},
+  {"create": 1, "read": 1, "report": 1, "role": "Stock User", "write": 1}
+ ],
+ "sort_field": "closed_on",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

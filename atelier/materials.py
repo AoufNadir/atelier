@@ -248,6 +248,103 @@ def set_closed_packs(item_code, n):
 	return c["closed"]
 
 
+def _cycles_ok():
+	return frappe.db.table_exists("Material Cycle")
+
+
+def _cycle_start(item_code):
+	"""When the pack now finishing was opened: the end of the previous cycle, else the first move of the material."""
+	last = frappe.db.get_value("Material Cycle", {"item": item_code}, "closed_on", order_by="closed_on desc, creation desc") if _cycles_ok() else None
+	if not last:
+		opens = _cfg_of(item_code)["opens"]
+		last = opens[-1]["date"] if opens else None
+	return str(last or frappe.db.get_value("Stock Ledger Entry", {"item_code": item_code, "is_cancelled": 0}, "posting_date", order_by="posting_date asc") or nowdate())
+
+
+def _used_since(item_code, since):
+	"""Issued on orders (and by hand) since a date: [(order, qty)], total."""
+	rows = frappe.db.sql("""select sle.voucher_no, -sum(sle.actual_qty) from `tabStock Ledger Entry` sle
+		where sle.item_code=%s and sle.is_cancelled=0 and sle.voucher_type='Stock Entry' and sle.actual_qty<0 and sle.posting_date>=%s
+		group by sle.voucher_no""", (item_code, since))
+	entries = {r[0]: flt(r[1]) for r in rows}
+	proj = dict(frappe.db.sql("select name, project from `tabStock Entry` where name in %s", [list(entries) or [""]]))
+	orders = {o.project: o.name for o in frappe.get_all("Sales Order", filters={"project": ["in", [p for p in proj.values() if p] or [""]]}, fields=["name", "project"])}
+	out = {}
+	for v, q in entries.items():
+		key = orders.get(proj.get(v)) or ""
+		out[key] = out.get(key, 0) + q
+	return out, sum(entries.values())
+
+
+def _line_need(line, item_code, roll, waste):
+	"""What one order line would take from this material (area + waste for a roll; pieces ÷ per sheet + waste for paper)."""
+	from atelier.simple import units
+	u = next((x for x in units() if x["name"] == (line.get("atelier_unit") or "")), None)
+	calc = u["calc"] if u else "count"
+	if roll:
+		if calc != "area":
+			return 0
+		return flt(line.qty) * (0.0001 if u.get("scale") == "cm" else 1) * (1 + waste / 100)
+	if calc != "count" or (u and u["name"] in ("خدمة", "ساعة")):
+		return 0
+	per = max(1, flt(line.get("atelier_per_sheet")) or 1)
+	return math.ceil(round(flt(line.qty) / per * (1 + waste / 100), 6))
+
+
+@frappe.whitelist()
+def pack_cycle(item_code):
+	"""Before «انتهت اللفّة»: the cycle so far, and orders printed but not yet deducted that may belong to it."""
+	api._require("Bin")
+	item = _material(item_code)
+	c = _cfg_of(item.name)
+	since = _cycle_start(item.name)
+	by_order, used = _used_since(item.name, since)
+	roll = (_cfg_family(item.name) == "roll")
+	cands = []
+	has_mat = frappe.db.has_column("Sales Order Item", "atelier_material")
+	for so in frappe.get_all("Sales Order", filters={"docstatus": ["<", 2], "creation": [">=", since], "status": ["not in", ["Closed", "Cancelled"]]},
+			fields=["name", "atelier_subject", "atelier_materials_done", *(["atelier_outsourced"] if frappe.db.has_column("Sales Order", "atelier_outsourced") else [])],
+			order_by="creation desc", limit=60):
+		if cint(so.get("atelier_materials_done")) or cint(so.get("atelier_outsourced")) or so.name in by_order:
+			continue
+		lines = frappe.get_all("Sales Order Item", filters={"parent": so.name},
+			fields=["qty", "atelier_unit", "atelier_per_sheet", *(["atelier_material"] if has_mat else [])])
+		need = sum(_line_need(l, item.name, roll, c["waste"]) for l in lines)
+		if need > 0:
+			mine = any((l.get("atelier_material") or "") == item.name for l in lines)
+			cands.append({"order": so.name, "title": so.atelier_subject or so.name, "qty": round(need, 3), "checked": 1 if mine else 0})
+	titles = {o.name: o.atelier_subject or o.name for o in frappe.get_all("Sales Order", filters={"name": ["in", [k for k in by_order if k] or [""]]}, fields=["name", "atelier_subject"])}
+	return {"pack": c["pack"] or ("لفّة" if roll else "رزمة"), "size": c["pack_qty"], "uom": item.stock_uom, "since": since, "used": round(used, 3),
+		"done": [{"order": k, "title": titles.get(k, "صرف يدوي" if not k else k), "qty": round(v, 3)} for k, v in by_order.items()], "candidates": cands[:30], "closed": c["closed"]}
+
+
+def _cfg_family(item_code):
+	return (frappe.db.get_value("Item", item_code, "atelier_family") if _has("atelier_family") else "") or ""
+
+
+@frappe.whitelist(methods=["POST"])
+def close_pack(item_code, orders=None):
+	"""«انتهت اللفّة / الرزمة»: deduct the orders the user ticked, then close the cycle (open_pack) and keep it for the reports."""
+	_need("Stock Entry")
+	item = _material(item_code)
+	since = _cycle_start(item.name)
+	for o in frappe.parse_json(orders) or []:
+		q = flt(o.get("qty"))
+		if o.get("order") and q > 0:
+			stock_issue(item.name, min(q, _on_hand(item.name, store_for(api._company()))), o["order"], _("مواد طلب {0}").format(o["order"]))
+			frappe.db.set_value("Sales Order", o["order"], "atelier_materials_done", 1)
+	by_order, used = _used_since(item.name, since)
+	rate = flt(frappe.db.get_value("Bin", {"item_code": item.name, "warehouse": store_for(api._company())}, "valuation_rate"))
+	res = open_pack(item.name)
+	size = flt(res.get("size")) or _cfg_of(item.name)["pack_qty"]
+	if _cycles_ok():
+		frappe.get_doc({"doctype": "Material Cycle", "item": item.name, "item_name": frappe.db.get_value("Item", item.name, "item_name"),
+			"opened_on": since, "closed_on": nowdate(), "size": size, "uom": item.stock_uom, "cost": round(size * rate, 2),
+			"recorded": round(used, 4), "gap": round(size - used, 4), "coverage": min(100, round(used / size * 100, 1)) if size else 0,
+			"orders": json.dumps([{"order": k, "qty": round(v, 3)} for k, v in by_order.items()], ensure_ascii=False)}).insert(ignore_permissions=True)
+	return {**res, "used": round(used, 3), "waste": round(size - used, 3), "coverage": min(100, round(used / size * 100, 1)) if size else 0}
+
+
 @frappe.whitelist(methods=["POST"])
 def open_pack(item_code):
 	"""«فتحت لفّة / رزمة جديدة»: the previous one is finished, so the true stock is known without measuring:
@@ -269,7 +366,7 @@ def open_pack(item_code):
 		stock_count(item.name, actual)
 	c["opens"] = (c["opens"] + [{"date": nowdate(), "gap": gap, "size": size}])[-12:]
 	_save_cfg(item.name, c)
-	return {"gap": gap, "closed": c["closed"], "stock": actual, "pack": c["pack"] or "لفّة"}
+	return {"gap": gap, "closed": c["closed"], "stock": actual, "pack": c["pack"] or "لفّة", "size": size}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -397,7 +494,11 @@ def material_ledger(item_code, limit=60):
 		and voucher_type='Stock Entry' and actual_qty<0 and posting_date>=%s""", (item_code, frappe.utils.add_days(nowdate(), -60)))[0][0])
 	last = frappe.db.sql("""select pi.posting_date, pi.supplier_name, pii.rate from `tabPurchase Invoice Item` pii join `tabPurchase Invoice` pi on pi.name=pii.parent
 		where pii.item_code=%s and pi.docstatus=1 order by pi.posting_date desc, pi.creation desc limit 1""", item_code, as_dict=True)
-	return {"rows": rows, "month_used": used, "daily": used60 / 60, "last_buy": last[0] if last else None}
+	cycles = frappe.get_all("Material Cycle", filters={"item": item_code}, fields=["opened_on", "closed_on", "size", "cost", "recorded", "gap", "coverage"],
+		order_by="closed_on desc, creation desc", limit=12) if _cycles_ok() else []
+	good = [c for c in cycles if flt(c.coverage) >= 70 and flt(c.recorded) > 0]
+	real = sum(flt(c.cost) for c in good) / sum(flt(c.recorded) for c in good) if len(good) >= 3 else None
+	return {"rows": rows, "month_used": used, "daily": used60 / 60, "last_buy": last[0] if last else None, "cycles": cycles, "real_cost": real, "good_cycles": len(good)}
 
 
 def _needed(so):
