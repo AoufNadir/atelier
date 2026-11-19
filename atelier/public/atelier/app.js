@@ -3306,6 +3306,8 @@ const LIST_DEFS = [
   { key: "cost_types", title: "أنواع التكلفة", hint: "«مادة» يعني أن تلف المواد يُضاف إلى هذا النوع.", cols: [["label", "النوع"], ["material", "مادة", "check"]], blank: { label: "", material: 0 } },
   { key: "stock_sections", title: "أقسام المخزون", hint: "تبويبات صفحة المخزون. لكل قسم طريقة العدّ التي تبدأ بها المادة الجديدة فيه. مواد القسم المحذوف تذهب إلى القسم الأقرب لطريقة عدّها.",
     cols: [["name", "القسم"], ["way", "طريقة العدّ", "select", [["count", "بالعدد (ورق، قطع)"], ["roll", "لفّة (م²)"], ["bottle", "قارورة"]]], ["color", "اللون", "color"]], blank: { name: "", way: "count", color: "#98A2B3" } },
+  { key: "paper_kinds", title: "أنواع الورق", hint: "تُختار في نافذة المادة. تغيير الاسم من النافذة يحدّث المواد التي تستعمله.", cols: [["name", "النوع"]], blank: { name: "" } },
+  { key: "paper_sizes", title: "مقاسات الورق", hint: "تُختار في نافذة المادة.", cols: [["name", "المقاس"]], blank: { name: "" } },
   { key: "roles", title: "أدوار الفريق", hint: "اقتراحات عند إضافة شخص إلى الفريق.", cols: [["name", "الدور"]], blank: { name: "" } },
 ];
 const ListEditor = {
@@ -4277,24 +4279,27 @@ const LIST_COLORS = ["#2E90FA", "#F79009", "#9E77ED", "#12B76A", "#F04438", "#EE
 // a section without a colour gets one from the palette by its place in the list
 const secColor = (list, name) => { const i = list.findIndex((x) => x.name === name); return (list[i] || {}).color || LIST_COLORS[(i < 0 ? 6 : i) % LIST_COLORS.length]; };
 const STOCK_WAY_LABEL = { count: "بالعدد (ورق، قطع)", roll: "لفّة (م²)", bottle: "قارورة" };
-// dropdown of a settings list with search, and (for the manager) add / rename / colour / delete in place
-const SectionPicker = {
-  props: ["modelValue", "list", "emptyLabel"], emits: ["update:modelValue"],
+// dropdown of a settings list with search, and (for the manager) add / rename / colour / delete in place.
+// listKey names the list in settings; noun is the word for one entry; way/colour only where the list has them
+const ListPicker = {
+  props: { modelValue: String, list: Array, listKey: String, emptyLabel: String, noun: { default: "عنصر" }, title: String, withWay: Boolean, withColor: Boolean, placeholder: String },
+  emits: ["update:modelValue"],
   setup(props, { emit }) {
     const open = ref(false), q = ref(""), ed = ref(null), busy = ref(false), root = ref(null);
     const canEdit = computed(() => state.boot.role === "manager");
     const shown = computed(() => props.list.filter((x) => x.name.toLowerCase().includes(q.value.trim().toLowerCase())));
     const exact = computed(() => props.list.some((x) => x.name === q.value.trim()));
-    const color = (n) => secColor(props.list, n);
+    const color = (n) => (props.withColor ? secColor(props.list, n) : "#475467");
     const pick = (n) => { emit("update:modelValue", n); open.value = false; q.value = ""; };
     const edit = (x) => (ed.value = x ? { old: x.name, name: x.name, way: x.way || "count", color: color(x.name), move: "" } : { old: "", name: q.value.trim(), way: "count", color: LIST_COLORS[props.list.length % LIST_COLORS.length], move: "" });
     const save = async () => { const e = ed.value; busy.value = true;
-      try { state.boot.lists.stock_sections = await call("save_stock_section", { old: e.old, name: e.name, way: e.way, color: e.color }, true);
-        if (!e.old || props.modelValue === e.old) emit("update:modelValue", e.name); ed.value = null; q.value = ""; toast("حُفظ القسم"); state.rev = (state.rev || 0) + 1; }
+      try { const row = { name: e.name.trim() }; if (props.withWay) row.way = e.way; if (props.withColor) row.color = e.color;
+        state.boot.lists[props.listKey] = await call("save_list_item", { key: props.listKey, old: e.old, row: JSON.stringify(row) }, true);
+        if (!e.old || props.modelValue === e.old) emit("update:modelValue", row.name); ed.value = null; q.value = ""; toast("حُفظ"); if (e.old && e.old !== row.name) state.rev = (state.rev || 0) + 1; }
       catch (err) { toast(err.message, "error"); } finally { busy.value = false; } };
-    const del = async () => { const e = ed.value; if (!confirm(`حذف قسم «${e.old}»؟`)) return; busy.value = true;
-      try { state.boot.lists.stock_sections = await call("delete_stock_section", { name: e.old, move_to: e.move }, true);
-        if (props.modelValue === e.old) emit("update:modelValue", e.move); ed.value = null; toast("حُذف القسم"); state.rev = (state.rev || 0) + 1; }
+    const del = async () => { const e = ed.value; if (!confirm(`حذف ${props.noun} «${e.old}»؟`)) return; busy.value = true;
+      try { state.boot.lists[props.listKey] = await call("delete_list_item", { key: props.listKey, name: e.old, move_to: e.move }, true);
+        if (props.modelValue === e.old) emit("update:modelValue", e.move); ed.value = null; toast("حُذف"); state.rev = (state.rev || 0) + 1; }
       catch (err) { toast(err.message, "error"); } finally { busy.value = false; } };
     const away = (ev) => { if (root.value && !root.value.contains(ev.target)) { open.value = false; ed.value = null; } };
     onMounted(() => document.addEventListener("mousedown", away)); onBeforeUnmount(() => document.removeEventListener("mousedown", away));
@@ -4302,22 +4307,22 @@ const SectionPicker = {
   },
   template: `
   <div ref="root" class="lp">
-    <button type="button" class="input lp-box" :aria-expanded="open" @click="open = !open; ed = null"><i v-if="modelValue" class="lp-dot" :style="{background: color(modelValue)}"></i><span>{{ modelValue || emptyLabel }}</span><span class="lp-car" aria-hidden="true">▾</span></button>
+    <button type="button" class="input lp-box" :aria-expanded="open" @click="open = !open; ed = null"><i v-if="modelValue && withColor" class="lp-dot" :style="{background: color(modelValue)}"></i><span :class="{'lp-ph': !modelValue}">{{ modelValue || emptyLabel || placeholder }}</span><span class="lp-car" aria-hidden="true">▾</span></button>
     <div v-if="open && !ed" class="lp-pop">
       <div class="lp-s"><input class="input" v-model="q" placeholder="ابحث أو اكتب اسمًا جديدًا" aria-label="بحث" @keydown.enter.prevent="shown.length === 1 ? pick(shown[0].name) : (canEdit && q.trim() && !exact ? edit(null) : null)"></div>
       <div v-if="emptyLabel && !q" class="lp-row" :class="{on: !modelValue}"><span class="lp-ck">{{ !modelValue ? '✓' : '' }}</span><button type="button" class="lp-pill lp-none" @click="pick('')">{{ emptyLabel }}</button></div>
       <div v-for="x in shown" :key="x.name" class="lp-row" :class="{on: modelValue === x.name}"><span class="lp-ck">{{ modelValue === x.name ? '✓' : '' }}</span>
-        <button type="button" class="lp-pill" :style="{background: color(x.name) + '1F', color: color(x.name)}" @click="pick(x.name)">{{ x.name }}</button>
+        <button type="button" class="lp-pill" :style="withColor ? {background: color(x.name) + '1F', color: color(x.name)} : null" @click="pick(x.name)">{{ x.name }}</button>
         <button v-if="canEdit" type="button" class="lp-ed" :aria-label="'تعديل ' + x.name" @click="edit(x)">✎</button></div>
-      <p v-if="!shown.length" class="lp-h">لا قسم بهذا الاسم</p>
-      <button v-if="canEdit" type="button" class="lp-new" :class="{hot: q.trim() && !exact}" @click="edit(null)">{{ q.trim() && !exact ? '+ إنشاء «' + q.trim() + '»' : '+ قسم جديد' }}</button>
-      <p class="lp-ft">نفس القائمة في الإعدادات ← القوائم ← أقسام المخزون</p></div>
+      <p v-if="!shown.length" class="lp-h">لا {{ noun }} بهذا الاسم</p>
+      <button v-if="canEdit" type="button" class="lp-new" :class="{hot: q.trim() && !exact}" @click="edit(null)">{{ q.trim() && !exact ? '+ إنشاء «' + q.trim() + '»' : '+ ' + noun + ' جديد' }}</button>
+      <p v-if="title" class="lp-ft">نفس القائمة في الإعدادات ← القوائم ← {{ title }}</p></div>
     <form v-if="open && ed" class="lp-pop lp-edit" @submit.prevent="save">
-      <b class="lp-t">{{ ed.old ? 'تعديل القسم' : 'قسم جديد' }}</b>
-      <input class="input" v-model="ed.name" aria-label="اسم القسم" placeholder="اسم القسم">
-      <div class="lp-sw" role="group" aria-label="اللون"><button v-for="c in LIST_COLORS" :key="c" type="button" :aria-pressed="ed.color === c" :aria-label="c" :style="{background: c}" @click="ed.color = c"></button></div>
-      <label class="lp-f"><span>طريقة العدّ للمادة الجديدة فيه</span><select class="input" v-model="ed.way"><option v-for="(l, k) in STOCK_WAY_LABEL" :key="k" :value="k">{{ l }}</option></select></label>
-      <div v-if="ed.old" class="lp-warn">عند الحذف تُنقل موادّه إلى <select v-model="ed.move" aria-label="تُنقل إلى"><option value="">القسم التلقائي حسب النوع</option><option v-for="x in list.filter((y) => y.name !== ed.old)" :key="x.name" :value="x.name">{{ x.name }}</option></select></div>
+      <b class="lp-t">{{ ed.old ? 'تعديل «' + ed.old + '»' : noun + ' جديد' }}</b>
+      <input class="input" v-model="ed.name" aria-label="الاسم" placeholder="الاسم">
+      <div v-if="withColor" class="lp-sw" role="group" aria-label="اللون"><button v-for="c in LIST_COLORS" :key="c" type="button" :aria-pressed="ed.color === c" :aria-label="c" :style="{background: c}" @click="ed.color = c"></button></div>
+      <label v-if="withWay" class="lp-f"><span>طريقة العدّ للمادة الجديدة فيه</span><select class="input" v-model="ed.way"><option v-for="(l, k) in STOCK_WAY_LABEL" :key="k" :value="k">{{ l }}</option></select></label>
+      <div v-if="ed.old" class="lp-warn">عند الحذف تصير موادّه إلى <select v-model="ed.move" aria-label="تُنقل إلى"><option value="">{{ withWay ? 'القسم التلقائي حسب النوع' : 'بلا ' + noun }}</option><option v-for="x in list.filter((y) => y.name !== ed.old)" :key="x.name" :value="x.name">{{ x.name }}</option></select></div>
       <div class="btn-row lp-btns"><button v-if="ed.old" type="button" class="cl-btn sm lp-del" :disabled="busy" @click="del">حذف</button><span class="spacer"></span><button type="button" class="cl-btn sm" @click="ed = null">رجوع</button><button type="submit" class="cl-btn sm primary" :disabled="busy || !ed.name.trim()">حفظ</button></div></form>
   </div>`,
 };
@@ -4330,7 +4335,7 @@ const PAPER_SIZES = ["A4", "A3", "A3+", "SRA3", "32×45", "50×70", "70×100"];
 const wayOf = (i) => (STOCK_WAYS[i?.family] ? i.family : /م²|m²|m2/.test(i?.uom || "") ? "roll" : "count");
 const rollLen = (i) => (i.cfg?.width > 0 ? i.qty / i.cfg.width : null);
 const StockPage = {
-  components: { Icon, SizeControl, SectionPicker },
+  components: { Icon, SizeControl, ListPicker },
   setup() {
     const { s, load } = useLoad(() => call("stock"));
     onMounted(load); watch(() => state.rev, load);
@@ -4455,8 +4460,9 @@ const StockPage = {
     watch(() => sheet.value && [sheet.value.ptype, sheet.value.gsm, sheet.value.size, sheet.value.way], () => { const f = sheet.value;
       if (!f || !f.autoName || f.way !== "count" || !(f.ptype || f.gsm || f.size)) return;
       f.name = [f.ptype.trim(), n2(f.gsm) ? n2(f.gsm) + " غ" : "", f.size.trim()].filter(Boolean).join(" "); });
-    const kinds = computed(() => [...new Set([...PAPER_KINDS, ...(s.data?.items || []).map((i) => i.cfg?.kind).filter(Boolean)])]);
-    const sizes = computed(() => [...new Set([...PAPER_SIZES, ...(s.data?.items || []).map((i) => i.cfg?.size).filter(Boolean)])]);
+    // from settings (or the built-in suggestions until the server sends them)
+    const kinds = computed(() => state.boot.lists?.paper_kinds || PAPER_KINDS.map((name) => ({ name })));
+    const sizes = computed(() => state.boot.lists?.paper_sizes || PAPER_SIZES.map((name) => ({ name })));
     // the alert threshold is typed in rolls / packs / bottles and kept in the stock unit
     const unitPer = () => { const f = sheet.value; return f.way === "roll" ? rollArea.value || 1 : f.way === "count" && n2(f.pack_qty) > 0 ? n2(f.pack_qty) : 1; };
     const minQty = () => +(n2(sheet.value.min_n) * unitPer()).toFixed(4);
@@ -4615,11 +4621,10 @@ const StockPage = {
       <div v-if="err" class="alert error">{{ err }}</div>
       <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'">
         <div class="cal2-seg stk-wayseg" role="group" aria-label="نوع المادة"><button v-for="(w, k) in STOCK_WAYS" :key="k" type="button" :aria-pressed="sheet.way === k" :disabled="sheet.kind === 'edit' && sheet.item.has_moves && sheet.way !== k" @click="sheet.way = k">{{ k === 'roll' ? 'لفّة' : k === 'bottle' ? 'قارورة حبر' : 'ورق / قطع' }}</button></div>
-        <div class="field"><label>القسم</label><SectionPicker v-model="sheet.section" :list="sections" empty-label="تلقائي حسب النوع"/></div>
-        <template v-if="sheet.way === 'count'"><div class="stk-row3"><div class="field"><label for="st-k">النوع</label><input id="st-k" class="input" list="stk-kinds" v-model="sheet.ptype" placeholder="كوشيه"></div>
+        <div class="field"><label>القسم</label><ListPicker v-model="sheet.section" :list="sections" list-key="stock_sections" empty-label="تلقائي حسب النوع" noun="قسم" title="أقسام المخزون" with-way with-color/></div>
+        <template v-if="sheet.way === 'count'"><div class="stk-row3"><div class="field"><label>النوع</label><ListPicker v-model="sheet.ptype" :list="kinds" list-key="paper_kinds" noun="نوع" title="أنواع الورق" placeholder="اختر النوع"/></div>
           <div class="field"><label for="st-g">الوزن غ</label><input id="st-g" class="input" inputmode="decimal" v-model="sheet.gsm" placeholder="135"></div>
-          <div class="field"><label for="st-sz">المقاس</label><input id="st-sz" class="input" list="stk-sizes" v-model="sheet.size" placeholder="A3"></div></div>
-          <datalist id="stk-kinds"><option v-for="k in kinds" :key="k" :value="k"></option></datalist><datalist id="stk-sizes"><option v-for="k in sizes" :key="k" :value="k"></option></datalist></template>
+          <div class="field"><label>المقاس</label><ListPicker v-model="sheet.size" :list="sizes" list-key="paper_sizes" noun="مقاس" title="مقاسات الورق" placeholder="اختر المقاس"/></div></div></template>
         <div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" v-model="sheet.name" :placeholder="sheet.way === 'roll' ? 'Bâche 440g 1.05' : sheet.way === 'bottle' ? 'حبر Magenta' : 'كوشيه 135 غ A3'" @input="sheet.autoName = false"></div>
         <div v-if="sheet.way === 'roll'" class="stk-g3">
           <div class="field"><label for="st-w">العرض</label><div class="stk-suf"><input id="st-w" class="input" inputmode="decimal" v-model="sheet.width"><em>م</em></div></div>

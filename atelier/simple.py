@@ -2246,7 +2246,11 @@ DEFAULT_LISTS = {
 	# stock page sections; each has the counting way a new material in it starts with
 	"stock_sections": [{"name": "الورق", "way": "count", "color": "#2E90FA"}, {"name": "الطباعة الكبيرة", "way": "roll", "color": "#F79009"},
 		{"name": "الأحبار", "way": "bottle", "color": "#9E77ED"}, {"name": "أخرى", "way": "count", "color": "#98A2B3"}],
+	"paper_kinds": [{"name": n} for n in ("كوشيه", "أوتوكولون", "أوفست", "بريستول", "كرتون", "كالك")],
+	"paper_sizes": [{"name": n} for n in ("A4", "A3", "A3+", "SRA3", "32×45", "50×70", "70×100")],
 }
+# lists edited from a picker, and the material setting that carries their value (a rename follows the materials)
+PICKER_LISTS = {"stock_sections": "section", "paper_kinds": "kind", "paper_sizes": "size"}
 
 
 def custom_list(key):
@@ -2261,46 +2265,60 @@ def lists():
 
 
 @frappe.whitelist(methods=["POST"])
-def save_stock_section(old, name, way="count", color=""):
-	"""Add or edit one stock section from the picker; a rename carries the materials that were in it."""
+def save_list_item(key, old, row):
+	"""Add or edit one entry of a list from a picker; a rename carries the materials that used it."""
 	_manager_only()
-	name = (name or "").strip()[:60]
+	if key not in PICKER_LISTS:
+		frappe.throw(_("قائمة غير معروفة"))
+	row = frappe.parse_json(row) or {}
+	name = (row.get("name") or "").strip()[:60]
 	if not name:
-		frappe.throw(_("اكتب اسم القسم"))
-	rows = [dict(x) for x in custom_list("stock_sections")]
-	if any(x["name"] == name for x in rows) and name != old:
-		frappe.throw(_("يوجد قسم بهذا الاسم"))
-	row = {"name": name, "way": way, "color": color}
+		frappe.throw(_("اكتب الاسم"))
+	rows = [dict(x) for x in custom_list(key)]
+	if name != old and any(x["name"] == name for x in rows):
+		frappe.throw(_("يوجد عنصر بهذا الاسم"))
+	row["name"] = name
 	i = next((k for k, x in enumerate(rows) if x["name"] == old), None) if old else None
 	if i is None:
 		rows.append(row)
 	else:
-		rows[i] = row
-	out = save_list("stock_sections", json.dumps(rows, ensure_ascii=False))
+		rows[i] = {**rows[i], **row}
+	out = save_list(key, json.dumps(rows, ensure_ascii=False))
 	if old and old != name:
-		_move_section(old, name)
+		_move_cfg(PICKER_LISTS[key], old, name)
 	return out
 
 
 @frappe.whitelist(methods=["POST"])
-def delete_stock_section(name, move_to=""):
+def delete_list_item(key, name, move_to=""):
 	_manager_only()
-	rows = [x for x in custom_list("stock_sections") if x["name"] != name]
-	out = save_list("stock_sections", json.dumps(rows, ensure_ascii=False))
-	_move_section(name, move_to if any(x["name"] == move_to for x in out) else "")
+	if key not in PICKER_LISTS:
+		frappe.throw(_("قائمة غير معروفة"))
+	out = save_list(key, json.dumps([x for x in custom_list(key) if x["name"] != name], ensure_ascii=False))
+	_move_cfg(PICKER_LISTS[key], name, move_to if any(x["name"] == move_to for x in out) else "")
 	return out
 
 
-def _move_section(old, new):
+@frappe.whitelist(methods=["POST"])
+def save_stock_section(old, name, way="count", color=""):
+	return save_list_item("stock_sections", old, json.dumps({"name": name, "way": way, "color": color}))
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_stock_section(name, move_to=""):
+	return delete_list_item("stock_sections", name, move_to)
+
+
+def _move_cfg(field, old, new):
 	from atelier.materials import _has, material_cfg
 
 	if not _has("atelier_packs"):
 		return
-	for it in frappe.get_all("Item", filters={"atelier_packs": ["like", "%section%"]}, fields=["name", "atelier_packs"]):
+	for it in frappe.get_all("Item", filters={"atelier_packs": ["like", f"%{field}%"]}, fields=["name", "atelier_packs"]):
 		c = material_cfg(it.atelier_packs)
-		if c.get("section") == old:
+		if c.get(field) == old:
 			raw = json.loads(it.atelier_packs or "{}")
-			raw["section"] = new
+			raw[field] = new
 			frappe.db.set_value("Item", it.name, "atelier_packs", json.dumps(raw, ensure_ascii=False), update_modified=False)
 
 
@@ -2330,6 +2348,8 @@ def save_list(key, rows):
 			clean.update({"value": row.get("value") or text, "material": cint(row.get("material"))})
 		elif key == "due":
 			clean["days"] = max(0, cint(row.get("days")))
+		elif key in ("paper_kinds", "paper_sizes"):
+			pass
 		elif key == "stock_sections":
 			clean["way"] = row.get("way") if row.get("way") in ("roll", "bottle", "count") else "count"
 			c = str(row.get("color") or "")
