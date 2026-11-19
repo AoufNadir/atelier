@@ -2182,6 +2182,9 @@ DEFAULT_LISTS = {
 		{"value": "Finition", "label": "تشطيب", "material": 0}, {"value": "Autre", "label": "أخرى", "material": 0}],
 	"due": [{"label": "اليوم", "days": 0}, {"label": "غدًا", "days": 1}, {"label": "بعد 3 أيام", "days": 3}, {"label": "بعد أسبوع", "days": 7}],
 	"categories": [{"name": n} for n in ("طباعة رقمية", "أوفست", "لافتات", "ملصقات", "تصميم", "تركيب", "منتجات")],
+	# stock page sections; each has the counting way a new material in it starts with
+	"stock_sections": [{"name": "الورق", "way": "count"}, {"name": "الطباعة الكبيرة", "way": "roll"},
+		{"name": "الأحبار", "way": "bottle"}, {"name": "أخرى", "way": "count"}],
 }
 
 
@@ -2222,6 +2225,8 @@ def save_list(key, rows):
 			clean.update({"value": row.get("value") or text, "material": cint(row.get("material"))})
 		elif key == "due":
 			clean["days"] = max(0, cint(row.get("days")))
+		elif key == "stock_sections":
+			clean["way"] = row.get("way") if row.get("way") in ("roll", "bottle", "count") else "count"
 		out.append(clean)
 	if not out:
 		frappe.throw(_("أبقِ عنصرًا واحدًا على الأقل"))

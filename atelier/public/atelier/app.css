@@ -3001,3 +3001,18 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .overlay .sheet.stk-bill { width: min(760px, calc(100vw - 32px)); max-width: none; }
 .stk-bl td:nth-child(2), .stk-bl td:nth-child(3) { width: 130px; } .stk-bl td:nth-child(4) { width: 110px; white-space: nowrap; }
 .overlay .sheet.stk-collect { width: min(560px, calc(100vw - 32px)); } .stk-res .bad { color: #B42318; }
+
+/* stock sections: tabs and section heads */
+.stk-tabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid #E4E7EC; margin: 4px 0 12px; }
+.stk-tabs [role="tab"] { font: inherit; font-size: 14px; background: none; border: 0; border-bottom: 2px solid transparent; padding: 9px 14px; color: #475467; cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+.stk-tabs [role="tab"] small { font-size: 12px; color: #667085; margin-inline-start: 4px; }
+.stk-tabs [role="tab"][aria-selected="true"] { color: #4F35D2; border-color: #4F35D2; font-weight: 700; }
+.stk-tabs .bd-chip { height: 30px; min-height: 30px; font-size: 13px; }
+.stk-tabs .bd-chip.debt { color: #B42318; background: #FEF3F2; border: 1px solid #FECDCA; }
+.stk-table tr.stk-sec td { background: #F9FAFB; border-top: 1px solid #E4E7EC; padding: 9px 16px; cursor: pointer; }
+.stk-table tr.stk-sec b { font-size: 15px; }
+.stk-table tr.stk-sec .m { font-size: 13px; margin-inline-start: 10px; }
+.stk-tw { display: inline-block; width: 16px; color: #667085; font-size: 12px; }
+.stk-sec-low { color: #B54708; font-weight: 700; font-size: 13px; margin-inline-start: 6px; }
+.stk-table tr.stk-sec td > b, .stk-table tr.stk-sec td > span { display: inline; }
+.stk-tabs [role="tab"] { font-size: 15px; }

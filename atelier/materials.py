@@ -67,7 +67,7 @@ def material_cfg(raw):
 	return {"width": flt(v.get("width")), "length": flt(v.get("length")), "pack": (v.get("pack") or "")[:40],
 		"pack_qty": flt(v.get("pack_qty")), "waste": flt(v.get("waste")),
 		"color": color if isinstance(color, str) and color.startswith("#") and len(color) in (4, 7) else "",
-		"kind": (v.get("kind") or "")[:40], "gsm": flt(v.get("gsm")), "size": (v.get("size") or "")[:30],
+		"kind": (v.get("kind") or "")[:40], "gsm": flt(v.get("gsm")), "size": (v.get("size") or "")[:30], "section": (v.get("section") or "")[:60],
 		"closed": cint(v.get("closed")), "opens": (v.get("opens") or [])[-12:] if isinstance(v.get("opens"), list) else []}
 
 

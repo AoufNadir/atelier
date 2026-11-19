@@ -3233,6 +3233,8 @@ const LIST_DEFS = [
   { key: "tags", title: "الأوسام السريعة", hint: "الترتيب يحدد الأولوية على اللوحة. الطلبات السابقة تحتفظ بوسمها.", cols: [["name", "الوسم"]], blank: { name: "", tone: "" } },
   { key: "due", title: "أزرار موعد التسليم", hint: "تظهر في الطلب الجديد.", cols: [["label", "النص"], ["days", "بعد كم يوم", "number"]], blank: { label: "", days: 1 } },
   { key: "cost_types", title: "أنواع التكلفة", hint: "«مادة» يعني أن تلف المواد يُضاف إلى هذا النوع.", cols: [["label", "النوع"], ["material", "مادة", "check"]], blank: { label: "", material: 0 } },
+  { key: "stock_sections", title: "أقسام المخزون", hint: "تبويبات صفحة المخزون. لكل قسم طريقة العدّ التي تبدأ بها المادة الجديدة فيه. مواد القسم المحذوف تذهب إلى القسم الأقرب لطريقة عدّها.",
+    cols: [["name", "القسم"], ["way", "طريقة العدّ", "select", [["count", "بالعدد (ورق، قطع)"], ["roll", "لفّة (م²)"], ["bottle", "قارورة"]]]], blank: { name: "", way: "count" } },
   { key: "roles", title: "أدوار الفريق", hint: "اقتراحات عند إضافة شخص إلى الفريق.", cols: [["name", "الدور"]], blank: { name: "" } },
 ];
 const ListEditor = {
@@ -4211,9 +4213,25 @@ const StockPage = {
     onMounted(load);
     const busy = ref(false), err = ref(null), q = ref(""), sheet = ref(null), orders = ref([]);
     const onlyLow = ref(false), rowMenu = ref(null);
-    const way = ref("all"), sel = ref(null), ledger = ref(null);
-    const items = computed(() => (s.data?.items || []).filter((i) => i.item_name.toLowerCase().includes(q.value.trim().toLowerCase()) && (!onlyLow.value || i.low) && (way.value === "all" || wayOf(i) === way.value)));
-    const wayCount = (k) => (s.data?.items || []).filter((i) => wayOf(i) === k).length;
+    let saved = "all"; try { saved = localStorage.getItem("nasaq.stock.tab") || "all"; } catch {}
+    const way = ref(saved), sel = ref(null), ledger = ref(null);
+    watch(way, (v) => { try { localStorage.setItem("nasaq.stock.tab", v); } catch {} });
+    // sections come from settings; a material without a known section goes to the first one with its counting way
+    // (paper-like counted items to the first counted section, other counted items to the last)
+    const sections = computed(() => { const l = state.boot.lists?.stock_sections || []; return l.length ? l : [{ name: "المواد", way: "count" }]; });
+    const secOf = (i) => { const l = sections.value, n = i.cfg?.section; if (n && l.some((x) => x.name === n)) return n;
+      const w = wayOf(i), same = l.filter((x) => x.way === w), paper = !!(i.cfg?.kind || i.cfg?.gsm || i.cfg?.size);
+      if (same.length) return (w === "count" && !paper && same.length > 1 ? same[same.length - 1] : same[0]).name;
+      return l[l.length - 1].name; };
+    watch(sections, (l) => { if (way.value !== "all" && !l.some((x) => x.name === way.value)) way.value = "all"; }, { immediate: true });
+    const items = computed(() => (s.data?.items || []).filter((i) => i.item_name.toLowerCase().includes(q.value.trim().toLowerCase()) && (!onlyLow.value || i.low) && (way.value === "all" || secOf(i) === way.value)));
+    const secItems = (n) => (s.data?.items || []).filter((i) => secOf(i) === n);
+    const secValue = (n) => secItems(n).reduce((a, i) => a + (+i.value || 0), 0);
+    const folded = reactive({});
+    const groups = computed(() => (way.value === "all" ? sections.value.map((x) => ({ name: x.name, head: true, items: items.value.filter((i) => secOf(i) === x.name) }))
+      .filter((g) => g.items.length || (!q.value.trim() && !onlyLow.value)) : [{ name: way.value, head: false, items: items.value }]));
+    const tabWay = computed(() => sections.value.find((x) => x.name === way.value)?.way || "");
+    const wayCount = (k) => secItems(k).length;
     const pick = async (i) => { sel.value = i.item_code; ledger.value = null; try { ledger.value = await call("material_ledger", { item_code: i.item_code }); } catch (e) { ledger.value = { error: e.message }; } };
     const selItem = computed(() => (s.data?.items || []).find((i) => i.item_code === sel.value) || null);
     // like the customer page: the side always shows one material (the first until another is picked)
@@ -4299,7 +4317,8 @@ const StockPage = {
     const open = async (kind, item) => {
       err.value = null;
       const c = item?.cfg || {};
-      sheet.value = { kind, item, name: item?.item_name || "", way: item ? wayOf(item) : "roll", uom: item?.uom || "ورقة", min_qty: item?.safety_stock || 0,
+      const sec = item ? secOf(item) : way.value !== "all" ? way.value : "";
+      sheet.value = { kind, item, section: sec, name: item?.item_name || "", way: item ? wayOf(item) : (sections.value.find((x) => x.name === sec)?.way || "roll"), uom: item?.uom || "ورقة", min_qty: item?.safety_stock || 0,
         width: c.width || "", length: c.length || "", pack: c.pack || "", color: c.color || "", ptype: c.kind || "", gsm: c.gsm || "", size: c.size || "", autoName: !item, min_n: item ? +((item.safety_stock || 0) / (c.pack_qty > 0 ? c.pack_qty : 1)).toFixed(2) || "" : "", pack_qty: c.pack_qty || "", waste: c.waste || "",
         qty: kind === "count" ? (item?.qty ?? "") : "", n: "", price: "", rate: "", supplier: "", order: "", note: "", bill: "", by: "pack", open_n: "", open_price: "", closed: c.closed ?? 0, part: 0.5,
         len: item && c.width > 0 ? +(item.qty / c.width).toFixed(2) : "", len0: item && c.width > 0 ? +(item.qty / c.width).toFixed(2) : "", packs: item && c.pack_qty > 0 ? Math.floor(item.qty / c.pack_qty) : "", loose: item && c.pack_qty > 0 ? +(item.qty % c.pack_qty).toFixed(3) : "" };
@@ -4347,7 +4366,7 @@ const StockPage = {
       busy.value = true; err.value = null;
       try {
         const cfg = JSON.stringify({ width: n2(f.width), length: n2(f.length), pack: f.way === "roll" ? "لفّة" : f.pack, pack_qty: f.way === "roll" ? rollArea.value : n2(f.pack_qty), waste: n2(f.waste),
-          color: f.way === "bottle" ? f.color : "", kind: f.way === "count" ? f.ptype.trim() : "", gsm: f.way === "count" ? n2(f.gsm) : 0, size: f.way === "count" ? f.size.trim() : "" });
+          color: f.way === "bottle" ? f.color : "", kind: f.way === "count" ? f.ptype.trim() : "", gsm: f.way === "count" ? n2(f.gsm) : 0, size: f.way === "count" ? f.size.trim() : "", section: f.section || "" });
         if (f.kind === "add" || f.kind === "edit") {
           if (!f.name.trim()) throw new Error("اكتب اسم المادة");
           if (f.way === "roll" && !(rollArea.value > 0)) throw new Error("اكتب عرض اللفّة وطولها");
@@ -4377,7 +4396,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { sections, secOf, secValue, groups, folded, tabWay, state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -4385,12 +4404,14 @@ const StockPage = {
       <input class="input stk-q" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><SizeControl/><button type="button" class="cl-btn" @click="open('add')"><Icon name="plus" :size="16"/>مادة</button><button v-if="s.data && s.data.can_buy" type="button" class="cl-btn primary" @click="newBill()"><Icon name="plus" :size="16"/>شراء</button></div>
     <div v-if="s.error" class="alert error" style="margin:0 28px 12px">{{ s.error }}</div>
     <div v-if="s.data" class="stock-body stk">
-      <div class="stk-bar"><span v-if="s.data.can_value" class="stk-sum">قيمة المخزون <b class="money">{{ money(totalValue) }}</b></span><span class="stk-sep"></span><button type="button" class="bd-chip" :aria-pressed="way === 'all' && !onlyLow" @click="way = 'all'; onlyLow = false">الكل <span class="cl-quick-n">{{ s.data.items.length }}</span></button>
-        <button v-for="(w, k) in STOCK_WAYS" v-show="wayCount(k)" :key="k" type="button" class="bd-chip" :aria-pressed="way === k" @click="way = k; onlyLow = false">{{ w.label }} <span class="cl-quick-n">{{ wayCount(k) }}</span></button>
-        <button v-if="low.length" type="button" class="bd-chip debt" :aria-pressed="onlyLow" @click="onlyLow = !onlyLow; way = 'all'">ينقص قريبًا <span class="cl-quick-n">{{ low.length }}</span></button></div>
+      <div class="stk-tabs" role="tablist" aria-label="أقسام المخزون"><button type="button" role="tab" :aria-selected="way === 'all'" @click="way = 'all'">الكل <small>{{ s.data.items.length }}<template v-if="s.data.can_value"> · {{ money(totalValue) }}</template></small></button>
+        <button v-for="x in sections" :key="x.name" type="button" role="tab" :aria-selected="way === x.name" @click="way = x.name">{{ x.name }} <small>{{ wayCount(x.name) }}<template v-if="s.data.can_value && way === x.name"> · {{ money(secValue(x.name)) }}</template></small></button>
+        <span class="spacer"></span><button v-if="low.length" type="button" class="bd-chip debt" :aria-pressed="onlyLow" @click="onlyLow = !onlyLow">ينقص قريبًا <span class="cl-quick-n">{{ low.length }}</span></button></div>
       <div class="stk-grid" :class="{open: selItem}">
-      <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>المادة</th><th>المتوفر</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n"><span class="sr-only">إجراء</span></th></tr></thead>
-        <tbody><tr v-for="i in items" :key="i.item_code" :class="{low: i.low, sel: sel === i.item_code}" class="stk-row" tabindex="0" @click="pick(i)" @keydown.enter="pick(i)">
+      <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>{{ tabWay === 'bottle' ? 'اللون' : tabWay === 'roll' ? 'اللفّة' : tabWay === 'count' && way === sections[0].name ? 'الورق' : 'المادة' }}</th><th>المتوفر</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n"><span class="sr-only">إجراء</span></th></tr></thead>
+        <tbody><template v-for="g in groups" :key="g.name"><tr v-if="g.head" class="stk-sec" tabindex="0" :aria-expanded="!folded[g.name]" @click="folded[g.name] = !folded[g.name]" @keydown.enter="folded[g.name] = !folded[g.name]">
+          <td :colspan="s.data.can_value ? 5 : 4"><span class="stk-tw" aria-hidden="true">{{ folded[g.name] ? '◂' : '▾' }}</span><b>{{ g.name }}</b><span class="m">{{ g.items.length }} {{ g.items.length === 1 ? 'مادة' : 'مواد' }}<template v-if="s.data.can_value"> · {{ money(g.items.reduce((a, i) => a + (+i.value || 0), 0)) }}</template></span><span v-if="g.items.some((i) => i.low)" class="stk-sec-low">· {{ g.items.filter((i) => i.low).length }} تحت الحد الأدنى</span></td></tr>
+          <template v-if="!folded[g.name]"><tr v-for="i in g.items" :key="i.item_code" :class="{low: i.low, sel: sel === i.item_code}" class="stk-row" tabindex="0" @click="pick(i)" @keydown.enter="pick(i)">
           <td><b><i v-if="i.cfg && i.cfg.color" class="stk-ink" :style="{background: i.cfg.color}"></i>{{ i.item_name }}<span class="stk-how">{{ STOCK_WAYS[wayOf(i)].label }}</span></b><span class="m stk-sub">{{ subOf(i) }}</span></td>
           <td><div class="stk-lvl"><span v-if="canOpen(i)" class="stk-packs" :class="tone(i)" aria-hidden="true"><i v-for="k in Math.min(6, closedOf(i))" :key="k" class="pk"></i><b v-if="closedOf(i) > 6" class="m">+{{ closedOf(i) - 6 }}</b><i class="pk open"><u :style="{height: openPct(i) + '%'}"></u></i></span>
             <span v-else-if="wayOf(i) === 'bottle'" class="stk-packs" :class="tone(i)" aria-hidden="true"><i v-for="k in Math.min(6, Math.floor(i.qty))" :key="k" class="pk"></i><b v-if="i.qty > 6" class="m">+{{ Math.floor(i.qty) - 6 }}</b><i v-if="!(i.qty >= 1)" class="pk open"></i></span>
@@ -4405,7 +4426,7 @@ const StockPage = {
             <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop>
               <button v-if="s.data.can_buy" type="button" class="tm-pop-row stk-buy" @click="newBill(i)">شراء هذه المادة</button>
               <button v-if="s.data.can_issue && wayOf(i) !== 'bottle' && canOpen(i)" type="button" class="tm-pop-row" @click="rowMenu = null; i.qty > 0 ? open('issue', i) : toast('لا كمية في المخزون للصرف — سجّل شراءً أولًا', 'error')">صرف يدوي</button>
-              <button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></div></div></td></tr>
+              <button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></div></div></td></tr></template></template>
           <tr v-if="!items.length"><td :colspan="s.data.can_value ? 5 : 4" class="muted" style="text-align:center;padding:24px">{{ onlyLow ? 'لا مواد تحت الحد الأدنى.' : s.data.items.length ? 'لا مواد تطابق.' : 'لا مواد بعد. أضف مادة ثم سجّل شراءً أو رصيدها بالجرد.' }}</td></tr></tbody></table></section>
       <aside v-if="selItem" class="mn-card stk-side">
         <div class="stk-sh"><b>{{ selItem.item_name }}</b><span class="stk-how">{{ STOCK_WAYS[wayOf(selItem)].label }}</span></div>
@@ -4470,6 +4491,7 @@ const StockPage = {
       <div v-if="err" class="alert error">{{ err }}</div>
       <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'">
         <div class="cal2-seg stk-wayseg" role="group" aria-label="نوع المادة"><button v-for="(w, k) in STOCK_WAYS" :key="k" type="button" :aria-pressed="sheet.way === k" :disabled="sheet.kind === 'edit' && sheet.item.has_moves && sheet.way !== k" @click="sheet.way = k">{{ k === 'roll' ? 'لفّة' : k === 'bottle' ? 'قارورة حبر' : 'ورق / قطع' }}</button></div>
+        <div class="field"><label for="st-sec">القسم</label><select id="st-sec" class="input" v-model="sheet.section"><option value="">تلقائي حسب النوع</option><option v-for="x in sections" :key="x.name" :value="x.name">{{ x.name }}</option></select></div>
         <template v-if="sheet.way === 'count'"><div class="stk-row3"><div class="field"><label for="st-k">النوع</label><input id="st-k" class="input" list="stk-kinds" v-model="sheet.ptype" placeholder="كوشيه"></div>
           <div class="field"><label for="st-g">الوزن غ</label><input id="st-g" class="input" inputmode="decimal" v-model="sheet.gsm" placeholder="135"></div>
           <div class="field"><label for="st-sz">المقاس</label><input id="st-sz" class="input" list="stk-sizes" v-model="sheet.size" placeholder="A3"></div></div>
