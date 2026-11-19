@@ -2280,9 +2280,12 @@ DEFAULT_LISTS = {
 		{"name": "الأحبار", "way": "bottle", "color": "#9E77ED"}, {"name": "أخرى", "way": "count", "color": "#98A2B3"}],
 	"paper_kinds": [{"name": n} for n in ("كوشيه", "أوتوكولون", "أوفست", "بريستول", "كرتون", "كالك")],
 	"paper_sizes": [{"name": n} for n in ("A4", "A3", "A3+", "SRA3", "32×45", "50×70", "70×100")],
+	"count_units": [{"name": n} for n in ("ورقة", "قطعة", "علبة", "متر طولي", "لتر")],
+	"pack_names": [{"name": n} for n in ("رزمة", "علبة", "كرتونة", "حزمة")],
 }
 # lists edited from a picker, and the material setting that carries their value (a rename follows the materials)
-PICKER_LISTS = {"stock_sections": "section", "paper_kinds": "kind", "paper_sizes": "size", "categories": None, "cost_types": None, "units": None}
+PICKER_LISTS = {"stock_sections": "section", "paper_kinds": "kind", "paper_sizes": "size", "categories": None, "cost_types": None, "units": None,
+	"count_units": None, "pack_names": "pack", "roles": None}
 
 
 def custom_list(key):
@@ -2406,7 +2409,7 @@ def save_list(key, rows):
 			clean.update({"value": row.get("value") or text, "material": cint(row.get("material"))})
 		elif key == "due":
 			clean["days"] = max(0, cint(row.get("days")))
-		elif key in ("paper_kinds", "paper_sizes"):
+		elif key in ("paper_kinds", "paper_sizes", "count_units", "pack_names", "roles"):
 			pass
 		elif key == "stock_sections":
 			clean["way"] = row.get("way") if row.get("way") in ("roll", "bottle", "count") else "count"

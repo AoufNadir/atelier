@@ -3119,7 +3119,7 @@ const RoleOptions = {
   template: `<datalist id="role-list"><option v-for="r in state.boot.lists.roles" :key="r.name" :value="r.name"></option></datalist>`,
 };
 const TeamPage = {
-  props: ["embedded"], components: { Icon, RoleOptions },
+  props: ["embedded"], components: { Icon, RoleOptions, get ListPicker() { return ListPicker; } },
   setup() {
     const rows = ref((state.boot.team_members || []).map((m) => ({ ...m })));
     const saving = ref(false), err = ref(null);
@@ -3138,7 +3138,7 @@ const TeamPage = {
       } catch (e) { err.value = e.message; } finally { saving.value = false; }
     };
     const form = useSettingsForm("team", () => rows.value, () => { rows.value = (state.boot.team_members || []).map((m) => ({ ...m })); if (!rows.value.length) rows.value.push({ name: "", role: "", user: "" }); }, async () => { await save(); return !err.value; });
-    return { rows, saving, err, save, t, accounts, missing, inSettings: !!form };
+    return { state, rows, saving, err, save, t, accounts, missing, inSettings: !!form };
   },
   template: `
   <div :class="embedded ? '' : 'page'">
@@ -3146,7 +3146,7 @@ const TeamPage = {
     <div class="card team-card">
       <div v-for="(r, i) in rows" :key="i" class="team-row">
         <input class="input" v-model="r.name" :aria-label="'الاسم ' + (i+1)" placeholder="الاسم">
-        <input class="input" v-model="r.role" list="role-list" :aria-label="'الدور ' + (i+1)" placeholder="الدور (مصمم، طابع…)">
+        <ListPicker v-model="r.role" :list="state.boot.lists.roles || []" list-key="roles" noun="دور" title="أدوار الفريق" placeholder="الدور (مصمم، طابع…)"/>
         <select class="input" v-model="r.user" :aria-label="'حساب الدخول ' + (i+1)"><option value="">بلا حساب دخول</option>
           <option v-if="missing(r)" :value="r.user">{{ r.user }} (غير موجود)</option>
           <option v-for="a in accounts" :key="a.name" :value="a.name">{{ a.full_name }} — {{ a.name }}</option></select>
@@ -3324,6 +3324,8 @@ const LIST_DEFS = [
     cols: [["name", "القسم"], ["way", "طريقة العدّ", "select", [["count", "بالعدد (ورق، قطع)"], ["roll", "لفّة (م²)"], ["bottle", "قارورة"]]], ["color", "اللون", "color"]], blank: { name: "", way: "count", color: "#98A2B3" } },
   { key: "paper_kinds", title: "أنواع الورق", hint: "تُختار في نافذة المادة. تغيير الاسم من النافذة يحدّث المواد التي تستعمله.", cols: [["name", "النوع"]], blank: { name: "" } },
   { key: "paper_sizes", title: "مقاسات الورق", hint: "تُختار في نافذة المادة.", cols: [["name", "المقاس"]], blank: { name: "" } },
+  { key: "count_units", title: "وحدات العدّ", hint: "«يُعدّ بـ» في نافذة المادة.", cols: [["name", "الوحدة"]], blank: { name: "" } },
+  { key: "pack_names", title: "وحدات الشراء", hint: "«يُشترى بـ» في نافذة المادة (رزمة، كرتونة…).", cols: [["name", "الوحدة"]], blank: { name: "" } },
   { key: "roles", title: "أدوار الفريق", hint: "اقتراحات عند إضافة شخص إلى الفريق.", cols: [["name", "الدور"]], blank: { name: "" } },
 ];
 const ListEditor = {
@@ -4144,7 +4146,7 @@ const RecipesCard = {
 };
 // Cost calculator: price a job before the order exists. Same cost rules as the card's cost section.
 const CalcPage = {
-  components: { Icon },
+  components: { Icon, get ListPicker() { return ListPicker; } },
   setup() {
     const { s, load } = useLoad(() => call("calc_data"));
     const num = (v) => +v || 0;
@@ -4249,7 +4251,7 @@ const CalcPage = {
               <div class="calc-l-name"><select v-if="l.source === 'stock'" class="input" v-model="l.item" @change="pickMaterial(l)" aria-label="المادة"><option value="" disabled>اختر المادة</option><option v-for="m in s.data.materials" :key="m.item_code" :value="m.item_code">{{ m.item_name }}</option></select>
                 <input v-else class="input" v-model="l.description" aria-label="البند" placeholder="مثال: تشغيل آلة الطباعة">
                 <span class="muted">{{ l.source === 'recipe' ? 'من الوصفة · ' + l.per + ' لكل ' + unitName : l.source === 'stock' ? 'من المخزون' : 'أُضيف يدويًا' }}<template v-if="l.item && l.rate !== '' && l.rate !== null"> · سعر المخزون</template></span></div>
-              <select class="input calc-l-type" v-model="l.cost_type" aria-label="النوع" :disabled="l.source !== 'manual'"><option v-for="t in types" :key="t.value" :value="t.value">{{ t.label }}</option></select>
+              <ListPicker class="calc-l-type" v-model="l.cost_type" :list="types" list-key="cost_types" value-key="value" label-key="label" noun="نوع" title="أنواع التكلفة" :disabled="l.source !== 'manual'"/>
               <label class="unit-wrap calc-l-n"><input class="input num" v-model="l.qty" inputmode="decimal" aria-label="الكمية"><span class="u">{{ l.uom ? uom(l.uom) : '' }}</span></label>
               <label class="unit-wrap calc-l-n"><input class="input num" v-model="l.rate" inputmode="decimal" aria-label="سعر الوحدة" :class="{'calc-miss': l.rate === '' || l.rate === null}" placeholder="السعر"><span class="u">دج</span></label>
               <b class="money calc-l-amt">{{ money(amount(l)) }}</b>
@@ -4299,7 +4301,7 @@ const STOCK_WAY_LABEL = { count: "بالعدد (ورق، قطع)", roll: "لفّ
 // listKey names the list in settings; noun is the word for one entry; way/colour only where the list has them
 const ListPicker = {
   props: { modelValue: String, list: Array, listKey: String, emptyLabel: String, noun: { default: "عنصر" }, title: String, withWay: Boolean, withColor: Boolean, withCalc: Boolean,
-    placeholder: String, valueKey: { default: "name" }, labelKey: { default: "name" } },
+    placeholder: String, valueKey: { default: "name" }, labelKey: { default: "name" }, disabled: Boolean },
   emits: ["update:modelValue"],
   setup(props, { emit }) {
     const open = ref(false), q = ref(""), ed = ref(null), busy = ref(false), root = ref(null);
@@ -4332,12 +4334,12 @@ const ListPicker = {
   },
   template: `
   <div ref="root" class="lp">
-    <button type="button" class="input lp-box" :aria-expanded="open" @click="open = !open; ed = null"><i v-if="modelValue && withColor" class="lp-dot" :style="{background: color(modelValue)}"></i><span :class="{'lp-ph': !modelValue}">{{ modelValue ? label : emptyLabel || placeholder }}</span><span class="lp-car" aria-hidden="true">▾</span></button>
+    <button type="button" class="input lp-box" :disabled="disabled" :aria-expanded="open" @click="open = !open; ed = null"><i v-if="modelValue && withColor" class="lp-dot" :style="{background: color(modelValue)}"></i><span :class="{'lp-ph': !modelValue}">{{ modelValue ? label : emptyLabel || placeholder }}</span><span class="lp-car" aria-hidden="true">▾</span></button>
     <div v-if="open && !ed" class="lp-pop">
       <div class="lp-s"><input class="input" v-model="q" placeholder="ابحث أو اكتب اسمًا جديدًا" aria-label="بحث" @keydown.enter.prevent="shown.length === 1 ? pick(shown[0]._v) : (canEdit && q.trim() && !exact ? edit(null) : null)"></div>
       <div v-if="emptyLabel && !q" class="lp-row" :class="{on: !modelValue}"><span class="lp-ck">{{ !modelValue ? '✓' : '' }}</span><button type="button" class="lp-pill lp-none" @click="pick('')">{{ emptyLabel }}</button></div>
       <div v-for="x in shown" :key="x.name" class="lp-row" :class="{on: modelValue === x._v}"><span class="lp-ck">{{ modelValue === x._v ? '✓' : '' }}</span>
-        <button type="button" class="lp-pill" :style="withColor ? {background: color(x.name) + '1F', color: color(x.name)} : null" @click="pick(x._v)">{{ x.name }}</button>
+        <button type="button" class="lp-pill" @click="pick(x._v)"><i v-if="withColor" class="lp-dot" :style="{background: color(x.name)}"></i>{{ x.name }}</button>
         <button v-if="canEdit" type="button" class="lp-ed" :aria-label="'تعديل ' + x.name" @click="edit(x)">✎</button></div>
       <p v-if="!shown.length" class="lp-h">لا {{ noun }} بهذا الاسم</p>
       <button v-if="canEdit" type="button" class="lp-new" :class="{hot: q.trim() && !exact}" @click="edit(null)">{{ q.trim() && !exact ? '+ إنشاء «' + q.trim() + '»' : '+ ' + noun + ' جديد' }}</button>
@@ -4484,12 +4486,14 @@ const StockPage = {
       if (kind === "issue") { try { orders.value = (await call("board2")).cards; } catch { orders.value = []; } }
     };
     const TITLES = { add: "مادة جديدة", edit: "تعديل المادة", buy: "شراء من مورد", issue: "صرف مادة", count: "جرد" };
-    watch(() => sheet.value?.way, (w) => { const f = sheet.value; if (f && w === "count" && !COUNT_UNITS.includes(f.uom)) f.uom = "ورقة"; });
+    watch(() => sheet.value?.way, (w) => { const f = sheet.value; if (f && w === "count" && !countUnits.value.some((x) => x.name === f.uom)) f.uom = countUnits.value[0]?.name || "ورقة"; });
     // paper: the name follows type, weight and size until the user writes their own
     watch(() => sheet.value && [sheet.value.ptype, sheet.value.gsm, sheet.value.size, sheet.value.way], () => { const f = sheet.value;
       if (!f || !f.autoName || f.way !== "count" || !(f.ptype || f.gsm || f.size)) return;
       f.name = [f.ptype.trim(), n2(f.gsm) ? n2(f.gsm) + " غ" : "", f.size.trim()].filter(Boolean).join(" "); });
     // from settings (or the built-in suggestions until the server sends them)
+    const countUnits = computed(() => state.boot.lists?.count_units || COUNT_UNITS.map((name) => ({ name })));
+    const packNames = computed(() => state.boot.lists?.pack_names || ["رزمة", "علبة", "كرتونة", "حزمة"].map((name) => ({ name })));
     const kinds = computed(() => state.boot.lists?.paper_kinds || PAPER_KINDS.map((name) => ({ name })));
     const sizes = computed(() => state.boot.lists?.paper_sizes || PAPER_SIZES.map((name) => ({ name })));
     // the alert threshold is typed in rolls / packs / bottles and kept in the stock unit
@@ -4555,7 +4559,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { sColor, sections, secOf, secValue, groups, folded, tabWay, state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { countUnits, packNames, sColor, sections, secOf, secValue, groups, folded, tabWay, state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -4654,7 +4658,7 @@ const StockPage = {
         <template v-if="sheet.way === 'count'"><div class="stk-row3"><div class="field"><label>النوع</label><ListPicker v-model="sheet.ptype" :list="kinds" list-key="paper_kinds" noun="نوع" title="أنواع الورق" placeholder="اختر النوع"/></div>
           <div class="field"><label for="st-g">الوزن غ</label><input id="st-g" class="input" inputmode="decimal" v-model="sheet.gsm" placeholder="135"></div>
           <div class="field"><label>المقاس</label><ListPicker v-model="sheet.size" :list="sizes" list-key="paper_sizes" noun="مقاس" title="مقاسات الورق" placeholder="اختر المقاس"/></div></div></template>
-        <div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" v-model="sheet.name" :placeholder="sheet.way === 'roll' ? 'Bâche 440g 1.05' : sheet.way === 'bottle' ? 'حبر Magenta' : 'كوشيه 135 غ A3'" @input="sheet.autoName = false"></div>
+        <div class="field"><label for="st-name">الاسم</label><input id="st-name" class="input" autocomplete="off" v-model="sheet.name" :placeholder="sheet.way === 'roll' ? 'Bâche 440g 1.05' : sheet.way === 'bottle' ? 'حبر Magenta' : 'كوشيه 135 غ A3'" @input="sheet.autoName = false"></div>
         <div v-if="sheet.way === 'roll'" class="stk-g3">
           <div class="field"><label for="st-w">العرض</label><div class="stk-suf"><input id="st-w" class="input" inputmode="decimal" v-model="sheet.width"><em>م</em></div></div>
           <div class="field"><label for="st-l">الطول</label><div class="stk-suf"><input id="st-l" class="input" inputmode="decimal" v-model="sheet.length"><em>م</em></div></div>
@@ -4663,8 +4667,8 @@ const StockPage = {
           <button v-for="c in INK_COLORS" :key="c[1]" type="button" class="stk-sw" :style="{background: c[1]}" :title="c[0]" :aria-label="c[0]" :aria-pressed="(sheet.color || '').toLowerCase() === c[1].toLowerCase()" @click="sheet.color = c[1]; if (sheet.autoName || !sheet.name) { sheet.name = 'حبر ' + c[0]; sheet.autoName = true; }"></button>
           <label class="stk-sw stk-custom" title="لون آخر"><input type="color" :value="sheet.color || '#888888'" aria-label="لون آخر" @input="sheet.color = $event.target.value">+</label></div></div>
         <div v-if="sheet.way === 'count'" class="stk-g3">
-          <div class="field"><label for="st-u">يُعدّ بـ</label><select id="st-u" class="input" v-model="sheet.uom" :disabled="sheet.kind === 'edit' && sheet.item.has_moves"><option v-for="u in COUNT_UNITS" :key="u" :value="u">{{ u }}</option></select></div>
-          <div class="field"><label for="st-pk">يُشترى بـ</label><select id="st-pk" class="input" v-model="sheet.pack"><option value="">بالواحدة</option><option v-for="x in ['رزمة', 'علبة', 'كرتونة', 'حزمة']" :key="x" :value="x">{{ x }}</option><option v-if="sheet.pack && !['رزمة', 'علبة', 'كرتونة', 'حزمة'].includes(sheet.pack)" :value="sheet.pack">{{ sheet.pack }}</option></select></div>
+          <div class="field"><label for="st-u">يُعدّ بـ</label><ListPicker v-model="sheet.uom" :list="countUnits" list-key="count_units" noun="وحدة" title="وحدات العدّ" :disabled="sheet.kind === 'edit' && sheet.item.has_moves"/></div>
+          <div class="field"><label for="st-pk">يُشترى بـ</label><ListPicker v-model="sheet.pack" :list="packNames" list-key="pack_names" noun="وحدة شراء" title="وحدات الشراء" empty-label="بالواحدة"/></div>
           <div class="field"><label for="st-pq">في ال{{ sheet.pack || 'واحدة' }}</label><div class="stk-suf"><input id="st-pq" class="input" inputmode="decimal" v-model="sheet.pack_qty" placeholder="500" :disabled="!sheet.pack"><em>{{ sheet.uom }}</em></div></div></div>
         <div class="stk-g3">
           <div class="field stk-span2"><label for="st-mn">نبّهني إذا بقي أقل من</label><div class="stk-suf"><input id="st-mn" class="input" inputmode="decimal" v-model="sheet.min_n" placeholder="0"><em>{{ unitName }}</em></div></div>

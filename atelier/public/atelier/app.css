@@ -3106,3 +3106,12 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .lb-c .lp-box, .pr-cat .lp-box { height: 36px; min-width: 0; }
 .lb-c .lp-pop { min-width: 240px; }
 .pr-cat { min-width: 160px; }
+/* calmer list rows: neutral background, colour as a small square, dark text */
+.lp-pill { display: flex; align-items: center; gap: 8px; background: transparent; color: #17202A; font-weight: 500; }
+.lp-pill:not([style]) { background: transparent; }
+.lp-row:hover .lp-pill { background: #F2F4F7; }
+.lp-row.on .lp-pill { background: transparent; font-weight: 700; }
+.lp-pill.lp-none { background: transparent; color: #667085; }
+.lp-pill .lp-dot { width: 12px; height: 12px; }
+.lp-box:disabled { background: #F9FAFB; color: #667085; cursor: not-allowed; }
+.lp-ed { opacity: .55; } .lp-row:hover .lp-ed { opacity: 1; }
