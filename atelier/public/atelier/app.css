@@ -3166,3 +3166,4 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .noaccess { max-width: 520px; margin: 80px auto; text-align: center; padding: 28px; background: #fff; border: 1px solid #E4E7EC; border-radius: 12px; }
 .noaccess h1 { margin: 0 0 6px; font-size: 20px; }
 .mr-weak { display: block; font-size: 12px; color: #B54708; }
+.cs2-f .od-tagtog { margin-inline-start: 10px; font-size: 13px; }

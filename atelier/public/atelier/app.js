@@ -2596,6 +2596,15 @@ const CustomerSheet2 = {
       email: f.email_id && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email_id) ? "البريد غير صالح" : null,
       limit: f.credit_limit !== "" && !(+f.credit_limit >= 0) ? "السقف غير صحيح" : null }));
     const toggleTag = (id) => { const i = f.tags.indexOf(id); if (i >= 0) f.tags.splice(i, 1); else f.tags.push(id); };
+    // the manager adds, renames, recolours or removes a customer tag here (same list as the customers page)
+    const canTag = computed(() => state.boot.role === "manager"), tagMode = ref(false), tagEd = ref(null), tagBusy = ref(false);
+    const editCTag = (tg) => (tagEd.value = tg ? { ...tg } : { id: null, name: "", color: BOARD_COLORS[(tags.value.length + 1) % BOARD_COLORS.length] });
+    const saveCTag = async (drop) => { const e = tagEd.value; if (drop && !confirm(`حذف تصنيف «${e.name}»؟ يُزال من كل العملاء.`)) return; tagBusy.value = true;
+      try { let list = tags.value.map((x) => ({ ...x }));
+        if (drop) list = list.filter((x) => x.id !== e.id); else if (e.id) list = list.map((x) => (x.id === e.id ? { ...x, name: e.name.trim(), color: e.color } : x)); else list.push({ name: e.name.trim(), color: e.color });
+        const before = new Set(tags.value.map((x) => x.id)); tags.value = await call("save_customer_tags", { tags: JSON.stringify(list) }, true);
+        if (drop) { const i = f.tags.indexOf(e.id); if (i >= 0) f.tags.splice(i, 1); } else if (!e.id) { const n = tags.value.find((x) => !before.has(x.id)); if (n) f.tags.push(n.id); }
+        tagEd.value = null; state.rev++; } catch (err) { toast(err.message, "error"); } finally { tagBusy.value = false; } };
     const close = () => (state.sheet = null);
     const onKey = (e) => { if (e.key === "Escape") close(); };
     onMounted(() => window.addEventListener("keydown", onKey));
@@ -2612,7 +2621,7 @@ const CustomerSheet2 = {
       } catch (e) { error.value = e.message; }
       saving.value = false;
     }
-    return { f, editing, tags, ready, saving, error, attempted, company, errs, toggleTag, close, save, labelStyle };
+    return { f, editing, tags, ready, saving, error, attempted, company, errs, toggleTag, close, save, labelStyle, canTag, tagMode, tagEd, tagBusy, editCTag, saveCTag, BOARD_COLORS };
   },
   template: `
   <div class="overlay tm-overlay" @click.self="close">
@@ -2642,8 +2651,13 @@ const CustomerSheet2 = {
         </section>
         <section class="cs2-sec"><b>للفريق</b>
           <div class="cs2-row"><label class="cs2-f"><span class="m">سقف الدين</span><div class="unit-wrap"><input class="input num" v-model="f.credit_limit" inputmode="decimal" placeholder="بلا سقف"><span class="u">دج</span></div><span v-if="attempted && errs.limit" class="err">{{ errs.limit }}</span></label>
-            <div v-if="f.tags.length" class="cs2-f grow2"><span class="m">التصنيف</span><div class="bd-chips">
-              <button v-for="tg in tags" :key="tg.id" type="button" class="tl tl-btn" :class="{off: !f.tags.includes(tg.id)}" :style="labelStyle(tg)" :aria-pressed="f.tags.includes(tg.id)" @click="toggleTag(tg.id)">{{ f.tags.includes(tg.id) ? '✓ ' : '' }}{{ tg.name }}</button></div></div></div>
+            <div v-if="tags.length || canTag" class="cs2-f grow2"><span class="m">التصنيف<button v-if="canTag" type="button" class="cl-link od-tagtog" @click="tagMode = !tagMode; tagEd = null">{{ tagMode ? 'تم' : 'تخصيص' }}</button></span><div class="bd-chips">
+              <template v-for="tg in tags" :key="tg.id"><button type="button" class="tl tl-btn" :class="{off: !f.tags.includes(tg.id)}" :style="labelStyle(tg)" :aria-pressed="f.tags.includes(tg.id)" @click="toggleTag(tg.id)">{{ f.tags.includes(tg.id) ? '✓ ' : '' }}{{ tg.name }}</button>
+                <button v-if="tagMode" type="button" class="lp-ed" :aria-label="'تعديل ' + tg.name" @click="editCTag(tg)">✎</button></template>
+              <button v-if="tagMode" type="button" class="cl-btn sm" @click="editCTag(null)">+ تصنيف جديد</button></div>
+              <div v-if="tagEd" class="od-tagedit"><b>{{ tagEd.id ? 'تعديل التصنيف' : 'تصنيف جديد' }}</b><input class="input" v-model="tagEd.name" aria-label="اسم التصنيف" placeholder="الاسم">
+                <div class="lp-sw" role="group" aria-label="اللون"><button v-for="c in BOARD_COLORS" :key="c" type="button" :aria-pressed="tagEd.color === c" :aria-label="c" :style="{background: c}" @click="tagEd.color = c"></button></div>
+                <div class="btn-row lp-btns"><button v-if="tagEd.id" type="button" class="cl-btn sm lp-del" :disabled="tagBusy" @click="saveCTag(true)">حذف</button><span class="spacer"></span><button type="button" class="cl-btn sm" @click="tagEd = null">إلغاء</button><button type="button" class="cl-btn sm primary" :disabled="tagBusy || !tagEd.name.trim()" @click="saveCTag(false)">حفظ</button></div></div></div></div>
           <label class="cs2-f"><span class="m">ملاحظة ثابتة (تظهر في كل بطاقة جديدة له)</span><textarea class="input" v-model="f.note" rows="2"></textarea></label>
           <label class="bs-deliver"><input type="checkbox" :checked="!!f.tva_exempt" @change="f.tva_exempt = $event.target.checked ? 1 : 0">معفى من TVA</label>
         </section>
