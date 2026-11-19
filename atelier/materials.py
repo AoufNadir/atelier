@@ -720,3 +720,101 @@ def material_detail(item_code):
 	for x in buys:
 		x.per_pack = round(flt(x.unit) * size, 2)
 	return {"pack": c["pack"] or "", "size": size, "uom": item.stock_uom, "cycles": cycles, "buys": buys}
+
+
+# ---------------------------------------------------------------- profit per order and pricing help
+
+
+def target_margin():
+	return flt(frappe.db.get_default("atelier_target_margin") or 30)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_target_margin(value):
+	from atelier.simple import _manager_only
+
+	_manager_only()
+	v = max(0, min(90, flt(value)))
+	frappe.db.set_default("atelier_target_margin", str(v))
+	return v
+
+
+def _ink_per_m2(days=90):
+	"""Ink is not traced to orders: its cost over a period ÷ the m² of rolls used in it (an estimate, said so)."""
+	since = frappe.utils.add_days(nowdate(), -days)
+	fam = _has("atelier_family")
+	rows = frappe.db.sql(f"""select it.stock_uom, {"it.atelier_family" if fam else "''"}, -sum(sle.actual_qty), -sum(sle.stock_value_difference)
+		from `tabStock Ledger Entry` sle join `tabItem` it on it.name=sle.item_code
+		where sle.is_cancelled=0 and sle.voucher_type='Stock Entry' and sle.actual_qty<0 and sle.posting_date>=%s group by it.name""", since)
+	m2 = sum(flt(r[2]) for r in rows if r[1] == "roll" or (not r[1] and r[0] in ("م²", "m²")))
+	ink = sum(flt(r[3]) for r in rows if r[1] == "bottle" or (not r[1] and r[0] in ("لتر", "Litre", "قارورة")))
+	return round(ink / m2, 4) if m2 > 0 else 0
+
+
+@frappe.whitelist()
+def pricing_info():
+	"""For the price hint under an order line: target margin, ink per m², real unit cost of each material."""
+	reals = {}
+	if _cycles_ok():
+		for r in frappe.db.sql("""select item, sum(cost), sum(recorded), count(*) from `tabMaterial Cycle` where coverage>=70 and recorded>0 group by item"""):
+			if cint(r[3]) >= 3 and flt(r[2]) > 0:
+				reals[r[0]] = round(flt(r[1]) / flt(r[2]), 4)
+	return {"target": target_margin(), "ink_per_m2": _ink_per_m2(), "real": reals}
+
+
+@frappe.whitelist()
+def profit_report(period="month", start=None, end=None):
+	"""Each priced order of the period: sale − materials (real unit cost when known) − supplier − other costs − ink (estimate)."""
+	api._require("GL Entry")
+	from atelier.simple import _period, material_cost_types
+
+	a, b = _period(period, start, end)[:2]
+	target = target_margin()
+	info = pricing_info()
+	sos = frappe.get_all("Sales Order", filters={"docstatus": ["<", 2], "transaction_date": ["between", [a, b]]},
+		fields=["name", "atelier_subject", "customer_name", "net_total", "project", "transaction_date"], order_by="transaction_date desc", limit=500)
+	pending = set(frappe.get_all("Sales Order Item", filters={"parent": ["in", [s.name for s in sos] or [""]], "atelier_price_pending": 1}, pluck="parent"))
+	sos = [s for s in sos if s.name not in pending and flt(s.net_total) > 0]
+	projects = {s.project: s.name for s in sos if s.project}
+	fam = _has("atelier_family")
+	issues = frappe.db.sql(f"""select se.project, sed.item_code, sum(sed.qty), sum(sed.amount), it.stock_uom, {"it.atelier_family" if fam else "''"}
+		from `tabStock Entry Detail` sed join `tabStock Entry` se on se.name=sed.parent join `tabItem` it on it.name=sed.item_code
+		where se.docstatus=1 and se.stock_entry_type='Material Issue' and se.project in %s group by se.project, sed.item_code""", [list(projects) or [""]])
+	mat, rec, m2 = {}, {}, {}
+	for proj, code, qty, amount, uom_, way in issues:
+		so = projects.get(proj)
+		real = info["real"].get(code)
+		cost = flt(qty) * real if real else flt(amount)
+		roll = way == "roll" or (not way and uom_ in ("م²", "m²"))
+		bucket = mat if (roll or way == "count") else rec
+		bucket[so] = bucket.get(so, 0) + cost
+		if roll:
+			m2[so] = m2.get(so, 0) + flt(qty)
+	matl = material_cost_types()
+	sup, other = {}, {}
+	for est, so_name in frappe.db.sql("select name, sales_order from `tabCost Estimate` where sales_order in %s", [[s.name for s in sos] or [""]]):
+		for l in frappe.get_all("Cost Estimate Line", filters={"parent": est}, fields=["cost_type", "amount"]):
+			if l.cost_type == "Sous-traitance":
+				sup[so_name] = sup.get(so_name, 0) + flt(l.amount)
+			elif l.cost_type in matl and (so_name in mat or so_name in rec):
+				continue  # already counted from the stock it took
+			else:
+				other[so_name] = other.get(so_name, 0) + flt(l.amount)
+	rows = []
+	for s in sos:
+		parts = {"materials": round(mat.get(s.name, 0), 2), "supplier": round(sup.get(s.name, 0), 2), "recipes": round(rec.get(s.name, 0), 2),
+			"ink": round(m2.get(s.name, 0) * info["ink_per_m2"], 2), "other": round(other.get(s.name, 0), 2)}
+		cost = sum(parts.values())
+		sale = flt(s.net_total)
+		rows.append({"order": s.name, "title": s.atelier_subject or s.name, "customer": s.customer_name, "date": str(s.transaction_date), "sale": sale,
+			"cost": round(cost, 2), "parts": parts, "m2": round(m2.get(s.name, 0), 3), "profit": round(sale - cost, 2) if cost else None,
+			"margin": round((sale - cost) / sale * 100, 1) if cost else None})
+	costed = [r for r in rows if r["margin"] is not None]
+	rows.sort(key=lambda r: (r["margin"] is None, r["margin"] if r["margin"] is not None else 0))
+	sale_c, cost_c = sum(r["sale"] for r in costed), sum(r["cost"] for r in costed)
+	under = [r for r in costed if r["margin"] < target]
+	return {"target": target, "ink_per_m2": info["ink_per_m2"], "rows": rows,
+		"sales": round(sum(r["sale"] for r in rows), 2), "orders": len(rows), "costed": len(costed),
+		"cost": round(cost_c, 2), "parts": {k: round(sum(r["parts"][k] for r in costed), 2) for k in ("materials", "supplier", "recipes", "ink", "other")},
+		"profit": round(sale_c - cost_c, 2), "margin": round((sale_c - cost_c) / sale_c * 100, 1) if sale_c else None,
+		"under": len(under), "lost": round(sum(r["sale"] * target / 100 - (r["sale"] - r["cost"]) for r in under), 2), "losses": sum(1 for r in costed if r["profit"] < 0)}

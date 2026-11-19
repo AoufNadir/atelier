@@ -2938,3 +2938,24 @@ body.show-hints .hint { display: revert !important; font-size: 12px; color: #667
 .mr-bars small { font-size: 12px; color: #667085; }
 .mr-sup { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; } .mr-sup span { color: #475467; }
 @media (max-width: 1100px) { .mr-kpis, .mr-grid { grid-template-columns: 1fr 1fr; } .mr-grid { grid-template-columns: 1fr; } }
+/* profit report + price hint + target margin */
+.mr-chip { height: 30px; min-height: 30px; font-size: 13px; padding: 0 10px; color: #17202A; background: #fff; border: 1px solid #D0D5DD; }
+.mr-chip[aria-pressed="true"] { background: #F1EEFF; border-color: #C4B8F3; color: #4F35D2; font-weight: 700; }
+.mr-stack { display: flex; width: 150px; height: 10px; border-radius: 9px; overflow: hidden; background: #EAECF0; } .mr-stack i { display: block; height: 100%; }
+.mr-mg { display: inline-block; min-width: 54px; text-align: center; border-radius: 999px; padding: 1px 8px; font-weight: 700; font-size: 13px; background: #F2F4F7; }
+.mr-mg.bad { background: #FEF3F2; } .mr-mg.warn { background: #FFFAEB; } .mr-mg.ok { background: #ECFDF3; }
+.mr-legend { display: flex; gap: 14px; flex-wrap: wrap; padding: 10px 16px; font-size: 12px; color: #667085; } .mr-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-inline-end: 5px; vertical-align: middle; }
+.mr-br { padding: 12px 16px; } .mr-br .r { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px dashed #EAECF0; font-size: 14px; }
+.mr-br .r i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-inline-end: 6px; vertical-align: middle; }
+.mr-br .r.t { font-weight: 800; font-size: 16px; border: 0; padding-top: 10px; } .mr-br .bad { color: #B42318; } .mr-br .ok { color: #067647; } .mr-br .warn { color: #B54708; }
+.lb-price { margin-top: 6px; font-size: 13px; border-radius: 8px; padding: 6px 10px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lb-price.low { background: #FFFAEB; border: 1px solid #FEDF89; color: #7A2E0E; } .lb-price.low b { color: #17202A; }
+.lb-price.low button { font: inherit; font-size: 12px; border: 1px solid #F79009; background: #fff; color: #B54708; border-radius: 6px; padding: 1px 8px; cursor: pointer; margin-inline-start: auto; }
+.lb-price.ok { color: #067647; padding: 2px 0; }
+.pr-margin { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #fff; border: 1px solid #E4E7EC; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; }
+.pr-margin label { display: flex; flex-direction: column; } .pr-margin label .muted { font-size: 12px; } .pr-margin .stk-suf { width: 110px; }
+.mr-pf { grid-template-columns: minmax(0, 1fr) 360px; }
+.mr-scroll { overflow-x: auto; } .mr-scroll .mn-card-h { flex-wrap: wrap; }
+.mr-pf .mr-stack { width: 110px; }
+.mr-pf .mr-t td:first-child { min-width: 170px; }
+@media (max-width: 1200px) { .mr-pf { grid-template-columns: 1fr; } }

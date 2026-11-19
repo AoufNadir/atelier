@@ -1265,7 +1265,7 @@ from atelier.simple import reports2, save_email, test_email  # noqa: E402, F401
 from atelier.simple import create_purchase_order, create_supplier_invoice, save_supplier, set_supplier_disabled, supplier2, suppliers2  # noqa: E402, F401
 from atelier.simple import money3, pay_supplier, transfer_funds, close_cash, clear_cheque  # noqa: E402, F401
 from atelier.simple import backup_now, rename_fund, reset_link, save_alerts, save_doc_settings, save_profile, save_user, set_mode_account, settings  # noqa: E402, F401
-from atelier.materials import issue_order_materials, order_materials, recipes, save_recipe, add_material, remove_material, stock_count, stock_issue, stock_purchase, update_material, material_ledger, supplier_names, open_pack, set_closed_packs, mark_outsourced, outsource_cost, skip_materials, pack_cycle, close_pack, materials_report, material_detail
+from atelier.materials import issue_order_materials, order_materials, recipes, save_recipe, add_material, remove_material, stock_count, stock_issue, stock_purchase, update_material, material_ledger, supplier_names, open_pack, set_closed_packs, mark_outsourced, outsource_cost, skip_materials, pack_cycle, close_pack, materials_report, material_detail, profit_report, pricing_info, set_target_margin
 from atelier.quotes import card_quote
 from atelier.simple import save_list, add_fund, add_mode, remove_fund, remove_mode, card_cost, save_card_cost, cancel_opening, opening_balances, save_opening, save_units, add_customer_log, customer_credit, merge_customers, save_customer2, save_customer_tags, set_customer_disabled  # noqa: E402, F401
 from atelier.simple import customer2, customers2, reorder_card, set_customer_extra  # noqa: E402, F401

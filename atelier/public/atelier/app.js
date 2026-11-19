@@ -585,7 +585,11 @@ const PricesPage = {
         const b = state.boot.items.find((i) => i.item_code === row.item_code); if (b) b.atelier_category = row.atelier_category; toast("حُفظ التصنيف"); }
       catch (e) { toast(e.message, "error"); ev.target.value = row.atelier_category || ""; }
     };
-    return { s, load, cols, filters, save, saving, failed, t, money, uom, state, setCategory };
+    // target margin: used by the price hint under order lines and by the profit report
+    const margin = ref(null);
+    onMounted(async () => { try { margin.value = (await call("pricing_info")).target; } catch { /* manager only */ } });
+    const saveMargin = async () => { try { margin.value = await call("set_target_margin", { value: margin.value }, true); toast("حُفظ هامش الربح المستهدف"); } catch (e) { toast(e.message, "error"); } };
+    return { margin, saveMargin, s, load, cols, filters, save, saving, failed, t, money, uom, state, setCategory };
   },
   template: `
   <div class="page">
@@ -593,6 +597,8 @@ const PricesPage = {
       <button v-if="s.data && s.data.can_edit" type="button" class="btn primary" @click="state.sheet={type:'item'}"><Icon name="plus" :size="18"/>{{ t('pr_new_service') }}</button></div>
     <LoadState :s="s" :rows="4" @retry="load">
       <p v-if="embedded" class="muted" style="margin:0 0 14px">{{ t('pr_explain') }}</p>
+      <div v-if="margin !== null && s.data && s.data.can_edit" class="pr-margin"><label for="pr-mg"><b>هامش الربح المستهدف</b><span class="muted">يُنبّهك عند سعر أقل منه، ويُقارن به تقرير الربح</span></label>
+        <div class="stk-suf"><input id="pr-mg" class="input" inputmode="decimal" v-model="margin" @change="saveMargin"><em>%</em></div></div>
       <div v-else class="alert info" style="margin-bottom:var(--s4)"><Icon name="tag" :size="16"/><span>{{ t('pr_explain') }}</span></div>
       <DataTable :rows="s.data.items" :cols="cols" row-key="item_code" :search-keys="['item_name','item_code','atelier_category','stock_uom']" :filters="filters" initial-sort="item_name" :empty="t('pr_none')">
         <template #cell="{row, col}">
@@ -747,9 +753,9 @@ const lineSpec = (l) => { // a small proportional drawing of the piece
 };
 const newLine = () => ({ text: "", item_code: null, unit: (state.boot.units || [])[0]?.name || "قطعة", width: "", height: "", length: "", qty: 1, rate: "", auto: false, category: "", focus: false, material: "", per: 1, matOpen: false });
 // stock materials for the optional «المادة» under a line, loaded once per page
-const matState = reactive({ list: null, loading: false });
+const matState = reactive({ list: null, loading: false, pricing: null });
 const loadMats = async () => { if (matState.list || matState.loading) return; matState.loading = true;
-  try { matState.list = (await call("stock")).items || []; } catch { matState.list = []; } finally { matState.loading = false; } };
+  try { const [st, pr] = await Promise.all([call("stock"), call("pricing_info").catch(() => null)]); matState.list = st.items || []; matState.pricing = pr; } catch { matState.list = []; } finally { matState.loading = false; } };
 // Side panel: a new order (one short form) or an existing order card.
 const BoardPanel = {
   props: ["mode", "order", "preset", "columns", "statuses", "labels", "edit"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
@@ -817,7 +823,12 @@ const BoardPanel = {
       const area = (+l.width || 0) * (+l.height || 0) * (+l.qty || 0) * (unitOf(l).scale === "cm" ? 0.0001 : 1);
       const need = k === "roll" ? +(area * (1 + waste)).toFixed(2) : Math.ceil(((+l.qty || 0) / Math.max(1, +l.per || 1)) * (1 + waste));
       const unitCost = m.qty > 0 ? m.value / m.qty : 0;
-      return { need, has: m.qty, ok: need <= m.qty, short: +(need - m.qty).toFixed(2), unit: uom(m.uom), cost: need * unitCost, waste: m.cfg?.waste || 0 }; };
+      // cost of one sold unit of this line (m², or one piece) and the lowest price for the target margin
+      const pr = matState.pricing, real = pr?.real?.[m.item_code], base = real || unitCost, scale = unitOf(l).scale === "cm" ? 0.0001 : 1;
+      const perUnit = k === "roll" ? (base * (1 + waste) + (pr?.ink_per_m2 || 0)) * scale : (base * (1 + waste)) / Math.max(1, +l.per || 1);
+      const target = pr?.target ?? 30, min = perUnit > 0 ? perUnit / (1 - target / 100) : 0, rate = +String(l.rate).replace(/[\s,]/g, "") || 0;
+      return { need, has: m.qty, ok: need <= m.qty, short: +(need - m.qty).toFixed(2), unit: uom(m.uom), cost: need * unitCost, waste: m.cfg?.waste || 0,
+        perUnit, min: Math.ceil(min), target, low: rate > 0 && min > 0 && rate < min, margin: rate > 0 && perUnit > 0 ? Math.round((1 - perUnit / rate) * 100) : null, real: !!real }; };
     const measure = (l) => { const c = calcOf(l), q = +l.qty || 0;
       return c === "area" ? (+l.width || 0) * (+l.height || 0) * q : c === "length" ? (+l.length || 0) * q : q; };
     const nf = (v) => new Intl.NumberFormat("ar-DZ", { maximumFractionDigits: 2 }).format(v);
@@ -1110,6 +1121,9 @@ const BoardPanel = {
                     <span v-if="matInfo(l)" class="lb-matinfo">يُخصم <b>{{ num(matInfo(l).need) }} {{ matInfo(l).unit }}</b><template v-if="matInfo(l).waste"> (مع تالف {{ num(matInfo(l).waste) }}%)</template> · المتوفر {{ num(matInfo(l).has) }}
                       <b :class="matInfo(l).ok ? 'ok' : 'bad'">· {{ matInfo(l).ok ? 'يكفي' : 'لا يكفي، ينقص ' + num(matInfo(l).short) }}</b><template v-if="matInfo(l).cost"> · التكلفة ≈ {{ money(matInfo(l).cost) }}</template></span>
                     <button v-if="!l.material" type="button" class="cl-link" @click="l.matOpen = false">إخفاء</button></div>
+                  <div v-if="matInfo(l) && matInfo(l).low" class="lb-price low">تكلفتك ≈ <b>{{ money(matInfo(l).perUnit) }}</b> لكل {{ l.unit }}{{ matInfo(l).real ? ' (حقيقية)' : '' }} · بهامش {{ matInfo(l).target }}% لا تبع بأقل من <b>{{ money(matInfo(l).min) }}</b>
+                    <button type="button" @click="l.rate = matInfo(l).min; lineInput && lineInput(l)">استعمل {{ num(matInfo(l).min) }}</button></div>
+                  <div v-else-if="matInfo(l) && matInfo(l).margin !== null" class="lb-price ok">هامش هذا البند ≈ {{ matInfo(l).margin }}% ✓</div>
                 </template>
               </div></fieldset>
             <div v-if="!ro" class="od-add"><button type="button" class="od-addb" @click="addLine"><Icon name="plus" :size="16"/>بند جديد</button><span class="spacer"></span>
@@ -3514,8 +3528,54 @@ const MaterialsReport = {
     </template>
   </div>`,
 };
+// reports → profit: each priced order, what it really cost, lowest margin first
+const ProfitReport = {
+  props: ["period", "from", "to"],
+  setup(props) {
+    const d = ref(null), err = ref(null), sel = ref(null), filt = ref("all");
+    const load = async () => { err.value = null; d.value = null;
+      try { d.value = await call("profit_report", props.period === "custom" ? { period: "custom", start: props.from, end: props.to } : { period: props.period }); } catch (e) { err.value = e.message; } };
+    watch(() => [props.period, props.from, props.to], load, { immediate: true });
+    const PARTS = [["materials", "مواد", "#9B87F5"], ["supplier", "مورد خارجي", "#F79009"], ["ink", "حبر (تقدير)", "#2E90FA"], ["recipes", "وصفات", "#12B76A"], ["other", "أخرى", "#98A2B3"]];
+    const rows = computed(() => (d.value?.rows || []).filter((r) => filt.value === "all" || (filt.value === "under" ? r.margin !== null && r.margin < d.value.target : filt.value === "loss" ? r.profit !== null && r.profit < 0 : r.margin === null)));
+    const tone = (r) => (r.margin === null ? "" : r.margin < 0 ? "bad" : r.margin < d.value.target ? "warn" : "ok");
+    const minPrice = (r) => (r.cost ? r.cost / (1 - d.value.target / 100) : null);
+    return { d, err, sel, filt, PARTS, rows, tone, minPrice, money, num, date, go };
+  },
+  template: `
+  <div class="mr">
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <div v-else-if="!d" class="ws-loading">جارٍ التحميل…</div>
+    <template v-else>
+      <div class="mr-kpis">
+        <div><span>المبيعات</span><b class="money">{{ money(d.sales) }}</b><small>{{ d.orders }} بونًا مسعّرًا · {{ d.costed }} بتكلفة معروفة</small></div>
+        <div><span>التكلفة</span><b class="money">{{ money(d.cost) }}</b><small>مواد {{ num(Math.round(d.parts.materials)) }} · مورد {{ num(Math.round(d.parts.supplier)) }} · حبر ≈ {{ num(Math.round(d.parts.ink)) }}</small></div>
+        <div><span>الربح</span><b class="money" :class="d.profit < 0 ? 'bad' : 'ok'">{{ money(d.profit) }}</b><small>هامش {{ d.margin !== null ? d.margin + '%' : '—' }} · الهدف {{ d.target }}%</small></div>
+        <div><span>تحت الهدف</span><b :class="{bad: d.under}">{{ d.under }} بونات</b><small>{{ d.under ? 'نقص الهامش ≈ ' + num(Math.round(d.lost)) + ' دج' : 'كل البونات فوق الهدف' }}</small></div></div>
+      <div class="mr-grid mr-pf">
+        <section class="mn-card mr-scroll"><div class="mn-card-h"><b>البونات</b><span class="muted">الأقل هامشًا أولًا</span><span class="spacer"></span>
+            <button v-for="x in [['all', 'الكل', d.rows.length], ['under', 'تحت الهدف', d.under], ['loss', 'بخسارة', d.losses], ['none', 'بلا تكلفة', d.rows.length - d.costed]]" :key="x[0]" type="button" class="bd-chip mr-chip" :aria-pressed="filt === x[0]" @click="filt = x[0]">{{ x[1] }} <span class="cl-quick-n">{{ x[2] }}</span></button></div>
+          <table class="cl-table mr-t"><thead><tr><th>البون</th><th>العميل</th><th class="n">البيع</th><th class="n">التكلفة</th><th>التوزيع</th><th class="n">الربح</th><th class="n">الهامش</th></tr></thead>
+            <tbody><tr v-for="r in rows" :key="r.order" :class="{sel: sel && sel.order === r.order}" tabindex="0" @click="sel = r" @keydown.enter="sel = r">
+              <td><b>{{ r.title }}</b><span class="muted mr-sub">{{ date(r.date) }}</span></td><td>{{ r.customer }}</td><td class="n">{{ money(r.sale) }}</td>
+              <td class="n">{{ r.cost ? money(r.cost) : '—' }}</td>
+              <td><span v-if="r.cost" class="mr-stack"><i v-for="p in PARTS" :key="p[0]" v-show="r.parts[p[0]] > 0" :style="{width: Math.min(100, r.parts[p[0]] / Math.max(r.sale, r.cost) * 100) + '%', background: p[2]}"></i></span><span v-else class="muted">لا تكلفة مسجّلة</span></td>
+              <td class="n" :class="tone(r)">{{ r.profit !== null ? money(r.profit) : '—' }}</td>
+              <td class="n"><span v-if="r.margin !== null" class="mr-mg" :class="tone(r)">{{ r.margin }}%</span><span v-else class="muted">—</span></td></tr>
+              <tr v-if="!rows.length"><td colspan="7" class="muted" style="text-align:center;padding:20px">لا بونات في هذه التصفية.</td></tr></tbody></table>
+          <div class="mr-legend"><span v-for="p in PARTS" :key="p[0]"><i :style="{background: p[2]}"></i>{{ p[1] }}</span></div></section>
+        <section v-if="sel" class="mn-card"><div class="mn-card-h"><b>{{ sel.title }}</b><span class="muted">{{ sel.profit !== null && sel.profit < 0 ? 'لماذا خسارة؟' : 'التفصيل' }}</span></div>
+          <div class="mr-br"><div class="r"><span>البيع</span><b>{{ money(sel.sale) }}</b></div>
+            <div v-for="p in PARTS" v-show="sel.parts[p[0]] > 0" :key="p[0]" class="r"><span><i :style="{background: p[2]}"></i>{{ p[1] }}<template v-if="p[0] === 'ink' && sel.m2"> ≈ {{ num(sel.m2) }} م² × {{ money(d.ink_per_m2) }}</template></span><span>{{ money(sel.parts[p[0]]) }}</span></div>
+            <div class="r t"><span>الربح</span><span :class="tone(sel)">{{ sel.profit !== null ? money(sel.profit) + ' (' + sel.margin + '%)' : 'لا تكلفة مسجّلة' }}</span></div>
+            <p v-if="sel.cost && sel.margin < d.target" class="muted" style="margin:10px 0 0">لبلوغ هامش {{ d.target }}% كان السعر الأدنى <b>{{ money(minPrice(sel)) }}</b>{{ sel.m2 ? ' (≈ ' + money(minPrice(sel) / sel.m2) + ' / م²)' : '' }}.</p>
+            <button type="button" class="cl-link" style="margin-top:8px" @click="go('/?card=' + encodeURIComponent(sel.order))">فتح البطاقة</button></div></section>
+      </div>
+    </template>
+  </div>`,
+};
 const ReportsPage2 = {
-  components: { Icon, MaterialsReport },
+  components: { Icon, MaterialsReport, ProfitReport },
   setup() {
     const period = ref("month"), from = ref(""), to = ref(""), custom = ref(false);
     const { s, load } = useLoad(() => call("reports2", period.value === "custom" ? { period: "custom", start: from.value, end: to.value } : { period: period.value }));
@@ -3567,11 +3627,12 @@ const ReportsPage2 = {
           <button v-for="p in PERIODS" :key="p[0]" type="button" :aria-pressed="(p[0] === 'custom' ? custom || period === 'custom' : !custom && period === p[0])" @click="setPeriod(p[0])">{{ p[1] }}</button></div>
         <button type="button" class="cl-btn" :disabled="!d" @click="exportCsv"><Icon name="file" :size="16"/>تصدير Excel</button>
         <button type="button" class="cl-btn" :disabled="!d" @click="printIt"><Icon name="printer" :size="16"/>طباعة</button></div>
-        <nav class="mr-tabs" role="tablist"><button type="button" role="tab" :aria-selected="rtab === 'general'" @click="rtab = 'general'">المال والمبيعات</button><button type="button" role="tab" :aria-selected="rtab === 'materials'" @click="rtab = 'materials'">المواد</button></nav>
+        <nav class="mr-tabs" role="tablist"><button type="button" role="tab" :aria-selected="rtab === 'general'" @click="rtab = 'general'">المال والمبيعات</button><button type="button" role="tab" :aria-selected="rtab === 'profit'" @click="rtab = 'profit'">الربح</button><button type="button" role="tab" :aria-selected="rtab === 'materials'" @click="rtab = 'materials'">المواد</button></nav>
         <form v-if="custom" class="cl-head-row rp-custom" @submit.prevent="applyCustom"><label class="cl-fgroup"><span>من</span><input type="date" class="input" v-model="from"></label>
           <label class="cl-fgroup"><span>إلى</span><input type="date" class="input" v-model="to"></label><button type="submit" class="cl-btn primary" style="align-self:flex-end" :disabled="!from || !to">عرض</button></form>
       </header>
       <MaterialsReport v-if="rtab === 'materials'" :period="period" :from="from" :to="to"/>
+      <ProfitReport v-else-if="rtab === 'profit'" :period="period" :from="from" :to="to"/>
       <div v-else-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
       <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
       <template v-else-if="d">
