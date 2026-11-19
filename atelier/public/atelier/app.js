@@ -4201,6 +4201,28 @@ const StockPage = {
       return parts.join(" · "); };
     const packWord = (i) => (wayOf(i) === "roll" ? "لفّة" : i.cfg?.pack || "رزمة");
     const canOpen = (i) => (wayOf(i) === "roll" || wayOf(i) === "count") && i.cfg?.pack_qty > 0;
+    // «+ شراء»: one supplier invoice with several materials; «دفعت الآن» = full, part or 0 (the rest stays owed)
+    const bill = ref(null);
+    const packOf = (i) => { const c = i?.cfg || {}, w = wayOf(i); return (w === "roll" || w === "count") && c.pack_qty > 0 ? { name: w === "roll" ? "لفّة" : c.pack || "رزمة", qty: c.pack_qty } : null; };
+    const newBill = (item) => { rowMenu.value = null; loadSuppliers();
+      bill.value = { supplier: "", bill_no: "", date: todayISO(), mode: (state.boot.modes || [])[0]?.value || "Cash", paid: "", paidTouched: false, due: "", busy: false, err: null,
+        lines: [{ item_code: item?.item_code || "", n: "", price: "" }] }; };
+    const billItem = (l) => (s.data?.items || []).find((i) => i.item_code === l.item_code);
+    const billUnit = (l) => { const i = billItem(l); return i ? (packOf(i)?.name || uom(i.uom)) : ""; };
+    const billTotal = computed(() => (bill.value?.lines || []).reduce((a, l) => a + (+String(l.n).replace(",", ".") || 0) * (+String(l.price).replace(/[\s,]/g, "") || 0), 0));
+    watch(billTotal, (t) => { if (bill.value && !bill.value.paidTouched) bill.value.paid = t ? +t.toFixed(2) : ""; });
+    const billPaid = computed(() => Math.min(billTotal.value, +String(bill.value?.paid ?? "").replace(/[\s,]/g, "") || 0));
+    const modeLabel = (v) => (state.boot.modes || []).find((m) => m.value === v)?.label || v;
+    const saveBill = async () => { const b = bill.value; b.busy = true; b.err = null;
+      try { const lines = b.lines.filter((l) => l.item_code && +l.n > 0).map((l) => { const i = billItem(l), p = packOf(i);
+          return { item_code: l.item_code, qty: +String(l.n).replace(",", "."), rate: +String(l.price).replace(/[\s,]/g, ""), uom: p ? p.name : null }; });
+        if (!b.supplier) throw new Error("اختر المورد"); if (!lines.length) throw new Error("أضف مادة واحدة على الأقل");
+        const r = await call("purchase_bill", { supplier: b.supplier, lines: JSON.stringify(lines), bill_no: b.bill_no, posting_date: b.date, paid: billPaid.value, mode: b.mode, due_date: r0(b) }, true);
+        toast(r.owed > 0.005 ? `سُجّل الشراء — يبقى دين ${money(r.owed)}` : "سُجّل الشراء ودُفع"); bill.value = null; await load(); }
+      catch (e) { b.err = e.message; } finally { if (bill.value) bill.value.busy = false; } };
+    const r0 = (b) => (billTotal.value - billPaid.value > 0.005 && b.due ? b.due : null);
+    const quickSupplierBill = async () => { const n = (prompt("اسم المورد الجديد") || "").trim(); if (!n) return;
+      try { const r = await call("save_supplier", { data: JSON.stringify({ supplier_name: n }) }, true); await loadSuppliers(); bill.value.supplier = r?.name || r; toast("أُضيف المورد"); } catch (e) { bill.value.err = e.message; } };
     // «انتهت اللفّة / الرزمة»: show the cycle, let the user tick printed orders not yet deducted, then close it
     const closing = ref(null);
     const openPack = async (i) => { rowMenu.value = null; closing.value = { item: i, d: null, busy: false, err: null };
@@ -4219,6 +4241,7 @@ const StockPage = {
         await load(); if (sel.value === i.item_code) pick(i); } catch (e) { toast(e.message, "error"); } };
     // closed packs as recorded, but never more than the stock can hold (a stale count must not show an empty open pack)
     const closedOf = (i) => Math.max(0, Math.min(i.cfg?.closed || 0, i.cfg?.pack_qty ? Math.floor(i.qty / i.cfg.pack_qty) : 0));
+    const tone = (i) => (i.qty <= 0 ? "t-out" : i.low ? "t-low" : "");
     const openLeft = (i) => Math.max(0, i.qty - closedOf(i) * (i.cfg?.pack_qty || 0));
     const staleClosed = (i) => i.cfg?.pack_qty > 0 && openLeft(i) > i.cfg.pack_qty + 1e-6;
     const openPct = (i) => Math.max(0, Math.min(100, i.cfg?.pack_qty ? (openLeft(i) / i.cfg.pack_qty) * 100 : 0));
@@ -4321,12 +4344,12 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
     <div class="stk-head"><h1>المخزون</h1><span class="spacer"></span>
-      <input class="input stk-q" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><SizeControl/><button type="button" class="cl-btn primary" @click="open('add')"><Icon name="plus" :size="16"/>مادة جديدة</button></div>
+      <input class="input stk-q" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><SizeControl/><button type="button" class="cl-btn" @click="open('add')"><Icon name="plus" :size="16"/>مادة</button><button v-if="s.data && s.data.can_buy" type="button" class="cl-btn primary" @click="newBill()"><Icon name="plus" :size="16"/>شراء</button></div>
     <div v-if="s.error" class="alert error" style="margin:0 28px 12px">{{ s.error }}</div>
     <div v-if="s.data" class="stock-body stk">
       <div class="stk-bar"><span v-if="s.data.can_value" class="stk-sum">قيمة المخزون <b class="money">{{ money(totalValue) }}</b></span><span class="stk-sep"></span><button type="button" class="bd-chip" :aria-pressed="way === 'all' && !onlyLow" @click="way = 'all'; onlyLow = false">الكل <span class="cl-quick-n">{{ s.data.items.length }}</span></button>
@@ -4336,18 +4359,19 @@ const StockPage = {
       <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>المادة</th><th>المتوفر</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n"><span class="sr-only">إجراء</span></th></tr></thead>
         <tbody><tr v-for="i in items" :key="i.item_code" :class="{low: i.low, sel: sel === i.item_code}" class="stk-row" tabindex="0" @click="pick(i)" @keydown.enter="pick(i)">
           <td><b><i v-if="i.cfg && i.cfg.color" class="stk-ink" :style="{background: i.cfg.color}"></i>{{ i.item_name }}<span class="stk-how">{{ STOCK_WAYS[wayOf(i)].label }}</span></b><span class="m stk-sub">{{ subOf(i) }}</span></td>
-          <td><div class="stk-lvl"><span v-if="canOpen(i)" class="stk-packs" aria-hidden="true"><i v-for="k in Math.min(6, closedOf(i))" :key="k" class="pk"></i><b v-if="closedOf(i) > 6" class="m">+{{ closedOf(i) - 6 }}</b><i class="pk open"><u :style="{height: openPct(i) + '%'}"></u></i></span>
-            <span v-else class="stk-meter" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><span class="stk-qv"><b class="stk-qty" :class="{bad: i.low}">{{ qn(i, i.qty) }} <small>{{ uom(i.uom) }}</small></b><span v-if="qtySub(i)" class="m stk-pk">{{ qtySub(i) }}</span></span></div></td>
+          <td><div class="stk-lvl"><span v-if="canOpen(i)" class="stk-packs" :class="tone(i)" aria-hidden="true"><i v-for="k in Math.min(6, closedOf(i))" :key="k" class="pk"></i><b v-if="closedOf(i) > 6" class="m">+{{ closedOf(i) - 6 }}</b><i class="pk open"><u :style="{height: openPct(i) + '%'}"></u></i></span>
+            <span v-else-if="wayOf(i) === 'bottle'" class="stk-packs" :class="tone(i)" aria-hidden="true"><i v-for="k in Math.min(6, Math.floor(i.qty))" :key="k" class="pk"></i><b v-if="i.qty > 6" class="m">+{{ Math.floor(i.qty) - 6 }}</b><i v-if="!(i.qty >= 1)" class="pk open"></i></span>
+            <span v-else class="stk-meter" :class="tone(i)" aria-hidden="true"><i :style="{width: level(i) + '%'}"></i></span><span class="stk-qv"><b class="stk-qty" :class="{bad: i.low}">{{ qn(i, i.qty) }} <small>{{ uom(i.uom) }}</small></b><span v-if="qtySub(i)" class="m stk-pk">{{ qtySub(i) }}</span></span></div></td>
           <td class="n"><span class="m">{{ i.safety_stock ? qn(i, i.safety_stock) + ' ' + uom(i.uom) : '—' }}</span></td>
           <td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
           <td class="n" @click.stop><div class="btn-row stk-acts">
-            <button v-if="wayOf(i) === 'bottle' && s.data.can_issue" type="button" class="cl-btn sm primary" :disabled="i.qty < 1" @click="fitBottle(i)">ركّبت قارورة</button>
-            <template v-else><button v-if="canOpen(i) && s.data.can_issue" type="button" class="cl-btn sm primary" :disabled="!(i.cfg.closed > 0)" :title="i.cfg.closed > 0 ? 'السابقة انتهت وفتحت جديدة' : 'لا ' + packWord(i) + ' مغلقة مسجّلة'" @click="openPack(i)">انتهت ال{{ packWord(i) }}</button>
-              <button v-if="s.data.can_buy" type="button" class="cl-btn sm" @click="open('buy', i)">شراء</button></template>
-            <button type="button" class="cl-btn sm" :aria-label="'إجراءات أخرى لـ ' + i.item_name" :aria-expanded="rowMenu === i.item_code" @click.stop="rowMenu = rowMenu === i.item_code ? null : i.item_code">▾</button>
+            <button v-if="wayOf(i) === 'bottle' && s.data.can_issue" type="button" class="cl-btn sm stk-act" :disabled="i.qty < 1" @click="fitBottle(i)">ركّبت قارورة</button>
+            <button v-else-if="canOpen(i) && s.data.can_issue" type="button" class="cl-btn sm stk-act" :disabled="!(i.cfg.closed > 0)" :title="i.cfg.closed > 0 ? 'السابقة انتهت وفتحت جديدة' : 'لا ' + packWord(i) + ' مغلقة مسجّلة'" @click="openPack(i)">انتهت ال{{ packWord(i) }}</button>
+            <button v-else-if="s.data.can_issue" type="button" class="cl-btn sm stk-act" @click="i.qty > 0 ? open('issue', i) : toast('لا كمية في المخزون للصرف — سجّل شراءً أولًا', 'error')">صرف</button>
+            <button type="button" class="cl-btn sm stk-more-btn" :aria-label="'إجراءات أخرى لـ ' + i.item_name" :aria-expanded="rowMenu === i.item_code" @click.stop="rowMenu = rowMenu === i.item_code ? null : i.item_code">▾</button>
             <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop>
-              <button v-if="wayOf(i) === 'bottle' && s.data.can_buy" type="button" class="tm-pop-row" @click="rowMenu = null; open('buy', i)">شراء</button>
-              <button v-if="s.data.can_issue && wayOf(i) !== 'bottle'" type="button" class="tm-pop-row" @click="rowMenu = null; i.qty > 0 ? open('issue', i) : toast('لا كمية في المخزون للصرف — سجّل شراءً أولًا', 'error')">صرف يدوي</button>
+              <button v-if="s.data.can_buy" type="button" class="tm-pop-row stk-buy" @click="newBill(i)">شراء هذه المادة</button>
+              <button v-if="s.data.can_issue && wayOf(i) !== 'bottle' && canOpen(i)" type="button" class="tm-pop-row" @click="rowMenu = null; i.qty > 0 ? open('issue', i) : toast('لا كمية في المخزون للصرف — سجّل شراءً أولًا', 'error')">صرف يدوي</button>
               <button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></div></div></td></tr>
           <tr v-if="!items.length"><td :colspan="s.data.can_value ? 5 : 4" class="muted" style="text-align:center;padding:24px">{{ onlyLow ? 'لا مواد تحت الحد الأدنى.' : s.data.items.length ? 'لا مواد تطابق.' : 'لا مواد بعد. أضف مادة ثم سجّل شراءً أو رصيدها بالجرد.' }}</td></tr></tbody></table></section>
       <aside v-if="selItem" class="mn-card stk-side">
@@ -4375,6 +4399,27 @@ const StockPage = {
       </aside></div>
 
     </div>
+    <div v-if="bill" class="overlay" @click.self="bill = null"><form class="sheet stk-bill" @submit.prevent="saveBill"><div class="sh-head"><h2>شراء من مورد</h2></div>
+      <div v-if="bill.err" class="alert error">{{ bill.err }}</div>
+      <div class="stk-g3"><div class="field"><label for="bl-s">المورد</label><select id="bl-s" class="input" v-model="bill.supplier"><option value="" disabled>{{ suppliers.length ? 'اختر المورد' : 'لا موردين بعد' }}</option><option v-for="x in suppliers" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select>
+          <button type="button" class="cl-link" style="align-self:flex-start;font-size:12px" @click="quickSupplierBill">+ مورد جديد</button></div>
+        <div class="field"><label for="bl-n">رقم فاتورته</label><input id="bl-n" class="input" v-model="bill.bill_no" dir="ltr"></div>
+        <div class="field"><label for="bl-d">التاريخ</label><input id="bl-d" class="input" type="date" v-model="bill.date"></div></div>
+      <table class="stk-bl"><thead><tr><th>المادة</th><th>العدد</th><th>سعر الواحدة</th><th class="n">المجموع</th><th></th></tr></thead><tbody>
+        <tr v-for="(l, k) in bill.lines" :key="k"><td><select class="input" v-model="l.item_code" aria-label="المادة"><option value="" disabled>اختر المادة</option><option v-for="i in s.data.items" :key="i.item_code" :value="i.item_code">{{ i.item_name }}</option></select></td>
+          <td><div class="stk-suf"><input class="input" inputmode="decimal" v-model="l.n" aria-label="العدد"><em>{{ billUnit(l) }}</em></div></td>
+          <td><div class="stk-suf"><input class="input" inputmode="decimal" v-model="l.price" aria-label="سعر الواحدة"><em>دج</em></div></td>
+          <td class="n"><b>{{ money((+l.n || 0) * (+String(l.price).replace(/[\s,]/g, '') || 0)) }}</b></td>
+          <td><button v-if="bill.lines.length > 1" type="button" class="cl-btn icon sm" aria-label="حذف السطر" @click="bill.lines.splice(k, 1)">×</button></td></tr></tbody></table>
+      <button type="button" class="cl-link" style="align-self:flex-start" @click="bill.lines.push({item_code: '', n: '', price: ''})">+ مادة أخرى</button>
+      <div class="stk-bltot"><span>المجموع</span><b>{{ money(billTotal) }}</b></div>
+      <div class="stk-pay"><div class="stk-g3"><div class="field"><label for="bl-p">دفعت الآن</label><div class="stk-suf"><input id="bl-p" class="input" inputmode="decimal" v-model="bill.paid" @input="bill.paidTouched = true"><em>دج</em></div></div>
+          <div class="field stk-span2"><label>الطريقة</label><div class="stk-modes"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="bill.mode === m.value" :disabled="!(billPaid > 0)" @click="bill.mode = m.value">{{ m.label }}</button></div></div></div>
+        <p class="stk-payres"><template v-if="billPaid > 0">يخرج <b>{{ money(billPaid) }}</b> ({{ modeLabel(bill.mode) }})</template><template v-else>لا يخرج شيء الآن</template>
+          <template v-if="billTotal - billPaid > 0.005"> · يبقى دين للمورد <b class="warn">{{ money(billTotal - billPaid) }}</b></template><template v-else-if="billTotal"> · لا يبقى دين</template></p>
+        <div v-if="billTotal - billPaid > 0.005" class="field" style="max-width:220px"><label for="bl-due">يُدفع قبل (اختياري)</label><input id="bl-due" class="input" type="date" v-model="bill.due"></div></div>
+      <div class="sh-foot"><button type="button" class="cl-btn" @click="bill = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="bill.busy || !billTotal">تسجيل الشراء</button></div>
+    </form></div>
     <div v-if="closing" class="overlay" @click.self="closing = null"><form class="sheet stk-close" @submit.prevent="confirmClose"><div class="sh-head"><div><h2>انتهت {{ closing.d ? closing.d.pack : '' }} — {{ closing.item.item_name }}</h2>
         <span v-if="closing.d" class="muted">من {{ date(closing.d.since) }} إلى اليوم. فتحت الجديدة؟ هذه نتيجة المنتهية:</span></div></div>
       <div v-if="closing.err" class="alert error">{{ closing.err }}</div>

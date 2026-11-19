@@ -2980,3 +2980,23 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .cs-age .warn { color: #B54708; } .cs-age .bad { color: #B42318; }
 .cs-barrow { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; cursor: pointer; } .cs-barrow span { width: 120px; } .cs-barrow i { display: block; height: 8px; border-radius: 9px; background: #9B87F5; }
 @media (max-width: 1100px) { .cs-grid { grid-template-columns: 1fr; } .cs-side { position: static; } }
+/* stock rows: one action, one quantity visual; purchase bill */
+.stk-act { width: 128px; justify-content: center; border-color: #C4B8F3; color: #4F35D2; font-weight: 700; background: #fff; }
+.stk-act:hover:not(:disabled) { background: #F1EEFF; }
+.stk-more-btn { width: 32px; padding: 0; justify-content: center; }
+.stk-more .stk-buy { color: #4F35D2; font-weight: 700; }
+.stk-packs.t-low .pk:not(.open) { background: #F79009; } .stk-packs.t-low .pk.open u { background: #FDB022; }
+.stk-packs.t-out .pk { background: #EAECF0; }
+.stk-meter.t-low i { background: #F79009; } .stk-meter.t-out i { background: #D92D20; }
+.stk-bill { width: min(720px, calc(100vw - 32px)); }
+.stk-bl { width: 100%; border-collapse: collapse; margin: 6px 0; } .stk-bl th { font-size: 12px; color: #667085; font-weight: 600; text-align: start; padding: 4px 6px; }
+.stk-bl td { padding: 4px 6px; } .stk-bl td:first-child { width: 42%; } .stk-bl .input { height: 34px; }
+.stk-bltot { display: flex; justify-content: flex-end; gap: 14px; font-size: 15px; padding: 6px 0; } .stk-bltot b { font-size: 17px; }
+.stk-pay { background: #F9FAFB; border: 1px solid #E4E7EC; border-radius: 10px; padding: 10px 12px; }
+.stk-modes { display: flex; gap: 6px; flex-wrap: wrap; }
+.stk-modes button { font: inherit; font-size: 13px; height: 36px; padding: 0 12px; border: 1px solid #D0D5DD; border-radius: 8px; background: #fff; cursor: pointer; }
+.stk-modes button[aria-pressed="true"] { border-color: #4F35D2; background: #F1EEFF; color: #4F35D2; font-weight: 700; }
+.stk-modes button:disabled { opacity: .5; cursor: default; }
+.stk-payres { margin: 6px 0 4px; font-size: 13px; color: #475467; } .stk-payres b { color: #17202A; } .stk-payres .warn { color: #B54708; }
+.overlay .sheet.stk-bill { width: min(760px, calc(100vw - 32px)); max-width: none; }
+.stk-bl td:nth-child(2), .stk-bl td:nth-child(3) { width: 130px; } .stk-bl td:nth-child(4) { width: 110px; white-space: nowrap; }

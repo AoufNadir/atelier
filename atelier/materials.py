@@ -818,3 +818,51 @@ def profit_report(period="month", start=None, end=None):
 		"cost": round(cost_c, 2), "parts": {k: round(sum(r["parts"][k] for r in costed), 2) for k in ("materials", "supplier", "recipes", "ink", "other")},
 		"profit": round(sale_c - cost_c, 2), "margin": round((sale_c - cost_c) / sale_c * 100, 1) if sale_c else None,
 		"under": len(under), "lost": round(sum(r["sale"] * target / 100 - (r["sale"] - r["cost"]) for r in under), 2), "losses": sum(1 for r in costed if r["profit"] < 0)}
+
+
+@frappe.whitelist(methods=["POST"])
+def purchase_bill(supplier, lines, bill_no=None, posting_date=None, paid=None, mode="Cash", due_date=None):
+	"""One supplier invoice with several materials, each in its roll / ream / unit; «دفعت الآن» pays it in full,
+	in part or not at all (the rest stays owed to the supplier)."""
+	_need("Purchase Invoice")
+	if not supplier or not frappe.db.exists("Supplier", supplier):
+		frappe.throw(_("اختر المورد"))
+	company, store = api._company(), store_for(api._company())
+	rows, packs = [], []
+	for l in frappe.parse_json(lines) or []:
+		if not l.get("item_code") or flt(l.get("qty")) <= 0:
+			continue
+		item = _material(l["item_code"])
+		if flt(l.get("rate")) <= 0:
+			frappe.throw(_("اكتب سعر «{0}»").format(frappe.db.get_value("Item", item.name, "item_name")))
+		row = {"item_code": item.name, "qty": flt(l["qty"]), "rate": flt(l["rate"]), "warehouse": store}
+		uom = (l.get("uom") or "").strip()
+		if uom and uom != item.stock_uom:
+			factor = flt(frappe.db.get_value("UOM Conversion Detail", {"parent": item.name, "uom": uom}, "conversion_factor"))
+			if factor <= 0:
+				c = _cfg_of(item.name)
+				if c["pack"] == uom and c["pack_qty"] > 0:
+					_pack_uom(item.name, uom, c["pack_qty"])
+					factor = c["pack_qty"]
+			if factor <= 0:
+				frappe.throw(_("وحدة الشراء «{0}» غير معرّفة للمادة").format(uom))
+			row.update({"uom": uom, "conversion_factor": factor})
+			if abs(flt(l["qty"]) - round(flt(l["qty"]))) < 1e-9:
+				packs.append((item.name, int(round(flt(l["qty"])))))
+		rows.append(row)
+	if not rows:
+		frappe.throw(_("أضف مادة واحدة على الأقل"))
+	inv = frappe.get_doc({"doctype": "Purchase Invoice", "supplier": supplier, "company": company,
+		"posting_date": posting_date or nowdate(), "set_posting_time": 1 if posting_date else 0,
+		"due_date": due_date or None, "update_stock": 1, "set_warehouse": store, "bill_no": (bill_no or "").strip() or None, "items": rows})
+	inv.insert()
+	inv.submit()
+	for code, n in packs:
+		_bump_closed(code, n)
+	pay = flt(paid) if paid not in (None, "") else flt(inv.grand_total)
+	payment = None
+	if pay > 0.005:
+		from atelier.simple import pay_supplier
+
+		payment = pay_supplier(inv.name, mode or "Cash", min(pay, flt(inv.grand_total)))
+	return {"invoice": inv.name, "total": flt(inv.grand_total), "paid": min(pay, flt(inv.grand_total)), "owed": round(max(0, flt(inv.grand_total) - pay), 2), "payment": payment}

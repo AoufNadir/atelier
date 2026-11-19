@@ -1347,14 +1347,20 @@ def transfer_funds(from_account, to_account, amount, note=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def pay_supplier(invoice, mode_of_payment="Cash"):
-	"""Pay what is left on a supplier invoice."""
+def pay_supplier(invoice, mode_of_payment="Cash", amount=None):
+	"""Pay what is left on a supplier invoice, or only part of it (amount)."""
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
 	if not frappe.has_permission("Payment Entry", "create"):
 		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
 	pe = get_payment_entry("Purchase Invoice", invoice, bank_account=api._cash_account(mode_of_payment, api._company()))
 	pe.mode_of_payment = mode_of_payment
+	if amount is not None and 0 < flt(amount) < flt(pe.paid_amount):
+		pe.paid_amount = pe.received_amount = flt(amount)
+		for r in pe.references:
+			r.allocated_amount = min(flt(amount), flt(r.outstanding_amount))
+		if hasattr(pe, "set_amounts"):
+			pe.set_amounts()
 	pe.posting_date = nowdate()
 	pe.reference_no = pe.reference_no or "—"
 	pe.reference_date = nowdate()
