@@ -639,3 +639,84 @@ def outsource_cost(order, amount, supplier=None, note=None):
 	lines.append({"cost_type": kind, "description": text, "qty": 1, "rate": amount})
 	simple.save_card_cost(order, json.dumps({"lines": lines, "qty": view.get("qty") or 1, "waste_percent": view.get("waste_percent") or 0}))
 	return True
+
+
+# ---------------------------------------------------------------- reports: what the materials really cost
+
+
+def _real_cost(item_code):
+	good = frappe.get_all("Material Cycle", filters={"item": item_code, "coverage": [">=", 70], "recorded": [">", 0]}, fields=["cost", "recorded"]) if _cycles_ok() else []
+	return (sum(flt(c.cost) for c in good) / sum(flt(c.recorded) for c in good)) if len(good) >= 3 else None, len(good)
+
+
+@frappe.whitelist()
+def materials_report(period="month", start=None, end=None):
+	"""Per material over a period: used (qty and money), waste from finished cycles, purchase vs real unit cost, and how much to trust it."""
+	api._require("Bin")
+	from atelier.simple import _period
+
+	a, b = _period(period, start, end)[:2]
+	store = store_for(api._company())
+	fam = ["atelier_family"] if _has("atelier_family") else []
+	items = frappe.get_all("Item", filters={"disabled": 0, "is_stock_item": 1}, fields=["name", "item_name", "stock_uom", "safety_stock", "atelier_packs", *fam])
+	used = {r[0]: (-flt(r[1]), -flt(r[2])) for r in frappe.db.sql("""select item_code, sum(actual_qty), sum(stock_value_difference) from `tabStock Ledger Entry`
+		where is_cancelled=0 and voucher_type='Stock Entry' and actual_qty<0 and posting_date between %s and %s group by item_code""", (a, b))}
+	cyc = {}
+	if _cycles_ok():
+		for c in frappe.get_all("Material Cycle", filters={"closed_on": ["between", [a, b]]}, fields=["item", "size", "cost", "recorded", "gap", "coverage"]):
+			x = cyc.setdefault(c.item, {"n": 0, "good": 0, "gap": 0, "size": 0, "gap_value": 0})
+			x["n"] += 1
+			if flt(c.coverage) >= 70:
+				x["good"] += 1
+				x["gap"] += max(0, flt(c.gap))
+				x["size"] += flt(c.size)
+				x["gap_value"] += max(0, flt(c.gap)) * (flt(c.cost) / flt(c.size) if flt(c.size) else 0)
+	buy = {r[0]: flt(r[1]) for r in frappe.db.sql("""select pii.item_code, sum(pii.base_net_amount) / nullif(sum(pii.stock_qty), 0) from `tabPurchase Invoice Item` pii
+		join `tabPurchase Invoice` pi on pi.name=pii.parent where pi.docstatus=1 group by pii.item_code""")}
+	bins = {r.item_code: r for r in frappe.get_all("Bin", filters={"warehouse": store}, fields=["item_code", "actual_qty", "stock_value", "valuation_rate"])}
+	rows, printed_m2 = [], 0
+	for it in items:
+		way = it.get("atelier_family") or ("roll" if it.stock_uom in ("م²", "m²") else "")
+		q, v = used.get(it.name, (0, 0))
+		if way == "roll":
+			printed_m2 += q
+		real, good_all = _real_cost(it.name)
+		c = cyc.get(it.name) or {}
+		unit = buy.get(it.name) or flt((bins.get(it.name) or {}).get("valuation_rate"))
+		rows.append({"item_code": it.name, "item_name": it.item_name, "uom": it.stock_uom, "way": way, "used": round(q, 3), "used_value": round(v, 2),
+			"cycles": c.get("n", 0), "good": c.get("good", 0), "waste": round(c.get("gap", 0), 3), "waste_pct": round(c["gap"] / c["size"] * 100, 1) if c.get("size") else None,
+			"waste_value": round(c.get("gap_value", 0), 2), "unit_buy": round(unit, 4), "unit_real": round(real, 4) if real else None, "good_all": good_all,
+			"diff_pct": round((real - unit) / unit * 100, 1) if real and unit else None,
+			"stock_value": flt((bins.get(it.name) or {}).get("stock_value")), "low": bool(it.safety_stock) and flt((bins.get(it.name) or {}).get("actual_qty")) < flt(it.safety_stock)})
+	ink = sum(r["used_value"] for r in rows if r["way"] == "bottle")
+	for r in rows:
+		if r["way"] == "bottle":
+			r["per_m2"] = round(r["used_value"] / printed_m2, 2) if printed_m2 > 0 else None
+	rows.sort(key=lambda r: (-r["waste_value"], -r["used_value"]))
+	return {"from": str(a), "to": str(b), "rows": rows,
+		"used_value": round(sum(r["used_value"] for r in rows), 2), "waste_value": round(sum(r["waste_value"] for r in rows), 2),
+		"cycles": sum(r["cycles"] for r in rows), "good": sum(r["good"] for r in rows), "stock_value": round(sum(r["stock_value"] for r in rows), 2),
+		"low": sum(1 for r in rows if r["low"]), "ink_per_m2": round(ink / printed_m2, 2) if printed_m2 > 0 else None}
+
+
+@frappe.whitelist()
+def material_detail(item_code):
+	"""One material: every finished roll / ream, and what each supplier charged per roll / ream over time."""
+	api._require("Bin")
+	item = _material(item_code)
+	c = _cfg_of(item.name)
+	cycles = frappe.get_all("Material Cycle", filters={"item": item.name}, fields=["opened_on", "closed_on", "size", "cost", "recorded", "gap", "coverage", "orders"],
+		order_by="closed_on desc, creation desc", limit=24) if _cycles_ok() else []
+	for x in cycles:
+		x.days = (frappe.utils.getdate(x.closed_on) - frappe.utils.getdate(x.opened_on)).days if x.opened_on and x.closed_on else None
+		try:
+			x.n_orders = len([o for o in json.loads(x.pop("orders") or "[]") if o.get("order")])
+		except ValueError:
+			x.n_orders = 0
+		x.real = round(flt(x.cost) / flt(x.recorded), 4) if flt(x.recorded) > 0 and flt(x.coverage) >= 70 else None
+	buys = frappe.db.sql("""select pi.posting_date, pi.supplier_name, pii.base_net_amount / nullif(pii.stock_qty, 0) unit from `tabPurchase Invoice Item` pii
+		join `tabPurchase Invoice` pi on pi.name=pii.parent where pi.docstatus=1 and pii.item_code=%s order by pi.posting_date asc, pi.creation asc limit 40""", item.name, as_dict=True)
+	size = c["pack_qty"] if c["pack_qty"] > 0 else 1
+	for x in buys:
+		x.per_pack = round(flt(x.unit) * size, 2)
+	return {"pack": c["pack"] or "", "size": size, "uom": item.stock_uom, "cycles": cycles, "buys": buys}

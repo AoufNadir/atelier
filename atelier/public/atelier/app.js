@@ -3458,8 +3458,64 @@ const SettingsPage = {
 };
 
 // ------------------------------------------------------------------ reports, classic
+// reports → materials: what was used, what was wasted, purchase vs real cost, and how much to trust each number
+const MaterialsReport = {
+  props: ["period", "from", "to"],
+  setup(props) {
+    const d = ref(null), err = ref(null), sel = ref(null), det = ref(null);
+    const load = async () => { err.value = null; d.value = null;
+      try { d.value = await call("materials_report", props.period === "custom" ? { period: "custom", start: props.from, end: props.to } : { period: props.period }); } catch (e) { err.value = e.message; } };
+    watch(() => [props.period, props.from, props.to], load, { immediate: true });
+    const open = async (r) => { sel.value = r; det.value = null; try { det.value = await call("material_detail", { item_code: r.item_code }); } catch (e) { det.value = { error: e.message }; } };
+    const u = (x) => uom(x);
+    const qty = (r, v) => num(+(+v || 0).toFixed(r.way === "roll" ? 1 : 2));
+    const trust = (r) => (r.way === "bottle" ? ["m", "تقديري"] : r.good_all >= 3 ? ["ok", "موثوقة " + r.good + "/" + r.cycles] : r.cycles && r.good < r.cycles ? ["bad", "تغطية ضعيفة " + r.good + "/" + r.cycles] : ["m", "بيانات غير كافية"]);
+    const suppliers = computed(() => { const by = {}; for (const b of det.value?.buys || []) { const x = (by[b.supplier_name] ||= { name: b.supplier_name, n: 0, sum: 0, last: 0 }); x.n++; x.sum += b.per_pack; x.last = b.per_pack; }
+      return Object.values(by).map((x) => ({ ...x, avg: x.sum / x.n })).sort((a, b) => a.avg - b.avg); });
+    const maxBuy = computed(() => Math.max(1, ...(det.value?.buys || []).map((b) => b.per_pack)));
+    return { d, err, sel, det, open, u, qty, trust, suppliers, maxBuy, money, num, date };
+  },
+  template: `
+  <div class="mr">
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <div v-else-if="!d" class="ws-loading">جارٍ التحميل…</div>
+    <template v-else>
+      <div class="mr-kpis">
+        <div><span>استُهلك من المواد</span><b class="money">{{ money(d.used_value) }}</b><small>بسعر الشراء</small></div>
+        <div><span>التالف</span><b class="money" :class="{warn: d.waste_value > 0}">{{ money(d.waste_value) }}</b><small>{{ d.used_value ? Math.round(d.waste_value / d.used_value * 100) + '% من الاستهلاك' : '—' }}</small></div>
+        <div><span>لفّات ورزم منتهية</span><b>{{ d.cycles }}</b><small>{{ d.good }} موثوقة<template v-if="d.cycles - d.good"> · {{ d.cycles - d.good }} تغطيتها ضعيفة</template></small></div>
+        <div><span>المخزون الآن</span><b class="money">{{ money(d.stock_value) }}</b><small>{{ d.low ? d.low + ' مادة تنقص قريبًا' : 'لا شيء ينقص' }}</small></div></div>
+      <section class="mn-card"><div class="mn-card-h"><b>كل مادة</b><span class="muted">مرتبة حسب قيمة التالف — ما يستحق انتباهك أولًا</span></div>
+        <table class="cl-table mr-t"><thead><tr><th>المادة</th><th class="n">استُهلك</th><th class="n">التالف</th><th class="n">تكلفة الوحدة (شراء)</th><th class="n">تكلفة الوحدة (حقيقية)</th><th class="n">الفرق</th><th>الثقة</th></tr></thead>
+          <tbody><tr v-for="r in d.rows" :key="r.item_code" :class="{sel: sel && sel.item_code === r.item_code}" tabindex="0" @click="open(r)" @keydown.enter="open(r)">
+            <td><b>{{ r.item_name }}</b><span v-if="r.cycles" class="muted mr-sub">{{ r.cycles }} منتهية</span></td>
+            <td class="n">{{ qty(r, r.used) }} {{ u(r.uom) }}</td>
+            <td class="n"><span v-if="r.waste_pct !== null" :class="r.waste_pct > 10 ? 'bad' : r.waste_pct > 5 ? 'warn' : ''">{{ qty(r, r.waste) }} · {{ r.waste_pct }}%</span><span v-else class="muted">—</span></td>
+            <td class="n">{{ r.unit_buy ? money(r.unit_buy) : '—' }}</td>
+            <td class="n"><b v-if="r.way === 'bottle' && r.per_m2">≈ {{ money(r.per_m2) }} / م² مطبوع</b><b v-else-if="r.unit_real">{{ money(r.unit_real) }}</b><span v-else class="muted">—</span></td>
+            <td class="n"><span v-if="r.diff_pct !== null" :class="r.diff_pct > 10 ? 'bad' : r.diff_pct > 5 ? 'warn' : ''">+{{ r.diff_pct }}%</span><span v-else class="muted">—</span></td>
+            <td><span class="mr-pill" :class="trust(r)[0]">{{ trust(r)[1] }}</span></td></tr>
+            <tr v-if="!d.rows.length"><td colspan="7" class="muted" style="text-align:center;padding:20px">لا مواد بعد.</td></tr></tbody></table></section>
+      <div v-if="sel" class="mr-grid">
+        <section class="mn-card"><div class="mn-card-h"><b>{{ sel.item_name }}</b><span class="muted">كل {{ det && det.pack ? det.pack : 'دورة' }} منتهية</span></div>
+          <div v-if="!det" class="ws-loading">…</div><div v-else-if="det.error" class="alert error">{{ det.error }}</div>
+          <table v-else class="cl-table mr-t"><thead><tr><th>انتهت</th><th class="n">المدة</th><th>خُصم على الطلبات</th><th class="n">التالف</th><th class="n">تكلفة الوحدة الحقيقية</th><th>التغطية</th></tr></thead>
+            <tbody><tr v-for="(c, k) in det.cycles" :key="k"><td>{{ date(c.closed_on) }}</td><td class="n">{{ c.days !== null ? c.days + ' يومًا' : '—' }}</td>
+              <td><span class="mr-bar"><i :style="{width: Math.min(100, c.coverage) + '%'}"></i></span>{{ qty(sel, c.recorded) }} · {{ c.n_orders }} طلبات</td>
+              <td class="n"><span v-if="c.coverage >= 70" :class="c.gap / c.size > 0.1 ? 'bad' : 'ok'">{{ qty(sel, c.gap) }} · {{ Math.round(c.gap / c.size * 100) }}%</span><span v-else class="muted">—</span></td>
+              <td class="n">{{ c.real ? money(c.real) : '—' }}</td><td><span class="mr-pill" :class="c.coverage >= 70 ? 'ok' : 'bad'">{{ Math.round(c.coverage) }}%{{ c.coverage < 70 ? ' غير موثوقة' : '' }}</span></td></tr>
+              <tr v-if="!det.cycles.length"><td colspan="6" class="muted" style="text-align:center;padding:16px">لا {{ det.pack || 'دورات' }} منتهية بعد. اضغط «انتهت» في المخزون حين تفتح الجديدة.</td></tr></tbody></table></section>
+        <section class="mn-card"><div class="mn-card-h"><b>سعر الشراء</b><span class="muted">لكل {{ det && det.pack ? det.pack : u(sel.uom) }} حسب المورد</span></div>
+          <div v-if="det && !det.error" class="mr-chart">
+            <div v-if="det.buys.length" class="mr-bars"><div v-for="(b, k) in det.buys.slice(-10)" :key="k" :title="b.supplier_name + ' — ' + money(b.per_pack)"><i :class="{alt: suppliers.length > 1 && b.supplier_name !== suppliers[0].name}" :style="{height: (b.per_pack / maxBuy * 100) + '%'}"></i><small>{{ date(b.posting_date) }}</small></div></div>
+            <p v-else class="muted">لا مشتريات مسجّلة.</p>
+            <div v-for="(x, k) in suppliers" :key="x.name" class="mr-sup"><b>{{ x.name }}</b><span>متوسط {{ money(x.avg) }} · آخر {{ money(x.last) }} · {{ x.n }} مرة</span><span v-if="k === 0 && suppliers.length > 1" class="mr-pill ok">الأرخص</span></div></div></section>
+      </div>
+    </template>
+  </div>`,
+};
 const ReportsPage2 = {
-  components: { Icon },
+  components: { Icon, MaterialsReport },
   setup() {
     const period = ref("month"), from = ref(""), to = ref(""), custom = ref(false);
     const { s, load } = useLoad(() => call("reports2", period.value === "custom" ? { period: "custom", start: from.value, end: to.value } : { period: period.value }));
@@ -3499,7 +3555,8 @@ const ReportsPage2 = {
     const kfig = (v) => figN(Math.round((+v || 0) / 1000));
     const sumOf = (l) => (l || []).reduce((x, y) => x + (+y.total || 0), 0);
     const isCur = (iso) => d.value && String(iso).slice(0, 7) === String(d.value.period.to).slice(0, 7);
-    return { figN, ageOpen, kfig, sumOf, isCur, uom, s, load, d, period, from, to, custom, setPeriod, applyCustom, PERIODS, title, cmp, pct, maxM, mlabel, ageTotal, AGES, maxTop, exportCsv, printIt, marginTone, money, fig, date, go };
+    const rtab = ref("general");
+    return { rtab, figN, ageOpen, kfig, sumOf, isCur, uom, s, load, d, period, from, to, custom, setPeriod, applyCustom, PERIODS, title, cmp, pct, maxM, mlabel, ageTotal, AGES, maxTop, exportCsv, printIt, marginTone, money, fig, date, go };
   },
   template: `
   <div class="cl rp">
@@ -3510,10 +3567,12 @@ const ReportsPage2 = {
           <button v-for="p in PERIODS" :key="p[0]" type="button" :aria-pressed="(p[0] === 'custom' ? custom || period === 'custom' : !custom && period === p[0])" @click="setPeriod(p[0])">{{ p[1] }}</button></div>
         <button type="button" class="cl-btn" :disabled="!d" @click="exportCsv"><Icon name="file" :size="16"/>تصدير Excel</button>
         <button type="button" class="cl-btn" :disabled="!d" @click="printIt"><Icon name="printer" :size="16"/>طباعة</button></div>
+        <nav class="mr-tabs" role="tablist"><button type="button" role="tab" :aria-selected="rtab === 'general'" @click="rtab = 'general'">المال والمبيعات</button><button type="button" role="tab" :aria-selected="rtab === 'materials'" @click="rtab = 'materials'">المواد</button></nav>
         <form v-if="custom" class="cl-head-row rp-custom" @submit.prevent="applyCustom"><label class="cl-fgroup"><span>من</span><input type="date" class="input" v-model="from"></label>
           <label class="cl-fgroup"><span>إلى</span><input type="date" class="input" v-model="to"></label><button type="submit" class="cl-btn primary" style="align-self:flex-end" :disabled="!from || !to">عرض</button></form>
       </header>
-      <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
+      <MaterialsReport v-if="rtab === 'materials'" :period="period" :from="from" :to="to"/>
+      <div v-else-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
       <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
       <template v-else-if="d">
         <div class="cl-stats mn-stats rp-stats">
