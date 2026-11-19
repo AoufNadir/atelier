@@ -3115,3 +3115,14 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .lp-pill .lp-dot { width: 12px; height: 12px; }
 .lp-box:disabled { background: #F9FAFB; color: #667085; cursor: not-allowed; }
 .lp-ed { opacity: .55; } .lp-row:hover .lp-ed { opacity: 1; }
+
+/* calm sections: grey sticky band, colour only as a small square; colour in rows means state only */
+.stk-table tr.stk-sec td { position: sticky; top: 0; z-index: 2; background: #F2F4F7; border-top: 1px solid #E4E7EC; border-bottom: 1px solid #E4E7EC; padding: 8px 16px; }
+.stk-table tbody tr.stk-sec:first-child td { padding-top: 8px; }
+.stk-table tr.stk-sec b { font-size: 15px; color: #17202A; }
+.stk-table tr.stk-sec .stk-dot { width: 9px; height: 9px; border-radius: 2px; margin-inline-end: 8px; }
+.stk-table tr.stk-gap td { padding: 6px; border: 0; background: #fff; }
+.stk-table tr.stk-item > td:first-child { box-shadow: none; }
+.stk-table tr.stk-item.low > td:first-child { box-shadow: inset -3px 0 0 #F79009; }
+.stk-table tr.stk-item.sel > td:first-child { box-shadow: inset -3px 0 0 #4F35D2; }
+.stk-tabs .stk-dot { width: 9px; height: 9px; border-radius: 2px; }
