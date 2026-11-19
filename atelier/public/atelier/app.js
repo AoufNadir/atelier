@@ -3305,7 +3305,7 @@ const LIST_DEFS = [
   { key: "due", title: "أزرار موعد التسليم", hint: "تظهر في الطلب الجديد.", cols: [["label", "النص"], ["days", "بعد كم يوم", "number"]], blank: { label: "", days: 1 } },
   { key: "cost_types", title: "أنواع التكلفة", hint: "«مادة» يعني أن تلف المواد يُضاف إلى هذا النوع.", cols: [["label", "النوع"], ["material", "مادة", "check"]], blank: { label: "", material: 0 } },
   { key: "stock_sections", title: "أقسام المخزون", hint: "تبويبات صفحة المخزون. لكل قسم طريقة العدّ التي تبدأ بها المادة الجديدة فيه. مواد القسم المحذوف تذهب إلى القسم الأقرب لطريقة عدّها.",
-    cols: [["name", "القسم"], ["way", "طريقة العدّ", "select", [["count", "بالعدد (ورق، قطع)"], ["roll", "لفّة (م²)"], ["bottle", "قارورة"]]]], blank: { name: "", way: "count" } },
+    cols: [["name", "القسم"], ["way", "طريقة العدّ", "select", [["count", "بالعدد (ورق، قطع)"], ["roll", "لفّة (م²)"], ["bottle", "قارورة"]]], ["color", "اللون", "color"]], blank: { name: "", way: "count", color: "#98A2B3" } },
   { key: "roles", title: "أدوار الفريق", hint: "اقتراحات عند إضافة شخص إلى الفريق.", cols: [["name", "الدور"]], blank: { name: "" } },
 ];
 const ListEditor = {
@@ -3331,6 +3331,7 @@ const ListEditor = {
     <div class="st2-fields"><div v-for="(r, i) in rows" :key="i" class="st2-line">
         <template v-for="c in def.cols" :key="c[0]">
           <label v-if="c[2] === 'check'" class="row" style="gap:4px;white-space:nowrap"><input type="checkbox" :checked="!!r[c[0]]" @change="r[c[0]] = $event.target.checked ? 1 : 0">{{ c[1] }}</label>
+          <input v-else-if="c[2] === 'color'" type="color" class="input lp-color" v-model="r[c[0]]" :aria-label="c[1]">
           <select v-else-if="c[2] === 'select'" class="input" v-model="r[c[0]]" :aria-label="c[1]" :disabled="c[0] === 'scale' && r.calc === 'count'"><option v-for="o in c[3]" :key="o[0]" :value="o[0]">{{ o[1] }}</option></select>
           <input v-else class="input" :type="c[2] === 'number' ? 'number' : 'text'" :min="c[2] === 'number' ? 0 : null" v-model="r[c[0]]" :aria-label="c[1]" :placeholder="c[1]"></template>
         <button type="button" class="cl-btn sm" :disabled="i === 0" :aria-label="'رفع ' + (i + 1)" @click="shift(i, -1)">↑</button>
@@ -4271,7 +4272,55 @@ const CalcPage = {
 
 // stock: three ways a material is used. roll: kept in م², bought by the roll (width × length); bottle: bought and swapped one at a time; count: sheets, pieces (optionally bought by the pack)
 // used until the server sends the workshop's own list (settings → lists → stock sections)
-const STOCK_SECTIONS = [{ name: "الورق", way: "count" }, { name: "الطباعة الكبيرة", way: "roll" }, { name: "الأحبار", way: "bottle" }, { name: "أخرى", way: "count" }];
+const STOCK_SECTIONS = [{ name: "الورق", way: "count", color: "#2E90FA" }, { name: "الطباعة الكبيرة", way: "roll", color: "#F79009" }, { name: "الأحبار", way: "bottle", color: "#9E77ED" }, { name: "أخرى", way: "count", color: "#98A2B3" }];
+const LIST_COLORS = ["#2E90FA", "#F79009", "#9E77ED", "#12B76A", "#F04438", "#EE46BC", "#98A2B3"];
+// a section without a colour gets one from the palette by its place in the list
+const secColor = (list, name) => { const i = list.findIndex((x) => x.name === name); return (list[i] || {}).color || LIST_COLORS[(i < 0 ? 6 : i) % LIST_COLORS.length]; };
+const STOCK_WAY_LABEL = { count: "بالعدد (ورق، قطع)", roll: "لفّة (م²)", bottle: "قارورة" };
+// dropdown of a settings list with search, and (for the manager) add / rename / colour / delete in place
+const SectionPicker = {
+  props: ["modelValue", "list", "emptyLabel"], emits: ["update:modelValue"],
+  setup(props, { emit }) {
+    const open = ref(false), q = ref(""), ed = ref(null), busy = ref(false), root = ref(null);
+    const canEdit = computed(() => state.boot.role === "manager");
+    const shown = computed(() => props.list.filter((x) => x.name.toLowerCase().includes(q.value.trim().toLowerCase())));
+    const exact = computed(() => props.list.some((x) => x.name === q.value.trim()));
+    const color = (n) => secColor(props.list, n);
+    const pick = (n) => { emit("update:modelValue", n); open.value = false; q.value = ""; };
+    const edit = (x) => (ed.value = x ? { old: x.name, name: x.name, way: x.way || "count", color: color(x.name), move: "" } : { old: "", name: q.value.trim(), way: "count", color: LIST_COLORS[props.list.length % LIST_COLORS.length], move: "" });
+    const save = async () => { const e = ed.value; busy.value = true;
+      try { state.boot.lists.stock_sections = await call("save_stock_section", { old: e.old, name: e.name, way: e.way, color: e.color }, true);
+        if (!e.old || props.modelValue === e.old) emit("update:modelValue", e.name); ed.value = null; q.value = ""; toast("حُفظ القسم"); state.rev = (state.rev || 0) + 1; }
+      catch (err) { toast(err.message, "error"); } finally { busy.value = false; } };
+    const del = async () => { const e = ed.value; if (!confirm(`حذف قسم «${e.old}»؟`)) return; busy.value = true;
+      try { state.boot.lists.stock_sections = await call("delete_stock_section", { name: e.old, move_to: e.move }, true);
+        if (props.modelValue === e.old) emit("update:modelValue", e.move); ed.value = null; toast("حُذف القسم"); state.rev = (state.rev || 0) + 1; }
+      catch (err) { toast(err.message, "error"); } finally { busy.value = false; } };
+    const away = (ev) => { if (root.value && !root.value.contains(ev.target)) { open.value = false; ed.value = null; } };
+    onMounted(() => document.addEventListener("mousedown", away)); onBeforeUnmount(() => document.removeEventListener("mousedown", away));
+    return { open, q, ed, busy, root, canEdit, shown, exact, color, pick, edit, save, del, LIST_COLORS, STOCK_WAY_LABEL };
+  },
+  template: `
+  <div ref="root" class="lp">
+    <button type="button" class="input lp-box" :aria-expanded="open" @click="open = !open; ed = null"><i v-if="modelValue" class="lp-dot" :style="{background: color(modelValue)}"></i><span>{{ modelValue || emptyLabel }}</span><span class="lp-car" aria-hidden="true">▾</span></button>
+    <div v-if="open && !ed" class="lp-pop">
+      <div class="lp-s"><input class="input" v-model="q" placeholder="ابحث أو اكتب اسمًا جديدًا" aria-label="بحث" @keydown.enter.prevent="shown.length === 1 ? pick(shown[0].name) : (canEdit && q.trim() && !exact ? edit(null) : null)"></div>
+      <div v-if="emptyLabel && !q" class="lp-row" :class="{on: !modelValue}"><span class="lp-ck">{{ !modelValue ? '✓' : '' }}</span><button type="button" class="lp-pill lp-none" @click="pick('')">{{ emptyLabel }}</button></div>
+      <div v-for="x in shown" :key="x.name" class="lp-row" :class="{on: modelValue === x.name}"><span class="lp-ck">{{ modelValue === x.name ? '✓' : '' }}</span>
+        <button type="button" class="lp-pill" :style="{background: color(x.name) + '1F', color: color(x.name)}" @click="pick(x.name)">{{ x.name }}</button>
+        <button v-if="canEdit" type="button" class="lp-ed" :aria-label="'تعديل ' + x.name" @click="edit(x)">✎</button></div>
+      <p v-if="!shown.length" class="lp-h">لا قسم بهذا الاسم</p>
+      <button v-if="canEdit" type="button" class="lp-new" :class="{hot: q.trim() && !exact}" @click="edit(null)">{{ q.trim() && !exact ? '+ إنشاء «' + q.trim() + '»' : '+ قسم جديد' }}</button>
+      <p class="lp-ft">نفس القائمة في الإعدادات ← القوائم ← أقسام المخزون</p></div>
+    <form v-if="open && ed" class="lp-pop lp-edit" @submit.prevent="save">
+      <b class="lp-t">{{ ed.old ? 'تعديل القسم' : 'قسم جديد' }}</b>
+      <input class="input" v-model="ed.name" aria-label="اسم القسم" placeholder="اسم القسم">
+      <div class="lp-sw" role="group" aria-label="اللون"><button v-for="c in LIST_COLORS" :key="c" type="button" :aria-pressed="ed.color === c" :aria-label="c" :style="{background: c}" @click="ed.color = c"></button></div>
+      <label class="lp-f"><span>طريقة العدّ للمادة الجديدة فيه</span><select class="input" v-model="ed.way"><option v-for="(l, k) in STOCK_WAY_LABEL" :key="k" :value="k">{{ l }}</option></select></label>
+      <div v-if="ed.old" class="lp-warn">عند الحذف تُنقل موادّه إلى <select v-model="ed.move" aria-label="تُنقل إلى"><option value="">القسم التلقائي حسب النوع</option><option v-for="x in list.filter((y) => y.name !== ed.old)" :key="x.name" :value="x.name">{{ x.name }}</option></select></div>
+      <div class="btn-row lp-btns"><button v-if="ed.old" type="button" class="cl-btn sm lp-del" :disabled="busy" @click="del">حذف</button><span class="spacer"></span><button type="button" class="cl-btn sm" @click="ed = null">رجوع</button><button type="submit" class="cl-btn sm primary" :disabled="busy || !ed.name.trim()">حفظ</button></div></form>
+  </div>`,
+};
 const STOCK_WAYS = { roll: { label: "لفّة", hint: "باش، فينيل، One Way" }, bottle: { label: "قارورة / علبة", hint: "حبر، غراء" }, count: { label: "بالعدد", hint: "ورق، هياكل، عيون" } };
 const COUNT_UNITS = ["ورقة", "قطعة", "علبة", "متر طولي", "لتر"];
 // suggestions only: any other value can be typed, and values already used come back as suggestions
@@ -4281,10 +4330,10 @@ const PAPER_SIZES = ["A4", "A3", "A3+", "SRA3", "32×45", "50×70", "70×100"];
 const wayOf = (i) => (STOCK_WAYS[i?.family] ? i.family : /م²|m²|m2/.test(i?.uom || "") ? "roll" : "count");
 const rollLen = (i) => (i.cfg?.width > 0 ? i.qty / i.cfg.width : null);
 const StockPage = {
-  components: { Icon, SizeControl },
+  components: { Icon, SizeControl, SectionPicker },
   setup() {
     const { s, load } = useLoad(() => call("stock"));
-    onMounted(load);
+    onMounted(load); watch(() => state.rev, load);
     const busy = ref(false), err = ref(null), q = ref(""), sheet = ref(null), orders = ref([]);
     const onlyLow = ref(false), rowMenu = ref(null);
     let saved = "all"; try { saved = localStorage.getItem("nasaq.stock.tab") || "all"; } catch {}
@@ -4300,6 +4349,7 @@ const StockPage = {
     watch(sections, (l) => { if (way.value !== "all" && !l.some((x) => x.name === way.value)) way.value = "all"; }, { immediate: true });
     const items = computed(() => (s.data?.items || []).filter((i) => i.item_name.toLowerCase().includes(q.value.trim().toLowerCase()) && (!onlyLow.value || i.low) && (way.value === "all" || secOf(i) === way.value)));
     const secItems = (n) => (s.data?.items || []).filter((i) => secOf(i) === n);
+    const sColor = (n) => secColor(sections.value, n);
     const secValue = (n) => secItems(n).reduce((a, i) => a + (+i.value || 0), 0);
     const folded = reactive({});
     const groups = computed(() => (way.value === "all" ? sections.value.map((x) => ({ name: x.name, head: true, items: items.value.filter((i) => secOf(i) === x.name) }))
@@ -4470,7 +4520,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { sections, secOf, secValue, groups, folded, tabWay, state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { sColor, sections, secOf, secValue, groups, folded, tabWay, state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -4479,13 +4529,13 @@ const StockPage = {
     <div v-if="s.error" class="alert error" style="margin:0 28px 12px">{{ s.error }}</div>
     <div v-if="s.data" class="stock-body stk">
       <div class="stk-tabs" role="tablist" aria-label="أقسام المخزون"><button type="button" role="tab" :aria-selected="way === 'all'" @click="way = 'all'">الكل <small>{{ s.data.items.length }}<template v-if="s.data.can_value"> · {{ money(totalValue) }}</template></small></button>
-        <button v-for="x in sections" :key="x.name" type="button" role="tab" :aria-selected="way === x.name" @click="way = x.name">{{ x.name }} <small>{{ wayCount(x.name) }}<template v-if="s.data.can_value && way === x.name"> · {{ money(secValue(x.name)) }}</template></small></button>
+        <button v-for="x in sections" :key="x.name" type="button" role="tab" :aria-selected="way === x.name" @click="way = x.name"><i class="stk-dot" :style="{background: sColor(x.name)}" aria-hidden="true"></i>{{ x.name }} <small>{{ wayCount(x.name) }}<template v-if="s.data.can_value && way === x.name"> · {{ money(secValue(x.name)) }}</template></small></button>
         <span class="spacer"></span><button v-if="low.length" type="button" class="bd-chip debt" :aria-pressed="onlyLow" @click="onlyLow = !onlyLow">ينقص قريبًا <span class="cl-quick-n">{{ low.length }}</span></button></div>
       <div class="stk-grid" :class="{open: selItem}">
       <section class="mn-card stk-card"><table class="cl-table stk-table"><thead><tr><th>{{ tabWay === 'bottle' ? 'اللون' : tabWay === 'roll' ? 'اللفّة' : tabWay === 'count' && way === sections[0].name ? 'الورق' : 'المادة' }}</th><th>المتوفر</th><th class="n">الحد الأدنى</th><th v-if="s.data.can_value" class="n">القيمة</th><th class="n"><span class="sr-only">إجراء</span></th></tr></thead>
-        <tbody><template v-for="g in groups" :key="g.name"><tr v-if="g.head" class="stk-sec" tabindex="0" :aria-expanded="!folded[g.name]" @click="folded[g.name] = !folded[g.name]" @keydown.enter="folded[g.name] = !folded[g.name]">
-          <td :colspan="s.data.can_value ? 5 : 4"><span class="stk-tw" aria-hidden="true">{{ folded[g.name] ? '◂' : '▾' }}</span><b>{{ g.name }}</b><span class="m">{{ g.items.length }} {{ g.items.length === 1 ? 'مادة' : 'مواد' }}<template v-if="s.data.can_value"> · {{ money(g.items.reduce((a, i) => a + (+i.value || 0), 0)) }}</template></span><span v-if="g.items.some((i) => i.low)" class="stk-sec-low">· {{ g.items.filter((i) => i.low).length }} تحت الحد الأدنى</span></td></tr>
-          <template v-if="!folded[g.name]"><tr v-for="i in g.items" :key="i.item_code" :class="{low: i.low, sel: sel === i.item_code}" class="stk-row" tabindex="0" @click="pick(i)" @keydown.enter="pick(i)">
+        <tbody><template v-for="g in groups" :key="g.name"><tr v-if="g.head" class="stk-sec" :style="{'--sc': sColor(g.name)}" tabindex="0" :aria-expanded="!folded[g.name]" @click="folded[g.name] = !folded[g.name]" @keydown.enter="folded[g.name] = !folded[g.name]">
+          <td :colspan="s.data.can_value ? 5 : 4"><span class="stk-tw" aria-hidden="true">{{ folded[g.name] ? '◂' : '▾' }}</span><i class="stk-secbar" aria-hidden="true"></i><b>{{ g.name }}</b><span class="m">{{ g.items.length }} {{ g.items.length === 1 ? 'مادة' : 'مواد' }}<template v-if="s.data.can_value"> · {{ money(g.items.reduce((a, i) => a + (+i.value || 0), 0)) }}</template></span><span v-if="g.items.some((i) => i.low)" class="stk-sec-low">· {{ g.items.filter((i) => i.low).length }} تحت الحد الأدنى</span></td></tr>
+          <template v-if="!folded[g.name]"><tr v-for="i in g.items" :key="i.item_code" :class="{low: i.low, sel: sel === i.item_code}" :style="{'--sc': sColor(secOf(i))}" class="stk-row stk-item" tabindex="0" @click="pick(i)" @keydown.enter="pick(i)">
           <td><b><i v-if="i.cfg && i.cfg.color" class="stk-ink" :style="{background: i.cfg.color}"></i>{{ i.item_name }}<span class="stk-how">{{ STOCK_WAYS[wayOf(i)].label }}</span></b><span class="m stk-sub">{{ subOf(i) }}</span></td>
           <td><div class="stk-lvl"><span v-if="canOpen(i)" class="stk-packs" :class="tone(i)" aria-hidden="true"><i v-for="k in Math.min(6, closedOf(i))" :key="k" class="pk"></i><b v-if="closedOf(i) > 6" class="m">+{{ closedOf(i) - 6 }}</b><i class="pk open"><u :style="{height: openPct(i) + '%'}"></u></i></span>
             <span v-else-if="wayOf(i) === 'bottle'" class="stk-packs" :class="tone(i)" aria-hidden="true"><i v-for="k in Math.min(6, Math.floor(i.qty))" :key="k" class="pk"></i><b v-if="i.qty > 6" class="m">+{{ Math.floor(i.qty) - 6 }}</b><i v-if="!(i.qty >= 1)" class="pk open"></i></span>
@@ -4565,7 +4615,7 @@ const StockPage = {
       <div v-if="err" class="alert error">{{ err }}</div>
       <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'">
         <div class="cal2-seg stk-wayseg" role="group" aria-label="نوع المادة"><button v-for="(w, k) in STOCK_WAYS" :key="k" type="button" :aria-pressed="sheet.way === k" :disabled="sheet.kind === 'edit' && sheet.item.has_moves && sheet.way !== k" @click="sheet.way = k">{{ k === 'roll' ? 'لفّة' : k === 'bottle' ? 'قارورة حبر' : 'ورق / قطع' }}</button></div>
-        <div class="field"><label for="st-sec">القسم</label><select id="st-sec" class="input" v-model="sheet.section"><option value="">تلقائي حسب النوع</option><option v-for="x in sections" :key="x.name" :value="x.name">{{ x.name }}</option></select></div>
+        <div class="field"><label>القسم</label><SectionPicker v-model="sheet.section" :list="sections" empty-label="تلقائي حسب النوع"/></div>
         <template v-if="sheet.way === 'count'"><div class="stk-row3"><div class="field"><label for="st-k">النوع</label><input id="st-k" class="input" list="stk-kinds" v-model="sheet.ptype" placeholder="كوشيه"></div>
           <div class="field"><label for="st-g">الوزن غ</label><input id="st-g" class="input" inputmode="decimal" v-model="sheet.gsm" placeholder="135"></div>
           <div class="field"><label for="st-sz">المقاس</label><input id="st-sz" class="input" list="stk-sizes" v-model="sheet.size" placeholder="A3"></div></div>

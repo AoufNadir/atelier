@@ -4,6 +4,7 @@ Every screen still writes real ERPNext documents (Sales Order, Delivery Note, Sa
 but the person using it never handles them: moving a card to «سُلّم» delivers and invoices in one step.
 """
 
+import re
 import json
 
 import frappe
@@ -2243,8 +2244,8 @@ DEFAULT_LISTS = {
 	"due": [{"label": "اليوم", "days": 0}, {"label": "غدًا", "days": 1}, {"label": "بعد 3 أيام", "days": 3}, {"label": "بعد أسبوع", "days": 7}],
 	"categories": [{"name": n} for n in ("طباعة رقمية", "أوفست", "لافتات", "ملصقات", "تصميم", "تركيب", "منتجات")],
 	# stock page sections; each has the counting way a new material in it starts with
-	"stock_sections": [{"name": "الورق", "way": "count"}, {"name": "الطباعة الكبيرة", "way": "roll"},
-		{"name": "الأحبار", "way": "bottle"}, {"name": "أخرى", "way": "count"}],
+	"stock_sections": [{"name": "الورق", "way": "count", "color": "#2E90FA"}, {"name": "الطباعة الكبيرة", "way": "roll", "color": "#F79009"},
+		{"name": "الأحبار", "way": "bottle", "color": "#9E77ED"}, {"name": "أخرى", "way": "count", "color": "#98A2B3"}],
 }
 
 
@@ -2257,6 +2258,50 @@ def custom_list(key):
 
 def lists():
 	return {key: custom_list(key) for key in DEFAULT_LISTS}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_stock_section(old, name, way="count", color=""):
+	"""Add or edit one stock section from the picker; a rename carries the materials that were in it."""
+	_manager_only()
+	name = (name or "").strip()[:60]
+	if not name:
+		frappe.throw(_("اكتب اسم القسم"))
+	rows = [dict(x) for x in custom_list("stock_sections")]
+	if any(x["name"] == name for x in rows) and name != old:
+		frappe.throw(_("يوجد قسم بهذا الاسم"))
+	row = {"name": name, "way": way, "color": color}
+	i = next((k for k, x in enumerate(rows) if x["name"] == old), None) if old else None
+	if i is None:
+		rows.append(row)
+	else:
+		rows[i] = row
+	out = save_list("stock_sections", json.dumps(rows, ensure_ascii=False))
+	if old and old != name:
+		_move_section(old, name)
+	return out
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_stock_section(name, move_to=""):
+	_manager_only()
+	rows = [x for x in custom_list("stock_sections") if x["name"] != name]
+	out = save_list("stock_sections", json.dumps(rows, ensure_ascii=False))
+	_move_section(name, move_to if any(x["name"] == move_to for x in out) else "")
+	return out
+
+
+def _move_section(old, new):
+	from atelier.materials import _has, material_cfg
+
+	if not _has("atelier_packs"):
+		return
+	for it in frappe.get_all("Item", filters={"atelier_packs": ["like", "%section%"]}, fields=["name", "atelier_packs"]):
+		c = material_cfg(it.atelier_packs)
+		if c.get("section") == old:
+			raw = json.loads(it.atelier_packs or "{}")
+			raw["section"] = new
+			frappe.db.set_value("Item", it.name, "atelier_packs", json.dumps(raw, ensure_ascii=False), update_modified=False)
 
 
 def material_cost_types():
@@ -2287,6 +2332,8 @@ def save_list(key, rows):
 			clean["days"] = max(0, cint(row.get("days")))
 		elif key == "stock_sections":
 			clean["way"] = row.get("way") if row.get("way") in ("roll", "bottle", "count") else "count"
+			c = str(row.get("color") or "")
+			clean["color"] = c if re.fullmatch(r"#[0-9A-Fa-f]{6}", c) else ""
 		out.append(clean)
 	if not out:
 		frappe.throw(_("أبقِ عنصرًا واحدًا على الأقل"))
