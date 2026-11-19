@@ -547,6 +547,80 @@ const PaymentSheet = {
 // ------------------------------------------------------------------ reports
 
 // ------------------------------------------------------------------ services & prices
+// services & prices: list grouped by work category + side panel (cost from the recipe, margin, minimum price, sales)
+const ServicesPage = {
+  components: { Icon },
+  setup() {
+    const { s, load } = useLoad(() => call("services_overview"));
+    onMounted(load); watch(() => state.rev, load);
+    const q = ref(""), chip = ref("all"), sel = ref(null), busy = ref(null);
+    const target = ref(null);
+    watch(() => s.data, (d) => { if (d) { target.value = d.target; if (!d.items.some((i) => i.item_code === sel.value)) sel.value = d.items[0]?.item_code || null; } }, { immediate: true });
+    const priceOf = (i) => (i.price_company ?? i.price_individual);
+    const under = (i) => i.margin !== null && i.margin < (s.data?.target || 30);
+    const CHIPS = [["all", "الكل", () => true], ["under", "تحت الهدف", under], ["norecipe", "بلا وصفة", (i) => i.cost === null && !i.is_stock_item], ["noprice", "بلا سعر", (i) => priceOf(i) == null]];
+    const count = (k) => (s.data?.items || []).filter(CHIPS.find((c) => c[0] === k)[2]).length;
+    const items = computed(() => { const f = CHIPS.find((c) => c[0] === chip.value)[2], t = q.value.trim().toLowerCase();
+      return (s.data?.items || []).filter((i) => f(i) && (!t || i.item_name.toLowerCase().includes(t))); });
+    const groups = computed(() => { const m = new Map(); for (const i of items.value) { const k = i.atelier_category || "بلا تصنيف"; if (!m.has(k)) m.set(k, []); m.get(k).push(i); }
+      const order = (state.boot.lists?.categories || []).map((c) => c.name); return [...m.entries()].sort((a, b) => (order.indexOf(a[0]) + 1 || 999) - (order.indexOf(b[0]) + 1 || 999)); });
+    const cur = computed(() => (s.data?.items || []).find((i) => i.item_code === sel.value) || null);
+    const tone = (i) => (i.margin === null ? "na" : i.margin < 0 ? "bad" : i.margin < (s.data?.target || 30) ? "w" : "ok");
+    const mgText = (i) => (i.margin !== null ? Math.round(i.margin) + "%" : i.is_stock_item ? "مادة" : i.cost === null ? "بلا وصفة" : "—");
+    const setPrice = async (i, kind, v) => { const key = kind === "Company" ? "price_company" : "price_individual"; const val = String(v).trim() === "" ? "" : +String(v).replace(/[\s,]/g, "");
+      if (val !== "" && (Number.isNaN(val) || val < 0)) return toast("سعر غير صحيح", "error"); if ((val === "" ? null : val) === i[key]) return;
+      busy.value = i.item_code + kind; try { i[key] = await call("set_price", { item_code: i.item_code, kind, rate: val }, true); toast("حُفظ السعر"); await load(); }
+      catch (e) { toast(e.message, "error"); } finally { busy.value = null; } };
+    const saveTarget = async () => { try { await call("set_target_margin", { value: target.value }, true); toast("حُفظ الهامش المستهدف"); await load(); } catch (e) { toast(e.message, "error"); } };
+    const monthName = (ym) => new Intl.DateTimeFormat("ar", { month: "long" }).format(new Date(ym + "-01T00:00:00"));
+    const maxMonth = computed(() => Math.max(1, ...(cur.value?.months || [0])));
+    const onKeys = (e) => { if (!["ArrowDown", "ArrowUp"].includes(e.key) || ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
+      const l = groups.value.flatMap((g) => g[1]); const k = l.findIndex((i) => i.item_code === sel.value); const n = l[k + (e.key === "ArrowDown" ? 1 : -1)]; if (n) { sel.value = n.item_code; e.preventDefault(); } };
+    onMounted(() => document.addEventListener("keydown", onKeys)); onBeforeUnmount(() => document.removeEventListener("keydown", onKeys));
+    return { s, load, q, chip, sel, busy, target, CHIPS, count, groups, cur, tone, mgText, setPrice, saveTarget, monthName, maxMonth, priceOf, money, num, uom, state, go };
+  },
+  template: `
+  <div class="page sv">
+    <div class="stk-head"><h1>الخدمات والأسعار</h1><span class="spacer"></span><input class="input stk-q" v-model="q" placeholder="ابحث عن خدمة" aria-label="بحث في الخدمات">
+      <button v-if="s.data && s.data.can_edit" type="button" class="cl-btn primary" @click="state.sheet = {type: 'item'}"><Icon name="plus" :size="16"/>خدمة</button></div>
+    <div v-if="s.error" class="alert error" style="margin:0 28px">{{ s.error }}</div>
+    <div v-if="s.data" class="sv-body">
+      <div class="sv-bar"><button v-for="c in CHIPS" :key="c[0]" type="button" class="bd-chip" :class="{debt: c[0] === 'under' && count('under')}" :aria-pressed="chip === c[0]" @click="chip = c[0]">{{ c[1] }} <span class="cl-quick-n">{{ count(c[0]) }}</span></button>
+        <label v-if="s.data.can_edit" class="sv-tgt">هامش الربح المستهدف<span class="stk-suf"><input class="input" inputmode="decimal" v-model="target" @change="saveTarget" aria-label="الهامش المستهدف"><em>%</em></span></label></div>
+      <div class="sv-grid">
+        <section class="mn-card sv-card"><table class="cl-table sv-table"><thead><tr><th>الخدمة</th><th class="n">سعر الأفراد</th><th class="n">سعر المؤسسات</th><th class="n">التكلفة</th><th class="n">الهامش</th><th class="n">مبيعات 3 أشهر</th></tr></thead>
+          <tbody><template v-for="(g, gi) in groups" :key="g[0]"><tr v-if="gi > 0" class="stk-gap" aria-hidden="true"><td colspan="6"></td></tr>
+            <tr class="sv-sec"><td colspan="6"><b>{{ g[0] }}</b><span class="m">{{ g[1].length }} {{ g[1].length === 1 ? 'خدمة' : 'خدمات' }}</span></td></tr>
+            <tr v-for="i in g[1]" :key="i.item_code" class="sv-row" :class="{sel: sel === i.item_code}" tabindex="0" @click="sel = i.item_code" @keydown.enter="sel = i.item_code">
+              <td><b class="sv-nm">{{ i.item_name }}</b><span class="m sv-sub">{{ uom(i.stock_uom) }} · {{ i.parts.length ? 'وصفة: ' + i.parts.filter(p => !p.estimate).map(p => p.label).join(' + ') : i.is_stock_item ? 'مادة من المخزون' : 'بلا وصفة' }}</span></td>
+              <td class="n" @click.stop><input v-if="s.data.can_edit" class="input sv-price" inputmode="decimal" :value="i.price_individual ?? ''" :disabled="busy === i.item_code + 'Individual'" placeholder="—" :aria-label="'سعر الأفراد ' + i.item_name" @change="setPrice(i, 'Individual', $event.target.value)"><span v-else>{{ i.price_individual != null ? money(i.price_individual) : '—' }}</span></td>
+              <td class="n" @click.stop><input v-if="s.data.can_edit" class="input sv-price" inputmode="decimal" :value="i.price_company ?? ''" :disabled="busy === i.item_code + 'Company'" placeholder="—" :aria-label="'سعر المؤسسات ' + i.item_name" @change="setPrice(i, 'Company', $event.target.value)"><span v-else>{{ i.price_company != null ? money(i.price_company) : '—' }}</span></td>
+              <td class="n">{{ i.cost !== null ? money(i.cost) : '—' }}</td>
+              <td class="n"><span class="sv-mg" :class="tone(i)">{{ mgText(i) }}</span></td>
+              <td class="n"><template v-if="i.sales">{{ i.sales.orders }} {{ i.sales.orders === 1 ? 'طلب' : 'طلبات' }} · <span class="money">{{ money(i.sales.amount) }}</span></template><span v-else class="m">—</span></td></tr>
+          </template>
+          <tr v-if="!groups.length"><td colspan="6" class="muted" style="text-align:center;padding:24px">{{ s.data.items.length ? 'لا خدمات تطابق.' : 'لا خدمات بعد.' }}</td></tr></tbody></table></section>
+        <aside v-if="cur" class="mn-card sv-side">
+          <div class="sv-sh"><h2>{{ cur.item_name }}</h2><span class="m">{{ cur.atelier_category || 'بلا تصنيف' }} · يُباع بـ{{ uom(cur.stock_uom) }}</span></div>
+          <div class="sv-facts"><div><span>سعر الأفراد</span><b>{{ cur.price_individual != null ? money(cur.price_individual) : '—' }}</b></div><div><span>سعر المؤسسات</span><b>{{ cur.price_company != null ? money(cur.price_company) : '—' }}</b></div>
+            <div><span>التكلفة / {{ uom(cur.stock_uom) }}</span><b>{{ cur.cost !== null ? money(cur.cost) : '—' }}</b></div><div><span>الهامش {{ cur.price_company != null ? '(مؤسسات)' : '(أفراد)' }}</span><b class="sv-mgt" :class="tone(cur)">{{ cur.margin !== null ? Math.round(cur.margin) + '%' : '—' }}</b></div></div>
+          <div class="sv-sec2"><h3>من أين تأتي التكلفة<a href="/atelier/calc" @click.prevent="go('/calc')">{{ cur.parts.length ? 'تعديل الوصفة' : 'أضف وصفة' }}</a></h3>
+            <template v-if="cur.parts.length"><div v-for="(p, k) in cur.parts" :key="k" class="sv-r"><span>{{ p.label }} — {{ num(+p.qty.toFixed(3)) }} {{ uom(p.uom) }} × {{ num(+p.unit.toFixed(2)) }}<em v-if="p.real"> (حقيقية)</em></span><span>{{ money(p.amount) }}</span></div>
+              <div class="sv-r t"><span>التكلفة لكل {{ uom(cur.stock_uom) }}</span><span>{{ money(cur.cost) }}</span></div>
+              <div v-if="cur.min_price && priceOf(cur) != null && priceOf(cur) < cur.min_price" class="sv-hint">بهامش {{ num(s.data.target) }}% لا تبع بأقل من <b>{{ money(cur.min_price) }}</b>. السعر الآن أقل بـ {{ money(cur.min_price - priceOf(cur)) }}.</div>
+              <div v-else-if="cur.min_price" class="sv-ok">أدنى سعر بهامش {{ num(s.data.target) }}%: {{ money(cur.min_price) }}</div></template>
+            <p v-else class="m" style="margin:0">{{ cur.is_stock_item ? 'تُباع كمادة: تكلفتها سعر شرائها.' : 'لا وصفة لهذه الخدمة، فلا نعرف تكلفتها. أضف المواد التي تستهلكها لكل وحدة.' }}</p></div>
+          <div class="sv-sec2"><h3>المبيعات (آخر 6 أشهر)</h3>
+            <div class="sv-spark"><div v-for="(v, k) in cur.months" :key="k" class="sv-col"><i :class="{cur: k === cur.months.length - 1}" :style="{height: Math.max(3, v / maxMonth * 100) + '%'}" :title="money(v)"></i><span>{{ monthName(s.data.months[k]) }}</span></div></div>
+            <div v-if="cur.sales" class="sv-r"><span>بيع فعلًا بمتوسط (3 أشهر)</span><b>{{ money(cur.sales.avg) }}</b></div>
+            <div v-if="cur.top" class="sv-r"><span>أكثر عميل</span><span>{{ cur.top.customer }} · {{ cur.top.orders }} {{ cur.top.orders === 1 ? 'طلب' : 'طلبات' }}</span></div>
+            <p v-if="!cur.sales && !cur.top" class="m" style="margin:0">لم تُبع في هذه الفترة.</p></div>
+          <div v-if="s.data.can_edit && cur.min_price && priceOf(cur) != null && priceOf(cur) < cur.min_price" class="btn-row sv-acts"><button v-if="cur.min_price && priceOf(cur) != null && priceOf(cur) < cur.min_price" type="button" class="cl-btn primary" @click="setPrice(cur, cur.price_company != null ? 'Company' : 'Individual', Math.ceil(cur.min_price))">استعمل {{ num(Math.ceil(cur.min_price)) }}</button></div>
+        </aside>
+      </div>
+    </div>
+  </div>`,
+};
 const PricesPage = {
   props: ["embedded"], components: { Icon, LoadState, DataTable, get RecipesCard() { return RecipesCard; }, get ListPicker() { return ListPicker; } },
   setup() {
@@ -4704,7 +4778,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -4744,7 +4818,7 @@ const App = {
       <a v-for="n in NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+(n.path==='/'?'':n.path)" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span><span v-if="n.key==='orders' && state.openOrders" class="nav-n">{{ state.openOrders }}</span></a>
       <div v-if="state.boot.can.finance" class="group">{{ t('nav_group_admin') }}</div>
-      <a v-for="n in SECTION_NAV.filter(n => !['machines', 'prices', 'team'].includes(n.key) && (!n.need || state.boot.can[n.need]))" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
+      <a v-for="n in SECTION_NAV.filter(n => !['machines', 'team'].includes(n.key) && (!n.need || state.boot.can[n.need]))" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
       <a v-if="state.boot.can.prices" class="nav" :class="{active: route.name==='settings'}" href="/atelier/settings" @click.prevent="go('/settings')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
@@ -4755,7 +4829,7 @@ const App = {
     <div class="main">
       <div v-if="state.boot.is_demo && route.name!=='home'" class="demo-banner" role="note"><Icon name="alert" :size="15"/>{{ t('demo_banner') }}</div>
       <div v-if="!state.online" class="alert warn" role="status" style="border-radius:0"><Icon name="wifi" :size="16"/>{{ t('offline') }}</div>
-      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'suppliers', 'supplier', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports', 'calc', 'stock', 'box'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
+      <header class="topbar" :class="{'own-header': ['customers', 'customer', 'suppliers', 'supplier', 'settings', 'money', 'home', 'orders', 'order-new', 'order', 'reports', 'calc', 'stock', 'box', 'prices'].includes(route.name), 'no-bar': ['home', 'orders', 'order-new', 'order'].includes(route.name)}">
         <button type="button" v-if="route.name!=='home'" class="btn ghost icon-btn mobile-only" :aria-label="t('back')" @click="back"><Icon name="back"/></button>
         <span v-if="route.name!=='home'" class="title mobile-only ellipsis">{{ t(titles[route.name] || 'app_name') }}</span>
         <nav class="crumbs desktop-only" aria-label="المسار"><span class="crumb-root">{{ t('crumb_root') }}</span><Icon name="chev" :size="14"/><span>{{ route.name==='home' ? t('crumb_today') : t(titles[route.name] || 'app_name') }}</span></nav>
@@ -4774,7 +4848,7 @@ const App = {
         <StockPage v-else-if="route.name==='stock'"/>
         <CalcPage v-else-if="route.name==='calc'"/>
         <ReportsPage2 v-else-if="route.name==='reports'"/>
-        <SettingsPage v-else-if="route.name==='prices'" key="prices" start="prices"/>
+        <ServicesPage v-else-if="route.name==='prices'"/>
         <SettingsPage v-else-if="route.name==='team'" key="team" start="team"/>
         <BoardSettings v-else-if="route.name==='board-settings'"/>
         <SettingsPage v-else-if="route.name==='settings'" :key="state.query.get('tab') || ''"/>

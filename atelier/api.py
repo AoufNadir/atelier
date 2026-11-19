@@ -1304,3 +1304,4 @@ from atelier.simple import owner_move  # noqa: E402, F401
 from atelier.simple import save_stock_section, delete_stock_section  # noqa: E402, F401
 from atelier.simple import save_list_item, delete_list_item  # noqa: E402, F401
 from atelier.simple import save_board_tag, delete_board_tag  # noqa: E402, F401
+from atelier.materials import services_overview  # noqa: E402, F401

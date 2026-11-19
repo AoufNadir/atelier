@@ -866,3 +866,70 @@ def purchase_bill(supplier, lines, bill_no=None, posting_date=None, paid=None, m
 
 		payment = pay_supplier(inv.name, mode or "Cash", min(pay, flt(inv.grand_total)))
 	return {"invoice": inv.name, "total": flt(inv.grand_total), "paid": min(pay, flt(inv.grand_total)), "owed": round(max(0, flt(inv.grand_total) - pay), 2), "payment": payment}
+
+
+@frappe.whitelist()
+def services_overview():
+	"""Each sales service: prices, cost per unit from its recipe (real unit cost when known), margin, and its sales."""
+	from frappe.utils import add_months, get_first_day, nowdate
+
+	from atelier.api import PRICE_LISTS, _with_prices
+
+	api._require("Item Price")
+	info = pricing_info()
+	target = info["target"]
+	items = frappe.get_list("Item", filters={"disabled": 0, "is_sales_item": 1, "name": ["!=", "SRV-GENERAL"]},
+		fields=["item_code", "item_name", "stock_uom", "atelier_category", "is_stock_item", "atelier_recipe"], order_by="item_name asc", limit=1000)
+	_with_prices(items)
+	mats = {}
+	for r in frappe.db.sql("""select it.name, it.item_name, it.stock_uom, it.valuation_rate, sum(b.stock_value), sum(b.actual_qty)
+		from `tabItem` it left join `tabBin` b on b.item_code=it.name where it.is_stock_item=1 group by it.name""", as_list=True):
+		buy = flt(r[4]) / flt(r[5]) if flt(r[5]) > 0 else flt(r[3])
+		mats[r[0]] = {"name": r[1], "uom": r[2], "buy": buy, "real": info["real"].get(r[0])}
+	since3 = add_months(nowdate(), -3)
+	since6 = get_first_day(add_months(nowdate(), -5))
+	sales = {}
+	for code, n, qty, amount in frappe.db.sql("""select soi.item_code, count(distinct so.name), sum(soi.qty), sum(soi.net_amount)
+		from `tabSales Order Item` soi join `tabSales Order` so on so.name=soi.parent
+		where so.docstatus=1 and so.transaction_date>=%s group by soi.item_code""", since3):
+		sales[code] = {"orders": cint(n), "qty": flt(qty), "amount": flt(amount), "avg": flt(amount) / flt(qty) if flt(qty) else 0}
+	months = {}
+	for code, ym, amount in frappe.db.sql("""select soi.item_code, date_format(so.transaction_date, '%%Y-%%m'), sum(soi.net_amount)
+		from `tabSales Order Item` soi join `tabSales Order` so on so.name=soi.parent
+		where so.docstatus=1 and so.transaction_date>=%s group by soi.item_code, 2""", since6):
+		months.setdefault(code, {})[ym] = flt(amount)
+	top = {}
+	for code, cust, n in frappe.db.sql("""select soi.item_code, so.customer_name, count(distinct so.name) c
+		from `tabSales Order Item` soi join `tabSales Order` so on so.name=soi.parent
+		where so.docstatus=1 and so.transaction_date>=%s group by soi.item_code, so.customer_name order by c desc""", since6):
+		top.setdefault(code, {"customer": cust, "orders": cint(n)})
+	keys = [str(add_months(since6, k))[:7] for k in range(6)]
+	from atelier.simple import units
+
+	area = {u["name"] for u in units() if u.get("calc") == "area"}
+	out = []
+	for i in items:
+		try:
+			recipe = json.loads(i.pop("atelier_recipe") or "[]")
+		except ValueError:
+			recipe = []
+		parts, cost = [], None
+		if recipe:
+			cost = 0
+			for r in recipe:
+				m = mats.get(r.get("item_code"))
+				if not m:
+					continue
+				unit = m["real"] or m["buy"]
+				line = flt(r.get("qty")) * unit
+				cost += line
+				parts.append({"label": m["name"], "qty": flt(r.get("qty")), "uom": m["uom"], "unit": unit, "real": bool(m["real"]), "amount": line})
+			if i.stock_uom in area and info["ink_per_m2"]:
+				parts.append({"label": _("حبر (تقدير)"), "qty": 1, "uom": i.stock_uom, "unit": info["ink_per_m2"], "real": False, "amount": info["ink_per_m2"], "estimate": True})
+				cost += info["ink_per_m2"]
+		price = i.price_company if i.price_company is not None else i.price_individual
+		margin = round((flt(price) - cost) / flt(price) * 100, 1) if cost is not None and flt(price) > 0 else None
+		out.append({**i, "cost": cost, "parts": parts, "margin": margin,
+			"min_price": round(cost / (1 - target / 100), 2) if cost and target < 100 else None,
+			"sales": sales.get(i.item_code), "months": [months.get(i.item_code, {}).get(k, 0) for k in keys], "top": top.get(i.item_code)})
+	return {"items": out, "target": target, "months": keys, "can_edit": api._can("Item Price", "write"), "lists": {k: api._price_list(k) for k in PRICE_LISTS}}

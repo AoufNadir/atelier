@@ -3126,3 +3126,40 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .stk-table tr.stk-item.low > td:first-child { box-shadow: inset -3px 0 0 #F79009; }
 .stk-table tr.stk-item.sel > td:first-child { box-shadow: inset -3px 0 0 #4F35D2; }
 .stk-tabs .stk-dot { width: 9px; height: 9px; border-radius: 2px; }
+
+/* services & prices: grouped list + side panel */
+.sv-body { padding: 0 28px 28px; }
+.sv-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; flex-wrap: nowrap; }
+.sv-bar .bd-chip { height: 32px; min-height: 32px; font-size: 13px; background: #fff; border: 1px solid #D0D5DD; color: #17202A; }
+.sv-bar .bd-chip[aria-pressed="true"] { background: #F1EEFF; border-color: #C4B8F3; color: #4F35D2; font-weight: 700; }
+.sv-bar .bd-chip.debt { color: #B54708; background: #FFFAEB; border-color: #FEDF89; }
+.sv-tgt { margin-inline-start: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #475467; white-space: nowrap; }
+.sv-tgt .input { width: 90px; height: 32px; text-align: start; }
+.sv-grid { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px; align-items: start; }
+.sv-card { overflow: visible; }
+.sv-table td { vertical-align: middle; }
+.sv-table tr.sv-sec td { position: sticky; top: 0; z-index: 2; background: #F2F4F7; border-top: 1px solid #E4E7EC; border-bottom: 1px solid #E4E7EC; padding: 8px 16px; }
+.sv-table tr.sv-sec b { font-size: 15px; } .sv-table tr.sv-sec .m { font-size: 13px; margin-inline-start: 10px; }
+.sv-table tr.stk-gap td { padding: 6px; border: 0; background: #fff; }
+.sv-row { cursor: pointer; } .sv-row.sel td { background: #F4F1FF; } .sv-row.sel td:first-child { box-shadow: inset -3px 0 0 #4F35D2; }
+.sv-nm { display: block; font-size: 15px; } .sv-sub { display: block; font-size: 13px; }
+.sv-price { width: 110px; height: 34px; text-align: left; }
+.sv-mg { display: inline-block; min-width: 56px; text-align: center; border-radius: 999px; padding: 1px 8px; font-weight: 700; font-size: 13px; }
+.sv-mg.ok { background: #ECFDF3; color: #067647; } .sv-mg.w { background: #FFFAEB; color: #B54708; } .sv-mg.bad { background: #FEF3F2; color: #B42318; } .sv-mg.na { background: #F2F4F7; color: #667085; font-weight: 500; }
+.sv-side { position: sticky; top: 12px; overflow: hidden; }
+.sv-sh { padding: 14px 16px; border-bottom: 1px solid #E4E7EC; } .sv-sh h2 { margin: 0; font-size: 18px; } .sv-sh .m { font-size: 13px; }
+.sv-facts { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #E4E7EC; }
+.sv-facts div { padding: 10px 16px; border-bottom: 1px solid #F2F4F7; } .sv-facts div:nth-child(odd) { border-inline-end: 1px solid #F2F4F7; }
+.sv-facts span { display: block; font-size: 12px; color: #667085; } .sv-facts b { font-size: 18px; }
+.sv-mgt.w { color: #B54708; } .sv-mgt.bad { color: #B42318; } .sv-mgt.ok { color: #067647; }
+.sv-sec2 { padding: 12px 16px; border-bottom: 1px solid #E4E7EC; }
+.sv-sec2 h3 { margin: 0 0 8px; font-size: 14px; display: flex; align-items: center; } .sv-sec2 h3 a { margin-inline-start: auto; font-size: 13px; font-weight: 500; color: #4F35D2; }
+.sv-r { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: 14px; } .sv-r em { font-style: normal; color: #067647; font-size: 12px; }
+.sv-r.t { border-top: 1px dashed #E4E7EC; margin-top: 4px; padding-top: 7px; font-weight: 700; }
+.sv-hint { background: #FFFAEB; border: 1px solid #FEDF89; color: #7A2E0E; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 8px; }
+.sv-ok { color: #067647; font-size: 13px; margin-top: 8px; }
+.sv-spark { display: flex; gap: 6px; height: 84px; align-items: stretch; }
+.sv-col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; font-size: 12px; color: #667085; }
+.sv-col i { display: block; width: 100%; max-width: 34px; background: #B9ADF5; border-radius: 4px 4px 0 0; } .sv-col i.cur { background: #4F35D2; }
+.sv-acts { padding: 12px 16px; }
+.sv-table tr.sv-sec td > b, .sv-table tr.sv-sec td > span { display: inline; }
