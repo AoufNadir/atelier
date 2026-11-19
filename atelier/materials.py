@@ -788,7 +788,7 @@ def pricing_info():
 	"""For the price hint under an order line: target margin, ink per m², real unit cost of each material.
 	Costs are for those who see the books; others get the target only."""
 	if not api._can("GL Entry"):
-		return {"target": target_margin(), "ink_per_m2": None, "real": {}}
+		return {"target": target_margin()}
 	reals = {}
 	if _cycles_ok():
 		for r in frappe.db.sql("""select item, sum(cost), sum(recorded), count(*) from `tabMaterial Cycle` where coverage>=70 and recorded>0 group by item"""):
