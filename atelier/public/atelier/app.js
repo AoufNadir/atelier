@@ -2060,6 +2060,20 @@ const SimpleCustomers = {
       { k: "person", t: "أفراد", n: all.value.filter((c) => c.customer_type !== "Company").length, on: f.type === "person" && f.status === "all", run: () => quickF("person") },
       { k: "away", t: "غابوا عنا", n: kpi.value.away, on: f.status === "away", run: () => quickF("all", "away") },
     ]);
+    // list + side panel: one click shows a summary beside the list, double click / «فتح الملف» opens the full profile
+    const pv = ref(null), pvd = ref(null), pvCache = {};
+    const peek = async (c) => { pv.value = c; pvd.value = pvCache[c.name] || null;
+      if (!pvd.value) { try { const r = await call("customer2", { name: c.name }); pvCache[c.name] = r; if (pv.value?.name === c.name) pvd.value = r; } catch { pvd.value = { orders: [], log: [] }; } } };
+    const biggest = computed(() => [...all.value].filter(owes).sort((a, b) => b.balance - a.balance)[0] || null);
+    const ageing = computed(() => { const b = [0, 0, 0, 0];
+      for (const c of all.value.filter(owes)) { const d = c.overdue_days || 0; b[d <= 0 ? 0 : d <= 30 ? 1 : d <= 60 ? 2 : 3] += c.balance; }
+      return [["c", "لم يحن", b[0], ""], ["d30", "1–30 يومًا", b[1], b[1] ? "warn" : ""], ["d60", "31–60", b[2], b[2] ? "bad" : ""], ["old", "+60", b[3], b[3] ? "bad" : ""]]; });
+    const topCustomers = computed(() => [...all.value].filter((c) => c.orders).sort((a, b) => b.orders - a.orders).slice(0, 4));
+    const onKeys = (e) => { if (sel.value || !["ArrowDown", "ArrowUp"].includes(e.key) || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) return;
+      const list = rows.value; if (!list.length) return; e.preventDefault();
+      const i = pv.value ? list.findIndex((c) => c.name === pv.value.name) : -1, n = Math.max(0, Math.min(list.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)));
+      peek(list[n]); nextTick(() => document.querySelector(`[data-cs="${CSS.escape(list[n].name)}"]`)?.scrollIntoView({ block: "nearest" })); };
+    onMounted(() => window.addEventListener("keydown", onKeys)); onBeforeUnmount(() => window.removeEventListener("keydown", onKeys));
     const closeCustomer = () => { sel.value = null; d.value = null; nextTick(() => window.scrollTo(0, 0)); };
     // the customer's work, by year then month
     const jq = ref(""), hview = ref("list"), openYears = reactive({}), viewer = ref(null), jf = ref("all"), stOpen = ref(false), logAll = ref(false), filesAll = ref(false);
@@ -2171,6 +2185,7 @@ const SimpleCustomers = {
       kpi, quick, open, bal, lastWord, exportList, newOrderFor, pay, pmenu, merging, editNote, note, startNote, saveExtra, remind, startRemind, sendRemind, toggleDisabled,
       doMerge, exportOrders, reorder, uploading, onFile, copyText, LOG_KINDS, logKind, logText, addLog, months6, maxMonth, stFrom, stTo, statementUrl, sendStatement, STATE_DOT,
       owesNow, TABS, labelStyle, isImg, waLink, money, fig, date, ago, state, go, t,
+      pv, pvd, peek, biggest, ageing, topCustomers, num, all,
       account, remaining, showNote, chips, gGroup, gSort, gAll, groupOf, galleryJobs, gGroups, gallery2, specOf, unitOf, coverOf, picking, picked, togglePick, startShare, makeShare, endShare, shareBox, fk, fq, fsel, verOpen, FILE_KINDS, kindOf, verOf, kindCount, fileGroups, shownGroups, setKind, fmenu, KIND_LABEL, delCustFile, fileSize, viewFile, allFiles, extOf, jf, jobChips, stOpen, logAll, filesAll, closeCustomer, jq, hview, openYears, viewer, jobs, imagesOf, thumbOf, years, yearOpen, stOf, payWord, gallery, showImages, openCard, initial, finalName, openCount, folderLink, inkOn };
   },
   template: `
@@ -2208,18 +2223,13 @@ const SimpleCustomers = {
       <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
       <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
       <template v-else-if="s.data">
-        <div class="cl-stats">
-          <button type="button" @click="quick('all')"><span>العملاء</span><b>{{ kpi.total }}</b><small>{{ kpi.fresh }} جدد هذا الشهر</small></button>
-          <button type="button" @click="quick('debt')"><span>عليهم دين</span><b class="bad money">{{ money(kpi.debt) }}</b><small>{{ kpi.debtN }} عملاء<template v-if="kpi.late"> · {{ kpi.late }} متأخرون</template></small></button>
-          <button type="button" :disabled="!kpi.top" @click="kpi.top && open(kpi.top.name)"><span>الأكثر طلبًا</span><b class="ellipsis">{{ kpi.top ? kpi.top.customer_name : '—' }}</b><small>{{ kpi.top ? kpi.top.orders + ' طلبات' : '' }}</small></button>
-          <button type="button" @click="quick('away')"><span>غابوا عنا</span><b>{{ kpi.away }}</b><small>بلا طلب منذ {{ s.data.away_days }} يومًا</small></button>
-        </div>
+        <div class="cs-grid">
         <div class="cl-table-wrap">
           <table class="cl-table cl-table2">
             <thead><tr><th>العميل</th><th class="desktop-only">الأعمال</th><th class="desktop-only">آخر عمل</th><th class="n">الرصيد</th><th class="acts desktop-only"><span class="sr-only">إجراءات</span></th></tr></thead>
             <tbody>
               <tr v-if="!rows.length"><td colspan="5" class="cl-empty">لا عملاء يطابقون البحث أو التصفية.</td></tr>
-              <tr v-for="c in rows" :key="c.name" :class="{off: c.disabled}" tabindex="0" @click="open(c.name)" @keydown.enter="open(c.name)">
+              <tr v-for="c in rows" :key="c.name" :class="{off: c.disabled, sel: pv && pv.name === c.name}" tabindex="0" :data-cs="c.name" @click="peek(c)" @dblclick="open(c.name)" @keydown.enter="open(c.name)">
                 <td><div class="cl-who"><Avatar :name="c.customer_name" :size="36"/>
                   <div style="min-width:0"><span class="cl-name">{{ c.customer_name }}<Icon v-if="c.vip" name="star" :size="14" class="cl-star"/></span>
                     <span class="cl-sub">{{ c.customer_type === 'Company' ? 'مؤسسة' : 'فرد' }}<template v-if="c.mobile_no"> · <span dir="ltr">{{ c.mobile_no }}</span></template></span>
@@ -2234,6 +2244,37 @@ const SimpleCustomers = {
               </tr>
             </tbody>
           </table>
+        </div>
+        <aside class="cs-side">
+          <template v-if="!pv">
+            <div class="cs-sh"><div><h3>نظرة عامة</h3><small>اختر عميلًا لترى تفاصيله · <kbd>↑</kbd> <kbd>↓</kbd> للتنقل</small></div></div>
+            <button type="button" class="cs-big" @click="quick('debt')"><span>عليهم دين</span><b class="bad money">{{ money(kpi.debt) }}</b><small>{{ kpi.debtN }} عملاء<template v-if="biggest"> · أكبرهم {{ biggest.customer_name }} ({{ Math.round(biggest.balance / kpi.debt * 100) }}%)</template></small></button>
+            <div class="cs-sec"><h4>الديون حسب الأقدمية</h4><div class="cs-age"><div v-for="a in ageing" :key="a[0]"><span>{{ a[1] }}</span><b :class="a[3]">{{ num(Math.round(a[2])) }}</b></div></div></div>
+            <div class="cs-sec"><h4>الأكثر طلبًا</h4><div v-for="c in topCustomers" :key="c.name" class="cs-barrow" @click="peek(c)"><span class="ellipsis">{{ c.customer_name }}</span><i :style="{width: (c.orders / (topCustomers[0].orders || 1) * 120) + 'px'}"></i><b>{{ c.orders }}</b></div>
+              <div v-if="!topCustomers.length" class="muted">لا طلبات بعد.</div></div>
+            <div class="cs-sec"><h4>غابوا عنا (أكثر من {{ s.data.away_days }} يومًا)</h4><div v-if="!kpi.away" class="muted">لا أحد — كل العملاء طلبوا مؤخرًا.</div>
+              <div v-for="c in all.filter(x => x.away).slice(0, 5)" :key="c.name" class="cs-li" @click="peek(c)"><span>{{ c.customer_name }}</span><span class="muted">{{ lastWord(c.last_order) }}</span></div></div>
+            <div class="cs-sec"><h4>هذا الشهر</h4><div class="cs-li"><span>عملاء جدد</span><b>{{ kpi.fresh }}</b></div><div class="cs-li"><span>كل العملاء</span><b>{{ kpi.total }}</b></div></div>
+          </template>
+          <template v-else>
+            <div class="cs-sh"><Avatar :name="pv.customer_name" :size="44"/><div style="min-width:0"><h3 class="ellipsis">{{ pv.customer_name }}</h3><small>{{ pv.customer_type === 'Company' ? 'مؤسسة' : 'فرد' }}<template v-if="pv.mobile_no"> · <span dir="ltr">{{ pv.mobile_no }}</span></template></small></div>
+              <button type="button" class="cl-btn icon sm" style="margin-inline-start:auto" aria-label="إغلاق" @click="pv = null">×</button></div>
+            <div class="cs-big"><span>المطلوب منه الآن</span><b :class="pv.balance > 0.005 ? 'bad' : 'ok'" class="money">{{ pv.balance > 0.005 ? money(pv.balance) : 'لا شيء' }}</b>
+              <small><template v-if="pv.unbilled > 0.005">طلبات لم تُفوتر {{ fig(pv.unbilled) }}</template><template v-if="pvd && pvd.avg_pay_days"> · عادة يدفع بعد {{ pvd.avg_pay_days }} يومًا</template><template v-if="pv.overdue_days"> · متأخر {{ pv.overdue_days }} يومًا</template></small></div>
+            <div class="cs-acts"><a v-if="pv.mobile_no" class="cl-btn sm" :href="'tel:' + pv.mobile_no">اتصال</a><a v-if="waLink(pv.mobile_no)" class="cl-btn sm" target="_blank" rel="noopener" :href="waLink(pv.mobile_no)">واتساب</a>
+              <button v-if="state.boot.can.payment" type="button" class="cl-btn sm" @click="state.sheet = {type: 'payment', customer: {name: pv.name, customer_name: pv.customer_name}}">استلمت دفعة</button>
+              <button v-if="state.boot.can.order" type="button" class="cl-btn sm" @click="newOrderFor(pv)">+ طلب</button><span class="spacer"></span><button type="button" class="cl-btn sm primary" @click="open(pv.name)">فتح الملف</button></div>
+            <div v-if="!pvd" class="ws-loading">…</div>
+            <template v-else>
+              <div class="cs-sec"><h4>آخر أعماله<button v-if="(pvd.orders || []).length > 3" type="button" class="cl-link" @click="open(pv.name)">الكل {{ pvd.orders.length }}</button></h4>
+                <div v-for="o in (pvd.orders || []).slice(0, 3)" :key="o.name" class="cs-li" @click="go('/?card=' + encodeURIComponent(o.name))"><span class="ellipsis">{{ o.atelier_subject || o.name }}</span>
+                  <span :class="(o.per_delivered || 0) < 100 ? 'warn' : 'muted'">{{ (o.per_delivered || 0) < 100 ? 'جارٍ' : 'سُلّم' }} · {{ o.price_pending ? 'بلا سعر' : fig(o.grand_total) }}</span></div>
+                <div v-if="!(pvd.orders || []).length" class="muted">لا أعمال بعد.</div></div>
+              <div v-if="(pvd.log || []).length" class="cs-sec"><h4>آخر تواصل</h4><div class="cs-li"><span class="ellipsis" v-html="pvd.log[0].content"></span><span class="muted">{{ ago(pvd.log[0].creation) }}</span></div></div>
+              <div v-if="pvd.note" class="cs-sec"><h4>ملاحظة</h4><div class="muted">{{ pvd.note }}</div></div>
+            </template>
+          </template>
+        </aside>
         </div>
       </template>
     </div>
