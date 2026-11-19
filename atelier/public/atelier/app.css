@@ -3103,3 +3103,6 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .od-tagbar .od-tagtog { margin-inline-start: auto; font-size: 13px; }
 .od-tagnew { width: auto; flex: 1; margin: 0; }
 .od-tagedit { display: grid; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid #E4E7EC; border-radius: 10px; background: #F9FAFB; }
+.lb-c .lp-box, .pr-cat .lp-box { height: 36px; min-width: 0; }
+.lb-c .lp-pop { min-width: 240px; }
+.pr-cat { min-width: 160px; }

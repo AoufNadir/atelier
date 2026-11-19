@@ -548,7 +548,7 @@ const PaymentSheet = {
 
 // ------------------------------------------------------------------ services & prices
 const PricesPage = {
-  props: ["embedded"], components: { Icon, LoadState, DataTable, get RecipesCard() { return RecipesCard; } },
+  props: ["embedded"], components: { Icon, LoadState, DataTable, get RecipesCard() { return RecipesCard; }, get ListPicker() { return ListPicker; } },
   setup() {
     const { s, load } = useLoad(() => call("prices"));
     onMounted(load);
@@ -580,10 +580,10 @@ const PricesPage = {
     }
     watch(() => state.rev, load);
     const setCategory = async (row, ev) => {
-      const v = ev.target.value;
+      const v = ev.target.value; if (v === (row.atelier_category || "")) return;
       try { row.atelier_category = await call("set_item_category", { item_code: row.item_code, category: v }, true) || null;
         const b = state.boot.items.find((i) => i.item_code === row.item_code); if (b) b.atelier_category = row.atelier_category; toast("حُفظ التصنيف"); }
-      catch (e) { toast(e.message, "error"); ev.target.value = row.atelier_category || ""; }
+      catch (e) { toast(e.message, "error"); }
     };
     // target margin: used by the price hint under order lines and by the profit report
     const margin = ref(null);
@@ -603,9 +603,7 @@ const PricesPage = {
       <DataTable :rows="s.data.items" :cols="cols" row-key="item_code" :search-keys="['item_name','item_code','atelier_category','stock_uom']" :filters="filters" initial-sort="item_name" :empty="t('pr_none')">
         <template #cell="{row, col}">
           <span v-if="col.k==='item_name'" class="title-cell"><span class="medium clamp2">{{ row.item_name }}</span></span>
-          <select v-else-if="col.k==='atelier_category' && s.data.can_edit" class="input pr-cat" :value="row.atelier_category || ''" :aria-label="'تصنيف ' + row.item_name" @change="setCategory(row, $event)">
-            <option value="">—</option><option v-for="c in state.boot.lists.categories || []" :key="c.name" :value="c.name">{{ c.name }}</option>
-            <option v-if="row.atelier_category && !(state.boot.lists.categories || []).some(c => c.name === row.atelier_category)" :value="row.atelier_category">{{ row.atelier_category }}</option></select>
+          <ListPicker v-else-if="col.k==='atelier_category' && s.data.can_edit" class="pr-cat" :model-value="row.atelier_category || ''" :list="state.boot.lists.categories || []" list-key="categories" noun="تصنيف" title="تصنيفات الأعمال" empty-label="—" @update:model-value="(v) => setCategory(row, {target: {value: v}})"/>
           <span v-else-if="col.k==='atelier_category'" class="muted">{{ row.atelier_category || '—' }}</span>
           <span v-else-if="col.k==='stock_uom'" class="muted">{{ uom(row.stock_uom) }}</span>
           <span v-else class="price-cell">
@@ -627,7 +625,7 @@ const PricesPage = {
 // ------------------------------------------------------------------ new service / product
 const unitGroups = () => { const g = {}; (state.boot.units || []).forEach((u) => (g[u.group] ||= []).push(u.name)); return Object.entries(g); };
 const ItemSheet = {
-  props: ["opts"], components: { Icon },
+  props: ["opts"], components: { Icon, get ListPicker() { return ListPicker; } },
   setup(props) {
     const f = reactive({ item_name: "", kind: "service", uom: state.boot.units?.[0]?.name || "قطعة", price_individual: "", price_company: "", description: "", category: "",
       ...(props.opts?.prefill || {}) });
@@ -664,9 +662,9 @@ const ItemSheet = {
         <input id="is-name" class="input" :class="{invalid: attempted && errs.item_name}" type="text" v-model="f.item_name" :placeholder="t('it_name_ph')" autocomplete="off">
         <span v-if="attempted && errs.item_name" class="error-text">{{ errs.item_name }}</span></div>
       <div class="field"><span class="label">{{ t('it_unit') }}</span>
-        <select class="input" v-model="f.uom" :aria-label="t('it_unit')"><optgroup v-for="g in unitGroups()" :key="g[0]" :label="g[0]"><option v-for="u in g[1]" :key="u" :value="u">{{ u }}</option></optgroup></select></div>
+        <ListPicker v-model="f.uom" :list="state.boot.units || []" list-key="units" noun="وحدة" title="الوحدات" with-calc/></div>
       <div class="field"><label for="is-cat">التصنيف <span class="cap">({{ t('optional') }})</span></label>
-        <select id="is-cat" class="input" v-model="f.category"><option value="">بلا تصنيف</option><option v-for="c in state.boot.lists.categories || []" :key="c.name" :value="c.name">{{ c.name }}</option></select></div>
+        <ListPicker v-model="f.category" :list="state.boot.lists.categories || []" list-key="categories" noun="تصنيف" title="تصنيفات الأعمال" empty-label="بلا تصنيف"/></div>
       <div class="grid-2">
         <div class="field"><label for="is-pi">{{ t('pr_individual_prices') }} ({{ t('currency') }})</label>
           <input id="is-pi" class="input num" type="text" inputmode="decimal" autocomplete="off" v-model="f.price_individual" :placeholder="t('it_price_ph')"></div>
@@ -758,7 +756,7 @@ const loadMats = async () => { if (matState.list || matState.loading) return; ma
   try { const [st, pr] = await Promise.all([call("stock"), call("pricing_info").catch(() => null)]); matState.list = st.items || []; matState.pricing = pr; } catch { matState.list = []; } finally { matState.loading = false; } };
 // Side panel: a new order (one short form) or an existing order card.
 const BoardPanel = {
-  props: ["mode", "order", "preset", "columns", "statuses", "labels", "edit"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField },
+  props: ["mode", "order", "preset", "columns", "statuses", "labels", "edit"], emits: ["close", "saved", "move"], components: { Icon, Avatar, CustomerField, get ListPicker() { return ListPicker; } },
   setup(props, { emit }) {
     const f = reactive({ customer: props.preset || null, phone: "", type: "Individual", subject: "", lines: [newLine()], advance: "", due: isoIn(0), assignee: "", tags: [], column: null, mode: "Cash", description: "", checklist: [], cover_color: "", coverIdx: -1 });
     // opened from any page: the board settings come with it, or are fetched once
@@ -1113,7 +1111,7 @@ const BoardPanel = {
                         <span class="m" style="display:block">{{ [it.atelier_category, uom(it.stock_uom), priceOf(it) !== '' ? fig(priceOf(it)) + ' دج' : 'بلا سعر'].filter(Boolean).join(' · ') }}</span></span></button></div></div>
                   <button v-if="f.lines.length > 1" type="button" class="lb-del" :aria-label="'حذف البند ' + (i + 1)" @click="dropLine(i)"><Icon name="x" :size="14"/></button></div>
                 <div class="lb-f">
-                  <label class="lb-c"><span>الوحدة</span><select class="input lb-in" v-model="l.unit" @focus="l._u = l.unit" @change="unitChanged(l, l._u); l._u = l.unit"><option v-for="u in state.boot.units" :key="u.name" :value="u.name">{{ u.name }}</option></select></label>
+                  <label class="lb-c"><span>الوحدة</span><ListPicker class="lb-in" :model-value="l.unit" :list="state.boot.units || []" list-key="units" noun="وحدة" title="الوحدات" with-calc @update:model-value="(v) => { const o = l.unit; if (v === o) return; l.unit = v; unitChanged(l, o); }"/></label>
                   <div class="lb-c"><span>{{ calcOf(l) === 'count' ? 'المقاس' : 'المقاس (' + sym(l) + ')' }}</span>
                     <div v-if="calcOf(l) === 'area'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.width > 0)}" inputmode="decimal" v-model="l.width" placeholder="العرض" :aria-label="'العرض ' + (i + 1)"><span>×</span><input class="input lb-in num" :class="{miss: !(+l.height > 0)}" inputmode="decimal" v-model="l.height" placeholder="الارتفاع" :aria-label="'الارتفاع ' + (i + 1)"></div>
                     <div v-else-if="calcOf(l) === 'length'" class="lb-size"><input class="input lb-in num" :class="{miss: !(+l.length > 0)}" inputmode="decimal" v-model="l.length" placeholder="الطول" :aria-label="'الطول ' + (i + 1)"></div>
@@ -1361,7 +1359,7 @@ const WEEK = ["الأحد", "الإثنين", "الثلاثاء", "الأربع�
 const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const CostSection = {
-  props: ["name"], emits: ["use-price"], components: { Icon },
+  props: ["name"], emits: ["use-price"], components: { Icon, get ListPicker() { return ListPicker; } },
   setup(props, { emit }) {
     const d = ref(null), error = ref(null), busy = ref(false), open = ref(false), target = ref(30);
     const load = async () => { try { d.value = await call("card_cost", { name: props.name }); open.value = false; } catch (e) { error.value = e.message; } };
@@ -1390,7 +1388,7 @@ const CostSection = {
     <template v-if="d && open">
       <template v-if="true">
         <div v-for="(l, i) in d.lines" :key="i" class="cost-line">
-          <select class="input" v-model="l.cost_type" aria-label="نوع التكلفة"><option v-for="c in typeOptions(l)" :key="c.value" :value="c.value">{{ c.label }}</option></select>
+          <ListPicker v-model="l.cost_type" :list="typeOptions(l)" list-key="cost_types" value-key="value" label-key="label" noun="نوع" title="أنواع التكلفة"/>
           <input class="input" v-model="l.description" aria-label="البند" placeholder="البند، مثل: ورق 350غ">
           <input class="input num" inputmode="decimal" v-model="l.qty" aria-label="الكمية" placeholder="الكمية">
           <input class="input num" inputmode="decimal" v-model="l.rate" aria-label="سعر الوحدة" placeholder="السعر">
@@ -4300,37 +4298,46 @@ const STOCK_WAY_LABEL = { count: "بالعدد (ورق، قطع)", roll: "لفّ
 // dropdown of a settings list with search, and (for the manager) add / rename / colour / delete in place.
 // listKey names the list in settings; noun is the word for one entry; way/colour only where the list has them
 const ListPicker = {
-  props: { modelValue: String, list: Array, listKey: String, emptyLabel: String, noun: { default: "عنصر" }, title: String, withWay: Boolean, withColor: Boolean, placeholder: String },
+  props: { modelValue: String, list: Array, listKey: String, emptyLabel: String, noun: { default: "عنصر" }, title: String, withWay: Boolean, withColor: Boolean, withCalc: Boolean,
+    placeholder: String, valueKey: { default: "name" }, labelKey: { default: "name" } },
   emits: ["update:modelValue"],
   setup(props, { emit }) {
     const open = ref(false), q = ref(""), ed = ref(null), busy = ref(false), root = ref(null);
     const canEdit = computed(() => state.boot.role === "manager");
-    const shown = computed(() => props.list.filter((x) => x.name.toLowerCase().includes(q.value.trim().toLowerCase())));
-    const exact = computed(() => props.list.some((x) => x.name === q.value.trim()));
+    // entries as {name (shown), _v (stored)}: cost types store a value apart from their label
+    const rows = computed(() => (props.list || []).map((x) => ({ ...x, name: x[props.labelKey], _v: x[props.valueKey] })));
+    const shown = computed(() => rows.value.filter((x) => String(x.name).toLowerCase().includes(q.value.trim().toLowerCase())));
+    const exact = computed(() => rows.value.some((x) => x.name === q.value.trim()));
+    const label = computed(() => (rows.value.find((x) => x._v === props.modelValue) || {}).name || props.modelValue);
     const color = (n) => (props.withColor ? secColor(props.list, n) : "#475467");
-    const pick = (n) => { emit("update:modelValue", n); open.value = false; q.value = ""; };
-    const edit = (x) => (ed.value = x ? { old: x.name, name: x.name, way: x.way || "count", color: color(x.name), move: "" } : { old: "", name: q.value.trim(), way: "count", color: LIST_COLORS[props.list.length % LIST_COLORS.length], move: "" });
+    const pick = (v) => { emit("update:modelValue", v); open.value = false; q.value = ""; };
+    const edit = (x) => (ed.value = x ? { old: x.name, oldV: x._v, name: x.name, way: x.way || "count", calc: x.calc || "count", scale: x.scale || "m", whole: x.whole || 0, color: color(x.name), move: "" }
+      : { old: "", name: q.value.trim(), way: "count", calc: "count", scale: "m", whole: 0, color: LIST_COLORS[rows.value.length % LIST_COLORS.length], move: "" });
+    const store = (out) => { if (props.listKey === "units") state.boot.units = out; else state.boot.lists[props.listKey] = out; };
     const save = async () => { const e = ed.value; busy.value = true;
-      try { const row = { name: e.name.trim() }; if (props.withWay) row.way = e.way; if (props.withColor) row.color = e.color;
-        state.boot.lists[props.listKey] = await call("save_list_item", { key: props.listKey, old: e.old, row: JSON.stringify(row) }, true);
-        if (!e.old || props.modelValue === e.old) emit("update:modelValue", row.name); ed.value = null; q.value = ""; toast("حُفظ"); if (e.old && e.old !== row.name) state.rev = (state.rev || 0) + 1; }
+      try { const row = { [props.labelKey]: e.name.trim() }; if (props.withWay) row.way = e.way; if (props.withColor) row.color = e.color;
+        if (props.withCalc) Object.assign(row, { calc: e.calc, scale: e.scale, whole: e.whole ? 1 : 0 });
+        const out = await call("save_list_item", { key: props.listKey, old: e.old, row: JSON.stringify(row) }, true); store(out);
+        const v = (out.find((x) => x[props.labelKey] === row[props.labelKey]) || {})[props.valueKey] ?? row[props.labelKey];
+        if (!e.old || props.modelValue === e.oldV) emit("update:modelValue", v); ed.value = null; q.value = ""; toast("حُفظ"); if (e.old && e.old !== row[props.labelKey]) state.rev = (state.rev || 0) + 1; }
       catch (err) { toast(err.message, "error"); } finally { busy.value = false; } };
     const del = async () => { const e = ed.value; if (!confirm(`حذف ${props.noun} «${e.old}»؟`)) return; busy.value = true;
-      try { state.boot.lists[props.listKey] = await call("delete_list_item", { key: props.listKey, name: e.old, move_to: e.move }, true);
-        if (props.modelValue === e.old) emit("update:modelValue", e.move); ed.value = null; toast("حُذف"); state.rev = (state.rev || 0) + 1; }
+      try { store(await call("delete_list_item", { key: props.listKey, name: e.old, move_to: e.move }, true));
+        if (props.modelValue === e.oldV) emit("update:modelValue", e.move); ed.value = null; toast("حُذف"); state.rev = (state.rev || 0) + 1; }
       catch (err) { toast(err.message, "error"); } finally { busy.value = false; } };
+    const CALCS = [["count", "بالعدد"], ["length", "بالطول"], ["area", "بالمساحة"]];
     const away = (ev) => { if (root.value && !root.value.contains(ev.target)) { open.value = false; ed.value = null; } };
     onMounted(() => document.addEventListener("mousedown", away)); onBeforeUnmount(() => document.removeEventListener("mousedown", away));
-    return { open, q, ed, busy, root, canEdit, shown, exact, color, pick, edit, save, del, LIST_COLORS, STOCK_WAY_LABEL };
+    return { open, q, ed, busy, root, canEdit, rows, shown, exact, label, color, pick, edit, save, del, CALCS, LIST_COLORS, STOCK_WAY_LABEL };
   },
   template: `
   <div ref="root" class="lp">
-    <button type="button" class="input lp-box" :aria-expanded="open" @click="open = !open; ed = null"><i v-if="modelValue && withColor" class="lp-dot" :style="{background: color(modelValue)}"></i><span :class="{'lp-ph': !modelValue}">{{ modelValue || emptyLabel || placeholder }}</span><span class="lp-car" aria-hidden="true">▾</span></button>
+    <button type="button" class="input lp-box" :aria-expanded="open" @click="open = !open; ed = null"><i v-if="modelValue && withColor" class="lp-dot" :style="{background: color(modelValue)}"></i><span :class="{'lp-ph': !modelValue}">{{ modelValue ? label : emptyLabel || placeholder }}</span><span class="lp-car" aria-hidden="true">▾</span></button>
     <div v-if="open && !ed" class="lp-pop">
-      <div class="lp-s"><input class="input" v-model="q" placeholder="ابحث أو اكتب اسمًا جديدًا" aria-label="بحث" @keydown.enter.prevent="shown.length === 1 ? pick(shown[0].name) : (canEdit && q.trim() && !exact ? edit(null) : null)"></div>
+      <div class="lp-s"><input class="input" v-model="q" placeholder="ابحث أو اكتب اسمًا جديدًا" aria-label="بحث" @keydown.enter.prevent="shown.length === 1 ? pick(shown[0]._v) : (canEdit && q.trim() && !exact ? edit(null) : null)"></div>
       <div v-if="emptyLabel && !q" class="lp-row" :class="{on: !modelValue}"><span class="lp-ck">{{ !modelValue ? '✓' : '' }}</span><button type="button" class="lp-pill lp-none" @click="pick('')">{{ emptyLabel }}</button></div>
-      <div v-for="x in shown" :key="x.name" class="lp-row" :class="{on: modelValue === x.name}"><span class="lp-ck">{{ modelValue === x.name ? '✓' : '' }}</span>
-        <button type="button" class="lp-pill" :style="withColor ? {background: color(x.name) + '1F', color: color(x.name)} : null" @click="pick(x.name)">{{ x.name }}</button>
+      <div v-for="x in shown" :key="x.name" class="lp-row" :class="{on: modelValue === x._v}"><span class="lp-ck">{{ modelValue === x._v ? '✓' : '' }}</span>
+        <button type="button" class="lp-pill" :style="withColor ? {background: color(x.name) + '1F', color: color(x.name)} : null" @click="pick(x._v)">{{ x.name }}</button>
         <button v-if="canEdit" type="button" class="lp-ed" :aria-label="'تعديل ' + x.name" @click="edit(x)">✎</button></div>
       <p v-if="!shown.length" class="lp-h">لا {{ noun }} بهذا الاسم</p>
       <button v-if="canEdit" type="button" class="lp-new" :class="{hot: q.trim() && !exact}" @click="edit(null)">{{ q.trim() && !exact ? '+ إنشاء «' + q.trim() + '»' : '+ ' + noun + ' جديد' }}</button>
@@ -4339,8 +4346,12 @@ const ListPicker = {
       <b class="lp-t">{{ ed.old ? 'تعديل «' + ed.old + '»' : noun + ' جديد' }}</b>
       <input class="input" v-model="ed.name" aria-label="الاسم" placeholder="الاسم">
       <div v-if="withColor" class="lp-sw" role="group" aria-label="اللون"><button v-for="c in LIST_COLORS" :key="c" type="button" :aria-pressed="ed.color === c" :aria-label="c" :style="{background: c}" @click="ed.color = c"></button></div>
+      <template v-if="withCalc"><label class="lp-f"><span>طريقة الحساب</span><select class="input" v-model="ed.calc"><option v-for="c in CALCS" :key="c[0]" :value="c[0]">{{ c[1] }}</option></select></label>
+        <label v-if="ed.calc !== 'count'" class="lp-f"><span>المقياس</span><select class="input" v-model="ed.scale"><option value="m">متر</option><option value="cm">سنتيمتر</option></select></label>
+        <label class="lp-f row" style="gap:6px"><input type="checkbox" v-model="ed.whole">عدد صحيح فقط</label>
+        <p v-if="ed.old" class="lp-h" style="margin:0">لا يمكن تغيير اسم وحدة مستعملة في طلبات سابقة.</p></template>
       <label v-if="withWay" class="lp-f"><span>طريقة العدّ للمادة الجديدة فيه</span><select class="input" v-model="ed.way"><option v-for="(l, k) in STOCK_WAY_LABEL" :key="k" :value="k">{{ l }}</option></select></label>
-      <div v-if="ed.old" class="lp-warn">عند الحذف تصير موادّه إلى <select v-model="ed.move" aria-label="تُنقل إلى"><option value="">{{ withWay ? 'القسم التلقائي حسب النوع' : 'بلا ' + noun }}</option><option v-for="x in list.filter((y) => y.name !== ed.old)" :key="x.name" :value="x.name">{{ x.name }}</option></select></div>
+      <div v-if="ed.old && !withCalc && listKey !== 'cost_types'" class="lp-warn">عند الحذف تصير {{ listKey === 'categories' ? 'خدماته' : 'موادّه' }} إلى <select v-model="ed.move" aria-label="تُنقل إلى"><option value="">{{ withWay ? 'القسم التلقائي حسب النوع' : 'بلا ' + noun }}</option><option v-for="x in rows.filter((y) => y.name !== ed.old)" :key="x.name" :value="x.name">{{ x.name }}</option></select></div>
       <div class="btn-row lp-btns"><button v-if="ed.old" type="button" class="cl-btn sm lp-del" :disabled="busy" @click="del">حذف</button><span class="spacer"></span><button type="button" class="cl-btn sm" @click="ed = null">رجوع</button><button type="submit" class="cl-btn sm primary" :disabled="busy || !ed.name.trim()">حفظ</button></div></form>
   </div>`,
 };

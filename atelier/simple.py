@@ -2282,7 +2282,7 @@ DEFAULT_LISTS = {
 	"paper_sizes": [{"name": n} for n in ("A4", "A3", "A3+", "SRA3", "32×45", "50×70", "70×100")],
 }
 # lists edited from a picker, and the material setting that carries their value (a rename follows the materials)
-PICKER_LISTS = {"stock_sections": "section", "paper_kinds": "kind", "paper_sizes": "size"}
+PICKER_LISTS = {"stock_sections": "section", "paper_kinds": "kind", "paper_sizes": "size", "categories": None, "cost_types": None, "units": None}
 
 
 def custom_list(key):
@@ -2303,21 +2303,26 @@ def save_list_item(key, old, row):
 	if key not in PICKER_LISTS:
 		frappe.throw(_("قائمة غير معروفة"))
 	row = frappe.parse_json(row) or {}
-	name = (row.get("name") or "").strip()[:60]
+	t = "label" if key == "cost_types" else "name"
+	name = (row.get(t) or "").strip()[:60]
 	if not name:
 		frappe.throw(_("اكتب الاسم"))
-	rows = [dict(x) for x in custom_list(key)]
-	if name != old and any(x["name"] == name for x in rows):
+	rows = [dict(x) for x in (units() if key == "units" else custom_list(key))]
+	if name != old and any(x[t] == name for x in rows):
 		frappe.throw(_("يوجد عنصر بهذا الاسم"))
-	row["name"] = name
-	i = next((k for k, x in enumerate(rows) if x["name"] == old), None) if old else None
+	if key == "units" and old and old != name and _unit_used(old):
+		frappe.throw(_("هذه الوحدة مستعملة في طلبات سابقة، لا يمكن تغيير اسمها. أضف وحدة جديدة بدلها."))
+	row[t] = name
+	i = next((k for k, x in enumerate(rows) if x[t] == old), None) if old else None
 	if i is None:
+		if key == "cost_types":
+			row.setdefault("value", name)
 		rows.append(row)
 	else:
 		rows[i] = {**rows[i], **row}
-	out = save_list(key, json.dumps(rows, ensure_ascii=False))
+	out = save_units(json.dumps(rows, ensure_ascii=False)) if key == "units" else save_list(key, json.dumps(rows, ensure_ascii=False))
 	if old and old != name:
-		_move_cfg(PICKER_LISTS[key], old, name)
+		_rename_value(key, old, name)
 	return out
 
 
@@ -2326,9 +2331,30 @@ def delete_list_item(key, name, move_to=""):
 	_manager_only()
 	if key not in PICKER_LISTS:
 		frappe.throw(_("قائمة غير معروفة"))
-	out = save_list(key, json.dumps([x for x in custom_list(key) if x["name"] != name], ensure_ascii=False))
-	_move_cfg(PICKER_LISTS[key], name, move_to if any(x["name"] == move_to for x in out) else "")
+	if key == "units":
+		return save_units(json.dumps([x for x in units() if x["name"] != name], ensure_ascii=False))
+	t = "label" if key == "cost_types" else "name"
+	out = save_list(key, json.dumps([x for x in custom_list(key) if x[t] != name], ensure_ascii=False))
+	if PICKER_LISTS[key]:
+		_move_cfg(PICKER_LISTS[key], name, move_to if any(x["name"] == move_to for x in out) else "")
+	elif key == "categories":
+		_rename_value(key, name, move_to if any(x["name"] == move_to for x in out) else "")
 	return out
+
+
+def _unit_used(name):
+	return bool(frappe.db.sql("select 1 from `tabSales Order Item` where uom=%s limit 1", name)) or \
+		(frappe.db.has_column("Sales Order Item", "atelier_unit") and bool(frappe.db.sql("select 1 from `tabSales Order Item` where atelier_unit=%s limit 1", name)))
+
+
+def _rename_value(key, old, new):
+	"""A renamed entry follows the records that stored it (cost types keep their stored value, so nothing moves)."""
+	if PICKER_LISTS.get(key):
+		_move_cfg(PICKER_LISTS[key], old, new)
+	elif key == "categories":
+		for dt in ("Item", "Sales Order Item", "Quotation Item"):
+			if frappe.db.has_column(dt, "atelier_category"):
+				frappe.db.sql(f"update `tab{dt}` set atelier_category=%s where atelier_category=%s", (new or None, old))
 
 
 @frappe.whitelist(methods=["POST"])
