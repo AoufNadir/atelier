@@ -308,7 +308,7 @@ def pack_cycle(item_code):
 		if cint(so.get("atelier_materials_done")) or cint(so.get("atelier_outsourced")) or so.name in by_order:
 			continue
 		lines = frappe.get_all("Sales Order Item", filters={"parent": so.name},
-			fields=["qty", "atelier_unit", "atelier_per_sheet", *(["atelier_material"] if has_mat else [])])
+			fields=["qty", "atelier_unit", *(["atelier_per_sheet"] if frappe.db.has_column("Sales Order Item", "atelier_per_sheet") else []), *(["atelier_material"] if has_mat else [])])
 		need = sum(_line_need(l, item.name, roll, c["waste"]) for l in lines)
 		if need > 0:
 			mine = any((l.get("atelier_material") or "") == item.name for l in lines)

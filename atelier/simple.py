@@ -1299,7 +1299,7 @@ def money3(offset=0):
 			"cheques": sum(1 for c in cheques if c.paid_to == a.name)} for a in shown],
 		"ages": {"a": flt(ages.a), "b": flt(ages.b), "c": flt(ages.c)}, "cheques": cheques, "closings": closings[:10],
 		"cash_balance": sum(balances.values()),
-		"income": income, "expenses": expenses, "profit": income - expenses, "owner_out": own("credit"), "owner_in": own("debit"), "prev_income": pin, "prev_expenses": pout,
+		"income": income, "expenses": expenses, "profit": income - expenses, "owner_out": own("debit"), "owner_in": own("credit"), "prev_income": pin, "prev_expenses": pout,
 		"payers": cint(one("""select count(distinct party) from `tabPayment Entry` where docstatus=1 and payment_type='Receive'
 			and party_type='Customer' and posting_date between %s and %s""", start, end)),
 		"weeks": weeks, "moves": moves, "categories": cats, "debtors": debtors, "payables": payables,
