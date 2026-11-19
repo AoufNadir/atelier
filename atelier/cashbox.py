@@ -49,9 +49,12 @@ def box_of(user, create=False):
 	if not parent:
 		parent = frappe.db.get_value("Account", {"company": company, "account_type": "Cash", "is_group": 1}) or \
 			frappe.db.get_value("Account", {"company": company, "root_type": "Asset", "is_group": 1, "parent_account": ["is", "set"]})
-	name = (_("صندوق") + " " + (get_fullname(user) or user))[:120]
+	# the box belongs to the user id: two sellers with the same display name never share one
+	name = (_("صندوق") + " " + (get_fullname(user) or user))[:100]
+	if frappe.db.exists("Account", {"company": company, "account_name": name}):
+		name = f"{name} ({user})"[:140]
 	existing = frappe.db.get_value("Account", {"company": company, "account_name": name, "is_group": 0})
-	if existing:
+	if existing and not frappe.db.sql("select 1 from `tabDefaultValue` where defkey='atelier_box' and defvalue=%s and parent!=%s", (existing, user)):
 		acc = existing
 	else:
 		doc = frappe.get_doc({"doctype": "Account", "company": company, "account_name": name, "parent_account": parent,

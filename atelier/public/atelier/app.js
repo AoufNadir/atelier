@@ -567,7 +567,7 @@ const ServicesPage = {
     const cur = computed(() => (s.data?.items || []).find((i) => i.item_code === sel.value) || null);
     const tone = (i) => (i.margin === null ? "na" : i.margin < 0 ? "bad" : i.margin < (s.data?.target || 30) ? "w" : "ok");
     const mgText = (i) => (i.margin !== null ? Math.round(i.margin) + "%" : i.is_stock_item ? "مادة" : i.cost === null ? "بلا وصفة" : "—");
-    const setPrice = async (i, kind, v) => { const key = kind === "Company" ? "price_company" : "price_individual"; const val = String(v).trim() === "" ? "" : +String(v).replace(/[\s,]/g, "");
+    const setPrice = async (i, kind, v) => { const key = kind === "Company" ? "price_company" : "price_individual"; const val = String(v).trim() === "" ? "" : parseAmount(v);
       if (val !== "" && (Number.isNaN(val) || val < 0)) return toast("سعر غير صحيح", "error"); if ((val === "" ? null : val) === i[key]) return;
       busy.value = i.item_code + kind; try { i[key] = await call("set_price", { item_code: i.item_code, kind, rate: val }, true); toast("حُفظ السعر"); await load(); }
       catch (e) { toast(e.message, "error"); } finally { busy.value = null; } };
@@ -909,7 +909,7 @@ const BoardPanel = {
       // cost of one sold unit of this line (m², or one piece) and the lowest price for the target margin
       const pr = matState.pricing, real = pr?.real?.[m.item_code], base = real || unitCost, scale = unitOf(l).scale === "cm" ? 0.0001 : 1;
       const perUnit = k === "roll" ? (base * (1 + waste) + (pr?.ink_per_m2 || 0)) * scale : (base * (1 + waste)) / Math.max(1, +l.per || 1);
-      const target = pr?.target ?? 30, min = perUnit > 0 ? perUnit / (1 - target / 100) : 0, rate = +String(l.rate).replace(/[\s,]/g, "") || 0;
+      const target = pr?.target ?? 30, min = perUnit > 0 ? perUnit / (1 - target / 100) : 0, rate = parseAmount(l.rate) || 0;
       return { need, has: m.qty, ok: need <= m.qty, short: +(need - m.qty).toFixed(2), unit: uom(m.uom), cost: need * unitCost, waste: m.cfg?.waste || 0,
         perUnit, min: Math.ceil(min), target, low: rate > 0 && min > 0 && rate < min, margin: rate > 0 && perUnit > 0 ? Math.round((1 - perUnit / rate) * 100) : null, real: !!real }; };
     const measure = (l) => { const c = calcOf(l), q = +l.qty || 0;
@@ -2678,7 +2678,7 @@ const BoxPage = {
     onMounted(load); watch(() => state.rev, load);
     const ho = ref(null);
     const open = () => (ho.value = { counted: s.data ? +(+s.data.balance).toFixed(2) : "", reason: "", busy: false, err: null });
-    const counted = computed(() => +String(ho.value?.counted ?? "").replace(/[\s,]/g, "") || 0);
+    const counted = computed(() => parseAmount(ho.value?.counted ?? "") || 0);
     const diff = computed(() => (s.data && ho.value ? Math.round((counted.value - s.data.balance) * 100) / 100 : 0));
     const send = async () => { const h = ho.value; h.busy = true; h.err = null;
       try { await call("hand_over", { counted: counted.value, reason: h.reason }, true); toast("أُرسل التسليم إلى المدير"); ho.value = null; await load(); }
@@ -2787,7 +2787,7 @@ const SimpleMoney = {
     const doTransfer = async () => {
       trBusy.value = true; const t = tr.value;
       try { if (t.kind === "transfer") { await call("transfer_funds", { from_account: t.from, to_account: t.to, amount: +t.amount, note: t.note }, true); toast("تم التحويل"); }
-        else { await call("owner_move", { kind: t.kind, account: t.kind === "withdraw" ? t.from : t.to, amount: +String(t.amount).replace(/[\s,]/g, ""), note: t.note }, true); toast(t.kind === "withdraw" ? "سُجّل السحب الشخصي" : "سُجّل الإيداع"); }
+        else { await call("owner_move", { kind: t.kind, account: t.kind === "withdraw" ? t.from : t.to, amount: parseAmount(t.amount), note: t.note }, true); toast(t.kind === "withdraw" ? "سُجّل السحب الشخصي" : "سُجّل الإيداع"); }
         tr.value = null; await load(); }
       catch (e) { toast(e.message, "error"); } finally { trBusy.value = false; }
     };
@@ -2802,7 +2802,7 @@ const SimpleMoney = {
     const prevName = computed(() => (d.value ? new Intl.DateTimeFormat("ar", { month: "long" }).format(new Date(parseDate(d.value.month).getFullYear(), parseDate(d.value.month).getMonth() - 1, 1)) : ""));
     const change = (now, prev) => { const p = pct(now, prev); return p === null ? `لا أرقام لشهر ${prevName.value}` : p === 0 ? `مثل ${prevName.value}` : `${p > 0 ? "أكثر" : "أقل"} بـ ${Math.abs(p)}% من ${prevName.value}`; };
     return { fundSel, days, dayLabel, KINDS, exportMoves, fundNote, cashFunds, cl, clBusy, openClose, clExpected, clDiff, doClose, clearing, clearCheque, chequeTotal, ago,
-      change, s, load, d, offset, month, pct, kind, q, moves, maxWeek, maxCat, catTotal, owed, owe, CAT_COLORS, fund, pay, remind, tr, trBusy, openTransfer, doTransfer, mvMenu, MOVE_KINDS,
+      change, s, load, d, offset, month, pct, kind, q, moves, maxWeek, maxCat, catTotal, owed, owe, CAT_COLORS, fund, pay, remind, tr, trBusy, openTransfer, doTransfer, mvMenu, MOVE_KINDS, parseAmount,
       paying, paySupplier, supplierMode, waLink, money, fig, date, dueWord, daysFromToday, state, go, t };
   },
   template: `
@@ -2826,7 +2826,7 @@ const SimpleMoney = {
               <label class="cl-fgroup"><span>المبلغ</span><div class="unit-wrap"><input class="input num" inputmode="decimal" v-model="tr.amount" placeholder="0"><span class="u">دج</span></div></label>
               <label class="cl-fgroup"><span>ملاحظة</span><input class="input" v-model="tr.note" :placeholder="tr.kind === 'withdraw' ? 'مثلًا: مصروف البيت' : 'اختياري'"></label>
               <p class="mv-note">{{ tr.kind === 'transfer' ? 'لا يغيّر الدخل ولا المصاريف — ينقل المال فقط.' : 'لا يدخل في المصاريف ولا الدخل، ولا يغيّر الربح. يُسجَّل على حساب المالك.' }}</p>
-              <div class="cl-pop-foot"><button type="button" class="cl-link" @click="tr = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="trBusy || !(+String(tr.amount).replace(/[\s,]/g, '') > 0) || (tr.kind === 'transfer' && tr.from === tr.to)">{{ tr.kind === 'transfer' ? 'تحويل' : tr.kind === 'withdraw' ? 'تسجيل السحب' : 'تسجيل الإيداع' }}</button></div></form></div>
+              <div class="cl-pop-foot"><button type="button" class="cl-link" @click="tr = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="trBusy || !(parseAmount(tr.amount) > 0) || (tr.kind === 'transfer' && tr.from === tr.to)">{{ tr.kind === 'transfer' ? 'تحويل' : tr.kind === 'withdraw' ? 'تسجيل السحب' : 'تسجيل الإيداع' }}</button></div></form></div>
           <button v-if="d && cashFunds.length" type="button" class="cl-btn" :aria-pressed="!!cl" @click="cl ? (cl = null) : openClose()"><Icon name="check" :size="16"/>إغلاق الصندوق</button>
           <button v-if="state.boot.can.payment" type="button" class="cl-btn primary" @click="pay()"><Icon name="in" :size="16"/>تسجيل دخل</button>
         </div>
@@ -4112,7 +4112,7 @@ const CollectSheet = {
   props: ["opts"],
   setup(props) {
     const o = props.opts, left = +(o.total - o.paid).toFixed(2), amount = ref(left), mode = ref((state.boot.modes || [])[0]?.value || "Cash"), busy = ref(false), err = ref(null);
-    const got = computed(() => Math.min(left, +String(amount.value).replace(/[\s,]/g, "") || 0));
+    const got = computed(() => Math.min(left, parseAmount(amount.value) || 0));
     const close = () => (state.sheet = null);
     const save = async () => { if (!(got.value > 0)) return close(); busy.value = true; err.value = null;
       try { await call("record_payment", { customer: o.customer, amount: got.value, mode_of_payment: mode.value, sales_order: o.order }, true);
@@ -4136,7 +4136,7 @@ const SupplierPaySheet = {
   props: ["opts"],
   setup(props) {
     const o = props.opts, left = +(+o.outstanding).toFixed(2), amount = ref(left), mode = ref((state.boot.modes || [])[0]?.value || "Cash"), busy = ref(false), err = ref(null);
-    const out = computed(() => Math.min(left, +String(amount.value).replace(/[\s,]/g, "") || 0));
+    const out = computed(() => Math.min(left, parseAmount(amount.value) || 0));
     const close = () => (state.sheet = null);
     const save = async () => { if (!(out.value > 0)) return; busy.value = true; err.value = null;
       try { await call("pay_supplier", { invoice: o.invoice, mode_of_payment: mode.value, amount: out.value }, true);
@@ -4154,6 +4154,13 @@ const SupplierPaySheet = {
     <div class="sh-foot"><button type="button" class="cl-btn" @click="close">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="busy || !(out > 0)">تسجيل الدفع</button></div>
   </form></div>`,
 };
+// an amount typed by hand: spaces and thousands separators are ignored; a comma followed by 1–2 digits at the end is the decimal mark (100,50)
+function parseAmount(v) {
+  let t = String(v ?? "").trim().replace(/\s/g, "");
+  if (/^-?\d+(,\d{3})*,\d{1,2}$/.test(t) || /^-?\d+,\d{1,2}$/.test(t)) { const k = t.lastIndexOf(","); t = t.slice(0, k).replace(/,/g, "") + "." + t.slice(k + 1); }
+  else t = t.replace(/,/g, "");
+  const n = +t; return Number.isFinite(n) ? n : 0;
+}
 // one rule for every way a card enters a column (drag, card menu, the order window, «move all»)
 // (no column marked for materials: the delivery column deducts them, as before)
 function afterColumnEnter(c, col, canCost, cols) {
@@ -4528,13 +4535,13 @@ const StockPage = {
         lines: [{ item_code: item?.item_code || "", n: "", price: "" }] }; };
     const billItem = (l) => (s.data?.items || []).find((i) => i.item_code === l.item_code);
     const billUnit = (l) => { const i = billItem(l); return i ? (packOf(i)?.name || uom(i.uom)) : ""; };
-    const billTotal = computed(() => (bill.value?.lines || []).reduce((a, l) => a + (+String(l.n).replace(",", ".") || 0) * (+String(l.price).replace(/[\s,]/g, "") || 0), 0));
+    const billTotal = computed(() => (bill.value?.lines || []).reduce((a, l) => a + (+String(l.n).replace(",", ".") || 0) * (parseAmount(l.price) || 0), 0));
     watch(billTotal, (t) => { if (bill.value && !bill.value.paidTouched) bill.value.paid = t ? +t.toFixed(2) : ""; });
-    const billPaid = computed(() => Math.min(billTotal.value, +String(bill.value?.paid ?? "").replace(/[\s,]/g, "") || 0));
+    const billPaid = computed(() => Math.min(billTotal.value, parseAmount(bill.value?.paid ?? "") || 0));
     const modeLabel = (v) => (state.boot.modes || []).find((m) => m.value === v)?.label || v;
     const saveBill = async () => { const b = bill.value; b.busy = true; b.err = null;
       try { const lines = b.lines.filter((l) => l.item_code && +l.n > 0).map((l) => { const i = billItem(l), p = packOf(i);
-          return { item_code: l.item_code, qty: +String(l.n).replace(",", "."), rate: +String(l.price).replace(/[\s,]/g, ""), uom: p ? p.name : null }; });
+          return { item_code: l.item_code, qty: +String(l.n).replace(",", "."), rate: parseAmount(l.price), uom: p ? p.name : null }; });
         if (!b.supplier) throw new Error("اختر المورد"); if (!lines.length) throw new Error("أضف مادة واحدة على الأقل");
         const r = await call("purchase_bill", { supplier: b.supplier, lines: JSON.stringify(lines), bill_no: b.bill_no, posting_date: b.date, paid: billPaid.value, mode: b.mode, due_date: r0(b) }, true);
         toast(r.owed > 0.005 ? `سُجّل الشراء — يبقى دين ${money(r.owed)}` : "سُجّل الشراء ودُفع"); bill.value = null; await load(); }
@@ -4608,7 +4615,7 @@ const StockPage = {
     const unitPer = () => { const f = sheet.value; return f.way === "roll" ? rollArea.value || 1 : f.way === "count" && n2(f.pack_qty) > 0 ? n2(f.pack_qty) : 1; };
     const minQty = () => +(n2(sheet.value.min_n) * unitPer()).toFixed(4);
     const unitName = computed(() => { const f = sheet.value; if (!f) return ""; return f.way === "roll" ? "لفّة" : f.way === "bottle" ? "قارورة" : f.pack && n2(f.pack_qty) > 0 ? f.pack : f.uom; });
-    const n2 = (v) => +String(v ?? "").replace(/[\s,]/g, "") || 0;
+    const n2 = (v) => parseAmount(v ?? "") || 0;
     // buying: by the roll, by the bottle, by the pack or by the unit; the stock always moves in the stock unit
     // what is bought / counted, in the material's own words: rolls and m², bottles, packs and sheets
     const PLURAL = { "ورقة": "الأوراق", "قطعة": "القطع", "علبة": "العلب", "رزمة": "الرزم", "متر طولي": "الأمتار", "لتر": "اللترات", "كرتونة": "الكراتين", "لفّة": "اللفّات", "قارورة": "القارورات", "م²": "الأمتار المربعة" };
@@ -4667,7 +4674,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { countUnits, packNames, sColor, sections, secOf, secValue, groups, folded, tabWay, state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { parseAmount, countUnits, packNames, sColor, sections, secOf, secValue, groups, folded, tabWay, state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -4734,7 +4741,7 @@ const StockPage = {
         <tr v-for="(l, k) in bill.lines" :key="k"><td><select class="input" v-model="l.item_code" aria-label="المادة"><option value="" disabled>اختر المادة</option><option v-for="i in s.data.items" :key="i.item_code" :value="i.item_code">{{ i.item_name }}</option></select></td>
           <td><div class="stk-suf"><input class="input" inputmode="decimal" v-model="l.n" aria-label="العدد"><em>{{ billUnit(l) }}</em></div></td>
           <td><div class="stk-suf"><input class="input" inputmode="decimal" v-model="l.price" aria-label="سعر الواحدة"><em>دج</em></div></td>
-          <td class="n"><b>{{ money((+l.n || 0) * (+String(l.price).replace(/[\s,]/g, '') || 0)) }}</b></td>
+          <td class="n"><b>{{ money((+l.n || 0) * (parseAmount(l.price) || 0)) }}</b></td>
           <td><button v-if="bill.lines.length > 1" type="button" class="cl-btn icon sm" aria-label="حذف السطر" @click="bill.lines.splice(k, 1)">×</button></td></tr></tbody></table>
       <button type="button" class="cl-link" style="align-self:flex-start" @click="bill.lines.push({item_code: '', n: '', price: ''})">+ مادة أخرى</button>
       <div class="stk-bltot"><span>المجموع</span><b>{{ money(billTotal) }}</b></div>

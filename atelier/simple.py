@@ -1464,7 +1464,12 @@ def pay_supplier(invoice, mode_of_payment="Cash", amount=None):
 		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
 	pe = get_payment_entry("Purchase Invoice", invoice, bank_account=api._cash_account(mode_of_payment, api._company()))
 	pe.mode_of_payment = mode_of_payment
-	if amount is not None and 0 < flt(amount) < flt(pe.paid_amount):
+	if amount not in (None, ""):
+		if flt(amount) <= 0:
+			frappe.throw(_("المبلغ يجب أن يكون أكبر من صفر"))
+		if flt(amount) > flt(pe.paid_amount) + 0.005:
+			frappe.throw(_("المبلغ أكبر من الباقي للمورد ({0})").format(frappe.format_value(pe.paid_amount, {"fieldtype": "Currency"})))
+	if amount not in (None, "") and flt(amount) < flt(pe.paid_amount):
 		pe.paid_amount = pe.received_amount = flt(amount)
 		for r in pe.references:
 			r.allocated_amount = min(flt(amount), flt(r.outstanding_amount))
