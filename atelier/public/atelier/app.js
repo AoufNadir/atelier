@@ -2835,8 +2835,17 @@ const SuppliersPage = {
     });
     const openPOs = computed(() => (d.value?.orders || []).filter((o) => o.per_billed < 100).length);
     const openInvoices = computed(() => (d.value?.invoices || []).filter((i) => i.outstanding_amount > 0.005));
+    // list + side panel (same pattern as customers)
+    const pv = ref(null), pvd = ref(null), pvCache = {};
+    const peek = async (x) => { pv.value = x; pvd.value = pvCache[x.name] || null;
+      if (!pvd.value) { try { const r = await call("supplier2", { name: x.name }); pvCache[x.name] = r; if (pv.value?.name === x.name) pvd.value = r; } catch { pvd.value = { items: [], payments: [] }; } } };
+    const onKeys = (e) => { if (sel.value || !["ArrowDown", "ArrowUp"].includes(e.key) || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) return;
+      const list = shown.value; if (!list.length) return; e.preventDefault();
+      const i = pv.value ? list.findIndex((x) => x.name === pv.value.name) : -1, n = Math.max(0, Math.min(list.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)));
+      peek(list[n]); nextTick(() => document.querySelector(`[data-cs="${CSS.escape(list[n].name)}"]`)?.scrollIntoView({ block: "nearest" })); };
+    onMounted(() => window.addEventListener("keydown", onKeys)); onBeforeUnmount(() => window.removeEventListener("keydown", onKeys));
     if (sel.value) open(sel.value);
-    return { s, load, sel, d, err, tab, busy, q, filter, more, pmenu, FILTERS, rows, kpi, change, open, lastWord, exportList, form, mode, newSupplier, edit, saveSupplier,
+    return { pv, pvd, peek, s, load, sel, d, err, tab, busy, q, filter, more, pmenu, FILTERS, rows, kpi, change, open, lastWord, exportList, form, mode, newSupplier, edit, saveSupplier,
       newPO, savePO, newInvoice, saveInvoice, payInvoice, oldest, toggleDisabled, invState, poState, TABS, waLink, money, fig, date, dueWord, state, go,
       active, chips, shown, sup, week, closeSupplier, hf, history, openPOs, openInvoices };
   },
@@ -2857,16 +2866,12 @@ const SuppliersPage = {
       <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
       <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
       <template v-else-if="s.data">
-        <div class="cl-stats mn-stats3">
-          <button type="button" @click="filter = 'owe'; sup = ''"><span>علينا للموردين</span><b class="money" style="color:#B54708">{{ money(kpi.owe) }}</b><small>{{ active.filter(x => x.owe > 0.005).length }} موردين<template v-if="kpi.lateN"> · {{ kpi.lateN }} متأخرون</template></small></button>
-          <button type="button" style="cursor:default"><span>يستحق هذا الأسبوع</span><b class="money">{{ money(week.amount) }}</b><small class="ellipsis">{{ week.who.length ? week.who.join('، ') : 'لا شيء يستحق' }}</small></button>
-          <button type="button" style="cursor:default"><span>اشترينا هذا الشهر</span><b class="money">{{ money(kpi.month) }}</b><small>{{ change(kpi.month, s.data.prev_month) }}</small></button>
-        </div>
+        <div class="cs-grid">
         <div class="cl-table-wrap"><table class="cl-table cl-table2">
           <thead><tr><th>المورد</th><th class="desktop-only">ما نشتريه منه</th><th class="desktop-only">آخر شراء</th><th class="n">علينا له</th></tr></thead>
           <tbody>
             <tr v-if="!shown.length"><td colspan="4" class="cl-empty">{{ (s.data.rows || []).length ? 'لا موردين يطابقون البحث أو التصفية.' : 'لا موردين بعد. أضف أول مورد.' }}</td></tr>
-            <tr v-for="x in shown" :key="x.name" :class="{off: x.disabled}" tabindex="0" @click="open(x.name)" @keydown.enter="open(x.name)">
+            <tr v-for="x in shown" :key="x.name" :class="{off: x.disabled, sel: pv && pv.name === x.name}" tabindex="0" :data-cs="x.name" @click="peek(x)" @dblclick="open(x.name)" @keydown.enter="open(x.name)">
               <td><div class="cl-who"><Avatar :name="x.supplier_name" :size="36"/><div style="min-width:0"><span class="cl-name">{{ x.supplier_name }}</span>
                 <span class="cl-sub"><span v-if="x.atelier_phone" dir="ltr">{{ x.atelier_phone }}</span><template v-else>—</template></span></div></div></td>
               <td class="desktop-only"><span v-if="x.atelier_supplies" class="cp-stage">{{ x.atelier_supplies }}</span><span v-else class="muted">—</span></td>
@@ -2874,6 +2879,33 @@ const SuppliersPage = {
               <td class="n"><span v-if="x.owe > 0.005" class="cl-bal" :class="x.late ? 'bad' : 'warn-b'"><i></i>{{ money(x.owe) }}</span><span v-else class="cl-bal">خالص</span>
                 <span v-if="x.late" class="cl-late">متأخر {{ x.late }} {{ x.late === 1 ? 'يوم' : 'أيام' }}</span></td>
             </tr></tbody></table></div>
+        <aside class="cs-side">
+          <template v-if="!pv">
+            <div class="cs-sh"><div><h3>نظرة عامة</h3><small>اختر موردًا لترى تفاصيله · <kbd>↑</kbd> <kbd>↓</kbd> للتنقل</small></div></div>
+            <button type="button" class="cs-big" @click="filter = 'owe'; sup = ''"><span>علينا للموردين</span><b class="money" style="color:#B54708">{{ money(kpi.owe) }}</b><small>{{ active.filter(x => x.owe > 0.005).length }} موردين · {{ kpi.invoices }} فواتير غير مدفوعة</small></button>
+            <div class="cs-sec"><h4>يستحق هذا الأسبوع</h4><div class="cs-li"><span>{{ week.who.length ? week.who.join('، ') : 'لا شيء يستحق' }}</span><b>{{ money(week.amount) }}</b></div></div>
+            <div class="cs-sec"><h4>متأخر الدفع</h4><div v-if="!kpi.lateN" class="muted">لا شيء متأخر.</div>
+              <div v-for="x in active.filter(x => x.late > 0).slice(0, 5)" :key="x.name" class="cs-li" @click="peek(x)"><span>{{ x.supplier_name }}</span><b class="bad">{{ money(x.late_amount) }} · {{ x.late }} يومًا</b></div></div>
+            <div class="cs-sec"><h4>اشترينا هذا الشهر</h4><div class="cs-li"><span>{{ change(kpi.month, s.data.prev_month) }}</span><b>{{ money(kpi.month) }}</b></div></div>
+          </template>
+          <template v-else>
+            <div class="cs-sh"><Avatar :name="pv.supplier_name" :size="44"/><div style="min-width:0"><h3 class="ellipsis">{{ pv.supplier_name }}</h3><small>{{ [pv.atelier_supplies, pv.atelier_phone].filter(Boolean).join(' · ') || 'مورد' }}</small></div>
+              <button type="button" class="cl-btn icon sm" style="margin-inline-start:auto" aria-label="إغلاق" @click="pv = null">×</button></div>
+            <div class="cs-big"><span>علينا له الآن</span><b class="money" :class="pv.owe > 0.005 ? 'bad' : 'ok'">{{ pv.owe > 0.005 ? money(pv.owe) : 'لا شيء' }}</b>
+              <small>{{ pv.open_invoices ? pv.open_invoices + ' فواتير غير مدفوعة' : 'لا فواتير مفتوحة' }}<template v-if="pv.late"> · متأخر {{ pv.late }} يومًا</template></small></div>
+            <div class="cs-acts"><a v-if="pv.atelier_phone" class="cl-btn sm" :href="'tel:' + pv.atelier_phone">اتصال</a><a v-if="waLink(pv.atelier_phone)" class="cl-btn sm" target="_blank" rel="noopener" :href="waLink(pv.atelier_phone)">واتساب</a>
+              <span class="spacer"></span><button type="button" class="cl-btn sm primary" @click="open(pv.name)">فتح الملف</button></div>
+            <div v-if="!pvd" class="ws-loading">…</div>
+            <template v-else>
+              <div class="cs-sec"><h4>ما نشتريه منه</h4><div v-for="x in (pvd.items || []).slice(0, 4)" :key="x.what" class="cs-li"><span class="ellipsis">{{ x.what }}</span><span>{{ fig(x.amount) }}</span></div>
+                <div v-if="!(pvd.items || []).length" class="muted">لا مشتريات مفوترة بعد.</div></div>
+              <div class="cs-sec"><h4>آخر الدفعات</h4><div v-for="p in (pvd.payments || []).slice(0, 3)" :key="p.name" class="cs-li"><span>{{ date(p.posting_date) }}</span><b>{{ money(p.paid_amount || p.amount || 0) }}</b></div>
+                <div v-if="!(pvd.payments || []).length" class="muted">لا دفعات بعد.</div></div>
+              <div v-if="pvd.note" class="cs-sec"><h4>ملاحظة</h4><div class="muted">{{ pvd.note }}</div></div>
+            </template>
+          </template>
+        </aside>
+        </div>
       </template>
     </div>
 
@@ -2941,6 +2973,7 @@ const SuppliersPage = {
             <div class="row" style="gap:8px"><button type="submit" class="cl-btn primary" :disabled="busy === 'inv' || (!form.purchase_order && (!form.description.trim() || !(+form.amount > 0)))">تسجيل الفاتورة</button><button type="button" class="cl-btn" @click="form = null">إلغاء</button></div>
           </form>
 
+          <div class="cp-2col"><div class="cp-main">
           <div class="cp-card cp-acc">
             <div><span class="muted">علينا له الآن</span><b :class="d.owe > 0.005 ? 'bad' : 'ok'">{{ d.owe > 0.005 ? money(d.owe) : 'لا شيء' }}</b>
               <span v-if="openInvoices.length" class="muted">{{ openInvoices.length }} {{ openInvoices.length === 1 ? 'فاتورة غير مدفوعة' : 'فواتير غير مدفوعة' }}<template v-if="oldest && oldest.late"> · أقدمها متأخرة {{ oldest.late }} يومًا</template></span>
@@ -2970,28 +3003,22 @@ const SuppliersPage = {
               </tr></tbody></table></div>
           </section>
 
-          <section class="cp-card cp-more">
-            <nav class="cl-tabs" role="tablist"><button v-for="x in TABS" :key="x[0]" type="button" role="tab" :aria-selected="tab === x[0]" @click="tab = x[0]">{{ x[1] }}<span v-if="x[0] === 'payments'" class="muted"> {{ d.payments.length }}</span></button></nav>
-            <div class="cl-p-body">
-              <template v-if="tab === 'payments'">
-                <div v-if="!d.payments.length" class="muted">لا دفعات بعد.</div>
-                <div v-for="p in d.payments" :key="p.name" class="cl-line"><div style="flex:1;min-width:0"><span class="cl-line-t">{{ date(p.posting_date) }}</span>
-                  <span class="muted">{{ (state.boot.modes.find(m => m.value === p.mode_of_payment) || {}).label || p.mode_of_payment || '—' }}<template v-if="p.reference_no && p.reference_no !== '—'"> · رقم {{ p.reference_no }}</template></span></div><b>{{ fig(p.paid_amount) }}</b></div>
-              </template>
-              <template v-else-if="tab === 'items'">
-                <div v-if="!d.items.length" class="muted">لا مشتريات مفوترة بعد.</div>
-                <div v-for="x in d.items" :key="x.what" class="cl-kv"><span class="ellipsis">{{ x.what }}</span><span><b>{{ fig(x.amount) }}</b> <span class="muted">· آخرها {{ date(x.last) }}</span></span></div>
-              </template>
-              <template v-else>
-                <div class="cl-kv"><span>الهاتف</span><span dir="ltr">{{ d.phone || '—' }}</span></div>
-                <div class="cl-kv"><span>البريد</span><span dir="ltr">{{ d.email || '—' }}</span></div>
-                <div class="cl-kv"><span>العنوان</span><span>{{ d.address || '—' }}</span></div>
-                <div class="cl-kv"><span>الرقم الجبائي NIF</span><span dir="ltr">{{ d.tax_id || '—' }}</span></div>
-                <div class="cl-kv"><span>السجل التجاري RC</span><span dir="ltr">{{ d.rc || '—' }}</span></div>
-                <div class="cl-kv"><span>ملاحظة</span><span>{{ d.note || '—' }}</span></div>
-              </template>
-            </div>
-          </section>
+          </div>
+          <aside class="cp-side">
+            <section class="cp-card cp-sc"><h3>ما اشتريناه منه</h3>
+              <div v-for="x in d.items.slice(0, 8)" :key="x.what" class="cp-kv"><span class="ellipsis">{{ x.what }}</span><b>{{ fig(x.amount) }}</b></div>
+              <div v-if="!d.items.length" class="muted cp-small">لا مشتريات مفوترة بعد.</div></section>
+            <section class="cp-card cp-sc"><h3>الدفعات <span class="muted">{{ d.payments.length }}</span></h3>
+              <div v-for="p in d.payments.slice(0, 6)" :key="p.name" class="cp-kv"><span>{{ date(p.posting_date) }} · {{ (state.boot.modes.find(m => m.value === p.mode_of_payment) || {}).label || p.mode_of_payment || '—' }}</span><b>{{ fig(p.paid_amount || p.amount || 0) }}</b></div>
+              <div v-if="!d.payments.length" class="muted cp-small">لا دفعات بعد.</div></section>
+            <section class="cp-card cp-sc"><h3>البيانات<button v-if="d.can_edit" type="button" class="cl-link" @click="edit">تعديل</button></h3>
+              <div class="cp-kv"><span>الهاتف</span><b dir="ltr">{{ d.phone || '—' }}</b></div>
+              <div class="cp-kv"><span>البريد</span><b dir="ltr">{{ d.email || '—' }}</b></div>
+              <div class="cp-kv"><span>العنوان</span><b>{{ d.address || '—' }}</b></div>
+              <div class="cp-kv"><span>NIF</span><b dir="ltr">{{ d.tax_id || '—' }}</b></div>
+              <div class="cp-kv"><span>RC</span><b dir="ltr">{{ d.rc || '—' }}</b></div>
+              <div v-if="d.note" class="cp-kv"><span>ملاحظة</span><b>{{ d.note }}</b></div></section>
+          </aside></div>
         </template>
       </template>
     </div>
