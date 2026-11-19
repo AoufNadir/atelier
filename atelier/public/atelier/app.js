@@ -569,7 +569,9 @@ const ServicesPage = {
     const mgText = (i) => (i.margin !== null ? Math.round(i.margin) + "%" : i.is_stock_item ? "مادة" : i.cost === null ? "بلا وصفة" : "—");
     const setPrice = async (i, kind, v) => { const key = kind === "Company" ? "price_company" : "price_individual"; const val = String(v).trim() === "" ? "" : parseAmount(v);
       if (val !== "" && (Number.isNaN(val) || val < 0)) return toast("سعر غير صحيح", "error"); if ((val === "" ? null : val) === i[key]) return;
-      busy.value = i.item_code + kind; try { i[key] = await call("set_price", { item_code: i.item_code, kind, rate: val }, true); toast("حُفظ السعر"); await load(); }
+      busy.value = i.item_code + kind; try { i[key] = await call("set_price", { item_code: i.item_code, kind, rate: val }, true);
+        // new orders read prices from boot: keep it in step so the next order suggests the new price
+        const b = (state.boot.items || []).find((x) => x.item_code === i.item_code); if (b) b[key] = i[key]; toast("حُفظ السعر"); await load(); }
       catch (e) { toast(e.message, "error"); } finally { busy.value = null; } };
     const saveTarget = async () => { try { await call("set_target_margin", { value: target.value }, true); toast("حُفظ الهامش المستهدف"); await load(); } catch (e) { toast(e.message, "error"); } };
     const monthName = (ym) => new Intl.DateTimeFormat("ar", { month: "long" }).format(new Date(ym + "-01T00:00:00"));
@@ -1072,6 +1074,7 @@ const BoardPanel = {
     watch(() => f.column, async (c, old) => { if (!(ready.value && c && old && c !== old)) return;
       await run(() => call("move_card", { name: props.edit, column: c }, true));
       const col = boardCols.value.find((x) => x.id === c), e = ed.value || {};
+      if (col && (col.supplier || col.materials || col.deliver)) toast(col.supplier ? "بعد إغلاق نافذة الطلب يُسأل عن تكلفة المورد" : col.deliver ? "بعد إغلاق نافذة الطلب يُسأل عن التحصيل" : "بعد إغلاق نافذة الطلب يُسأل عن المواد المستهلكة");
       afterColumnEnter({ name: props.edit, title: f.subject || e.title, customer: e.customer, customer_name: e.customer_name, grand_total: e.grand_total, paid: e.paid, price_pending: e.price_pending }, col, state.boot.role === "manager" || state.boot.can.cost, boardCols.value); });
     const flush = async () => { clearTimeout(timers.meta); clearTimeout(timers.lines); if (!ready.value) return; await saveMeta(); await saveLinesNow(); };
     const closeEdit = async () => { if (ready.value && sv.value !== "error") await flush(); emit("close"); };
@@ -1286,7 +1289,7 @@ const BoardPanel = {
               <span v-if="unpriced > 0" class="m tm3-hint hint">سعّر كل البنود لإصدار Devis أو Pro forma.</span></div></span>
             <button v-if="ed.materials_pending" type="button" class="cl-btn sm" @click="materials">خصم مواد الطلب من المخزون</button></div></section>
 
-          <section v-else class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>تسبيق</b></div><div class="od-pad">
+          <section v-else-if="state.boot.can.payment" class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>تسبيق</b></div><div class="od-pad">
             <div class="unit-wrap"><input id="qo-adv" class="input num" inputmode="decimal" v-model="f.advance" placeholder="0" aria-label="التسبيق"><span class="u">دج</span></div>
             <div v-if="+f.advance > 0" class="bd-chips"><button v-for="m in state.boot.modes" :key="m.value" type="button" class="bd-chip" :aria-pressed="f.mode === m.value" @click="f.mode = m.value">{{ m.label }}</button></div></div></section>
           <section class="od-card"><div class="od-ch"><Icon name="users" :size="18"/><b>من يعمل عليه؟</b></div><div class="od-pad">
@@ -1922,7 +1925,7 @@ const Board = {
             @open="open = card.name" @drag="dragging = $event" @dropon="dropOn" @menu="openMenu" @status="openStatus" @hover="hovered = $event"/>
         </TransitionGroup>
         <div v-if="dragging && over === c.id && !before && dragging.column !== c.id" class="tb-ph" aria-hidden="true"></div>
-        <button v-if="c.deliver && paidCount(c)" type="button" class="tb-addbtn" @click="archivePaid(c.id)">أرشفة المدفوع كله ({{ paidCount(c) }})</button>
+        <button v-if="c.deliver && paidCount(c) && state.boot.can.payment" type="button" class="tb-addbtn" @click="archivePaid(c.id)">أرشفة المدفوع كله ({{ paidCount(c) }})</button>
         <template v-if="!c.deliver">
           <form v-if="adding === c.id" class="tb-add" @submit.prevent="addCard(c.id)">
             <textarea :id="'add-' + c.id" class="input tb-addin" v-model="newTitle" rows="1" placeholder="عنوان البطاقة…" aria-label="عنوان البطاقة" @keydown.enter.prevent="addCard(c.id)" @keydown.esc="adding = null"></textarea>
@@ -2873,8 +2876,8 @@ const SimpleMoney = {
                 <div v-for="m in g.items" :key="m.voucher_no" class="mn-mv">
                   <span class="mn-ic" :class="m.kind" aria-hidden="true">{{ m.kind === 'in' ? '↓' : m.kind === 'out' ? '↑' : m.kind === 'owner' ? (m.amount < 0 ? '↑' : '↓') : '⇄' }}</span>
                   <div style="min-width:0"><span class="cl-name">{{ m.title }}<Icon v-if="m.files" name="file" :size="13" class="mn-clip"/></span>
-                    <span class="muted mn-sub">{{ m.category }}<template v-if="m.ref"> · صك {{ m.ref }}</template><template v-if="m.order"> · <a :href="'/atelier/?card=' + m.order" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">{{ m.order_title || m.order }}</a></template> · {{ [m.fund, m.by].filter(Boolean).join(' · ') }}</span></div>
-                  <span class="mn-amt" :class="m.kind">{{ m.kind === 'transfer' || m.kind === 'handover' ? '' : m.amount >= 0 ? '+' : '−' }}{{ fig(Math.abs(m.amount)) }}</span>
+                    <span class="muted mn-sub">{{ m.category }}<template v-if="m.handover"> · استلم المدير {{ fig(m.handover.received) }} · أُغلق {{ fig(m.handover.closed) }}<template v-if="Math.abs(m.handover.diff) > 0.005"> · {{ m.handover.diff < 0 ? 'عجز' : 'زيادة' }} {{ fig(Math.abs(m.handover.diff)) }}</template></template><template v-if="m.ref"> · مرجع {{ m.ref }}</template><template v-if="m.order"> · <a :href="'/atelier/?card=' + m.order" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">{{ m.order_title || m.order }}</a></template> · {{ [m.fund, m.by].filter(Boolean).join(' · ') }}</span></div>
+                  <span class="mn-amt" :class="m.kind">{{ m.kind === 'transfer' || m.kind === 'handover' ? '' : m.amount >= 0 ? '+' : '−' }}{{ fig(m.handover ? m.handover.received : Math.abs(m.amount)) }}</span>
                 </div>
               </template>
             </section>
@@ -3735,7 +3738,7 @@ const MaterialsReport = {
     <template v-else>
       <div class="mr-kpis">
         <div><span>استُهلك من المواد</span><b class="money">{{ money(d.used_value) }}</b><small>بسعر الشراء</small></div>
-        <div><span>التالف</span><b class="money" :class="{warn: d.waste_value > 0}">{{ money(d.waste_value) }}</b><small>{{ d.used_value ? Math.round(d.waste_value / d.used_value * 100) + '% من الاستهلاك' : '—' }}</small></div>
+        <div><span>التالف</span><b class="money" :class="{warn: d.waste_value > 0}">{{ money(d.waste_value) }}</b><small>{{ d.used_value ? Math.round(d.waste_value / d.used_value * 100) + '% من الاستهلاك' : '—' }}<template v-if="d.weak_value > 0"> · وفرق غير مفسّر {{ money(d.weak_value) }} في دورات ضعيفة التغطية</template></small></div>
         <div><span>لفّات ورزم منتهية</span><b>{{ d.cycles }}</b><small>{{ d.good }} موثوقة<template v-if="d.cycles - d.good"> · {{ d.cycles - d.good }} تغطيتها ضعيفة</template></small></div>
         <div><span>المخزون الآن</span><b class="money">{{ money(d.stock_value) }}</b><small>{{ d.low ? d.low + ' مادة تنقص قريبًا' : 'لا شيء ينقص' }}</small></div></div>
       <section class="mn-card"><div class="mn-card-h"><b>كل مادة</b><span class="muted">مرتبة حسب قيمة التالف — ما يستحق انتباهك أولًا</span></div>
@@ -3743,7 +3746,8 @@ const MaterialsReport = {
           <tbody><tr v-for="r in d.rows" :key="r.item_code" :class="{sel: sel && sel.item_code === r.item_code}" tabindex="0" @click="open(r)" @keydown.enter="open(r)">
             <td><b>{{ r.item_name }}</b><span v-if="r.cycles" class="muted mr-sub">{{ r.cycles }} منتهية</span></td>
             <td class="n">{{ qty(r, r.used) }} {{ u(r.uom) }}</td>
-            <td class="n"><span v-if="r.waste_pct !== null" :class="r.waste_pct > 10 ? 'bad' : r.waste_pct > 5 ? 'warn' : ''">{{ qty(r, r.waste) }} · {{ r.waste_pct }}%</span><span v-else class="muted">—</span></td>
+            <td class="n"><span v-if="r.waste_pct !== null" :class="r.waste_pct > 10 ? 'bad' : r.waste_pct > 5 ? 'warn' : ''">{{ qty(r, r.waste) }} · {{ r.waste_pct }}%</span><span v-else-if="!(r.weak > 0)" class="muted">—</span>
+              <span v-if="r.weak > 0" class="m mr-weak" title="انتهت دورة سُجّل فيها على الطلبات أقل من 70%: الفرق حقيقي لكن لا نعرف أي جزء منه تالف">فرق غير مفسّر {{ qty(r, r.weak) }} (تغطية ضعيفة)</span></td>
             <td class="n">{{ r.unit_buy ? money(r.unit_buy) : '—' }}</td>
             <td class="n"><b v-if="r.way === 'bottle' && r.per_m2">≈ {{ money(r.per_m2) }} / م² مطبوع</b><b v-else-if="r.unit_real">{{ money(r.unit_real) }}</b><span v-else class="muted">—</span></td>
             <td class="n"><span v-if="r.diff_pct !== null" :class="r.diff_pct > 10 ? 'bad' : r.diff_pct > 5 ? 'warn' : ''">+{{ r.diff_pct }}%</span><span v-else class="muted">—</span></td>
@@ -3755,7 +3759,7 @@ const MaterialsReport = {
           <table v-else class="cl-table mr-t"><thead><tr><th>انتهت</th><th class="n">المدة</th><th>خُصم على الطلبات</th><th class="n">التالف</th><th class="n">تكلفة الوحدة الحقيقية</th><th>التغطية</th></tr></thead>
             <tbody><tr v-for="(c, k) in det.cycles" :key="k"><td>{{ date(c.closed_on) }}</td><td class="n">{{ c.days !== null ? c.days + ' يومًا' : '—' }}</td>
               <td><span class="mr-bar"><i :style="{width: Math.min(100, c.coverage) + '%'}"></i></span>{{ qty(sel, c.recorded) }} · {{ c.n_orders }} طلبات</td>
-              <td class="n"><span v-if="c.coverage >= 70" :class="c.gap / c.size > 0.1 ? 'bad' : 'ok'">{{ qty(sel, c.gap) }} · {{ Math.round(c.gap / c.size * 100) }}%</span><span v-else class="muted">—</span></td>
+              <td class="n"><span v-if="c.coverage >= 70" :class="c.gap / c.size > 0.1 ? 'bad' : 'ok'">{{ qty(sel, c.gap) }} · {{ Math.round(c.gap / c.size * 100) }}%</span><span v-else class="mr-weak">{{ qty(sel, c.gap) }} غير مفسّر</span></td>
               <td class="n">{{ c.real ? money(c.real) : '—' }}</td><td><span class="mr-pill" :class="c.coverage >= 70 ? 'ok' : 'bad'">{{ Math.round(c.coverage) }}%{{ c.coverage < 70 ? ' غير موثوقة' : '' }}</span></td></tr>
               <tr v-if="!det.cycles.length"><td colspan="6" class="muted" style="text-align:center;padding:16px">لا {{ det.pack || 'دورات' }} منتهية بعد. اضغط «انتهت» في المخزون حين تفتح الجديدة.</td></tr></tbody></table></section>
         <section class="mn-card"><div class="mn-card-h"><b>سعر الشراء</b><span class="muted">لكل {{ det && det.pack ? det.pack : u(sel.uom) }} حسب المورد</span></div>
@@ -4184,9 +4188,9 @@ const OutsourceSheet = {
     onMounted(async () => { try { list.value = await call("supplier_names"); } catch { /* optional */ } });
     const close = () => (state.sheet = null);
     const save = async () => { busy.value = true; err.value = null;
-      try { await call("outsource_cost", { order: props.opts.order, amount: amount.value, supplier: supplier.value, note: note.value }, true); toast("سُجّلت تكلفة المورد على الطلب"); state.rev++; close(); }
+      try { await call("outsource_cost", { order: props.opts.order, amount: parseAmount(amount.value), supplier: supplier.value, note: note.value }, true); toast("سُجّلت تكلفة المورد على الطلب"); state.rev++; close(); }
       catch (e) { err.value = e.message; } finally { busy.value = false; } };
-    return { amount, supplier, note, list, busy, err, close, save, opts: props.opts };
+    return { parseAmount, amount, supplier, note, list, busy, err, close, save, opts: props.opts };
   },
   template: `
   <div class="overlay" @click.self="close"><form class="sheet" @submit.prevent="save"><div class="sh-head"><div><h2>عند مورد</h2><span class="muted">«{{ opts.title }}» انتقل إلى «{{ opts.column }}». لن يُخصم ورق ولا لفّات من مخزنك.</span></div></div>
@@ -4194,7 +4198,8 @@ const OutsourceSheet = {
     <div class="stk-g3"><div class="field stk-span2"><label for="os-s">المورد</label><select id="os-s" class="input" v-model="supplier"><option value="">—</option><option v-for="x in list" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select></div>
       <div class="field"><label for="os-a">كم كلّفك؟</label><div class="stk-suf"><input id="os-a" class="input" inputmode="decimal" v-model="amount" placeholder="0"><em>دج</em></div></div></div>
     <div class="field"><label for="os-n">ملاحظة</label><input id="os-n" class="input" v-model="note" placeholder="مثلًا: طباعة أوفست 1000 نسخة"></div>
-    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy || !(+amount > 0)">تسجيل التكلفة</button></div>
+    <p class="stk-payres">هذا <b>تقدير تكلفة</b> يدخل في ربح الطلب فقط، ولا يُنشئ دينًا للمورد. حين تصلك فاتورته سجّلها من ملف المورد ← «فاتورة».</p>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy || !(parseAmount(amount) > 0)">تسجيل تقدير التكلفة</button></div>
   </form></div>`,
 };
 const MaterialsSheet = {
@@ -4544,7 +4549,7 @@ const StockPage = {
           return { item_code: l.item_code, qty: +String(l.n).replace(",", "."), rate: parseAmount(l.price), uom: p ? p.name : null }; });
         if (!b.supplier) throw new Error("اختر المورد"); if (!lines.length) throw new Error("أضف مادة واحدة على الأقل");
         const r = await call("purchase_bill", { supplier: b.supplier, lines: JSON.stringify(lines), bill_no: b.bill_no, posting_date: b.date, paid: billPaid.value, mode: b.mode, due_date: r0(b) }, true);
-        toast(r.owed > 0.005 ? `سُجّل الشراء — يبقى دين ${money(r.owed)}` : "سُجّل الشراء ودُفع"); bill.value = null; await load(); }
+        toast(r.owed > 0.005 ? `سُجّل الشراء — يبقى دين ${money(r.owed)}` : "سُجّل الشراء ودُفع"); bill.value = null; await load(); if (selItem.value) pick(selItem.value); }
       catch (e) { b.err = e.message; } finally { if (bill.value) bill.value.busy = false; } };
     const r0 = (b) => (billTotal.value - billPaid.value > 0.005 && b.due ? b.due : null);
     const quickSupplierBill = async () => { const n = (prompt("اسم المورد الجديد") || "").trim(); if (!n) return;
@@ -4679,7 +4684,7 @@ const StockPage = {
   template: `
   <div class="page tb cb">
     <div class="stk-head"><h1>المخزون</h1><span class="spacer"></span>
-      <input class="input stk-q" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><SizeControl/><button type="button" class="cl-btn" @click="open('add')"><Icon name="plus" :size="16"/>مادة</button><button v-if="s.data && s.data.can_buy" type="button" class="cl-btn primary" @click="newBill()"><Icon name="plus" :size="16"/>شراء</button></div>
+      <input class="input stk-q" v-model="q" aria-label="بحث في المواد" placeholder="ابحث عن مادة"><SizeControl/><button v-if="s.data && s.data.can_buy" type="button" class="cl-btn" @click="open('add')"><Icon name="plus" :size="16"/>مادة</button><button v-if="s.data && s.data.can_buy" type="button" class="cl-btn primary" @click="newBill()"><Icon name="plus" :size="16"/>شراء</button></div>
     <div v-if="s.error" class="alert error" style="margin:0 28px 12px">{{ s.error }}</div>
     <div v-if="s.data" class="stock-body stk">
       <div class="stk-tabs" role="tablist" aria-label="أقسام المخزون"><button type="button" role="tab" :aria-selected="way === 'all'" @click="way = 'all'">الكل <small>{{ s.data.items.length }}<template v-if="s.data.can_value"> · {{ money(totalValue) }}</template></small></button>
@@ -4704,11 +4709,11 @@ const StockPage = {
             <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop>
               <button v-if="s.data.can_buy" type="button" class="tm-pop-row stk-buy" @click="newBill(i)">شراء هذه المادة</button>
               <button v-if="s.data.can_issue && wayOf(i) !== 'bottle' && canOpen(i)" type="button" class="tm-pop-row" @click="rowMenu = null; i.qty > 0 ? open('issue', i) : toast('لا كمية في المخزون للصرف — سجّل شراءً أولًا', 'error')">صرف يدوي</button>
-              <button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></div></div></td></tr></template></template>
+              <button type="button" class="tm-pop-row" @click="rowMenu = null; open('count', i)">جرد</button><template v-if="s.data.can_buy"><button type="button" class="tm-pop-row" @click="rowMenu = null; open('edit', i)">تعديل</button><button type="button" class="tm-pop-row tm3-danger" @click="rowMenu = null; remove(i)">حذف</button></template></div></div></td></tr></template></template>
           <tr v-if="!items.length"><td :colspan="s.data.can_value ? 5 : 4" class="muted" style="text-align:center;padding:24px">{{ onlyLow ? 'لا مواد تحت الحد الأدنى.' : s.data.items.length ? 'لا مواد تطابق.' : 'لا مواد بعد. أضف مادة ثم سجّل شراءً أو رصيدها بالجرد.' }}</td></tr></tbody></table></section>
       <aside v-if="selItem" class="mn-card stk-side">
         <div class="stk-sh"><b>{{ selItem.item_name }}</b><span class="stk-how">{{ STOCK_WAYS[wayOf(selItem)].label }}</span></div>
-        <span v-if="ledger && ledger.last_buy" class="m stk-small">آخر شراء {{ date(ledger.last_buy.posting_date) }} · {{ money(ledger.last_buy.rate) }} لكل {{ uom(selItem.uom) }} · {{ ledger.last_buy.supplier_name }}</span>
+        <span v-if="ledger && ledger.last_buy" class="m stk-small">آخر شراء {{ date(ledger.last_buy.posting_date) }}<template v-if="ledger.last_buy.rate != null"> · {{ money(ledger.last_buy.rate) }} لكل {{ ledger.last_buy.conversion_factor > 1 ? uom(ledger.last_buy.uom) : uom(selItem.uom) }}<template v-if="ledger.last_buy.conversion_factor > 1 && ledger.last_buy.stock_rate"> ({{ money(ledger.last_buy.stock_rate) }} لكل {{ uom(selItem.uom) }})</template></template> · {{ ledger.last_buy.supplier_name }}</span>
         <div v-if="canOpen(selItem)" class="stk-big"><span class="stk-gauge"><u :style="{height: openPct(selItem) + '%'}"></u></span>
           <div><b>{{ qn(selItem, selItem.qty) }} {{ uom(selItem.uom) }}</b><span>{{ staleClosed(selItem) ? 'صحّح عدد ال' + packWord(selItem) + ' المغلقة من «جرد»' : closedOf(selItem) + ' ' + packWord(selItem) + ' مغلقة + المفتوحة ≈ ' + qn(selItem, openLeft(selItem)) }}</span></div></div>
         <div class="stk-facts"><div v-if="!canOpen(selItem)"><span>المتوفر</span><b>{{ qn(selItem, selItem.qty) }} {{ uom(selItem.uom) }}</b></div>
@@ -4718,7 +4723,7 @@ const StockPage = {
           <div v-if="s.data.can_value && canOpen(selItem)"><span>تكلفة {{ uom(selItem.uom) }} (حقيقية)</span><b>{{ ledger && ledger.real_cost ? money(ledger.real_cost) : '—' }}</b><span v-if="ledger && !ledger.real_cost">بعد 3 {{ packWord(selItem) }} منتهية موثوقة ({{ ledger.good_cycles || 0 }}/3)</span></div></div>
         <div v-if="ledger && ledger.cycles && ledger.cycles.length" class="stk-opens"><b>ال{{ packWord(selItem) === 'لفّة' ? 'لفّات' : 'رزم' }} المنتهية</b>
           <div v-for="(c, k) in ledger.cycles.slice(0, 6)" :key="k"><span class="m">{{ date(c.closed_on) }}</span><span>خُصم {{ qn(selItem, c.recorded) }} من {{ qn(selItem, c.size) }}</span>
-            <span :class="c.coverage < 70 ? 'm' : c.gap / c.size > 0.1 ? 'bad' : 'ok'">{{ c.coverage < 70 ? 'غير موثوقة' : 'تالف ' + Math.round(c.gap / c.size * 100) + '%' }}</span></div></div>
+            <span :class="c.coverage < 70 ? 'm' : c.gap / c.size > 0.1 ? 'bad' : 'ok'">{{ c.coverage < 70 ? 'غير موثوقة · فرق ' + qn(selItem, c.gap) : 'تالف ' + Math.round(c.gap / c.size * 100) + '%' }}</span></div></div>
         <div v-if="selItem.cfg && selItem.cfg.opens && selItem.cfg.opens.length && !(ledger && ledger.cycles && ledger.cycles.length)" class="stk-opens"><b>آخر ما فُتح</b>
           <div v-for="(o, k) in selItem.cfg.opens.slice().reverse().slice(0, 5)" :key="k"><span class="m">{{ date(o.date) }}</span><span>{{ packWord(selItem) }} · استُهلكت {{ qn(selItem, o.size) }} {{ uom(selItem.uom) }}</span>
             <span :class="o.gap > 0.01 ? 'bad' : 'm'">{{ o.gap > 0.01 ? 'منها تالف ' + qn(selItem, o.gap) : o.gap < -0.01 ? 'أقل من المسجّل بـ ' + qn(selItem, -o.gap) : 'مطابق' }}</span></div></div>

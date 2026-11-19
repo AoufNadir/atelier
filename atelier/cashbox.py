@@ -66,6 +66,31 @@ def box_of(user, create=False):
 	return acc
 
 
+def cash_diff_account(company=None):
+	"""Shortages and surpluses of a cash box: their own expense account («فروق الصندوق»), not the currency
+	round-off account (on the Algerian chart that one is a foreign-exchange gain, 766)."""
+	company = company or _company()
+	acc = frappe.db.get_default("atelier_cash_diff_account")
+	if acc and frappe.db.get_value("Account", acc, "company") == company:
+		return acc
+	name = _("فروق الصندوق")
+	acc = frappe.db.get_value("Account", {"company": company, "account_name": name, "is_group": 0})
+	if not acc:
+		root = frappe.db.get_value("Account", {"company": company, "root_type": "Expense", "is_group": 1, "parent_account": ["in", ["", None]]}) \
+			or frappe.db.get_value("Account", {"company": company, "root_type": "Expense", "is_group": 1})
+		# «autres charges» (65) on the Algerian chart when it exists, else the last expense group
+		parent = frappe.db.get_value("Account", {"company": company, "root_type": "Expense", "is_group": 1, "account_number": ["like", "65%"]}, order_by="lft asc") \
+			or frappe.db.get_value("Account", {"company": company, "root_type": "Expense", "is_group": 1, "parent_account": root}, order_by="lft desc") or root
+		if not parent:
+			return frappe.get_cached_value("Company", company, "round_off_account")
+		doc = frappe.get_doc({"doctype": "Account", "company": company, "account_name": name, "parent_account": parent, "is_group": 0, "root_type": "Expense"})
+		doc.flags.ignore_permissions = True
+		doc.insert()
+		acc = doc.name
+	frappe.db.set_default("atelier_cash_diff_account", acc)
+	return acc
+
+
 def all_boxes():
 	return [r[0] for r in frappe.db.sql("select defvalue from `tabDefaultValue` where defkey='atelier_box'") if r[0] and frappe.db.exists("Account", r[0])]
 
@@ -177,9 +202,7 @@ def confirm_handover(id):
 	elif recorded < 0:
 		lines.append({"account": h["account"], "debit_in_account_currency": -recorded, "cost_center": cc})
 	if abs(diff) >= 0.01:
-		off, occ = frappe.get_cached_value("Company", company, ["round_off_account", "round_off_cost_center"])
-		if not off:
-			frappe.throw(_("لا يوجد حساب فروق التقريب في إعدادات الشركة"))
+		off, occ = cash_diff_account(company), frappe.get_cached_value("Company", company, "round_off_cost_center")
 		lines.append({"account": off, "cost_center": occ or cc, "debit_in_account_currency": -diff if diff < 0 else 0,
 			"credit_in_account_currency": diff if diff > 0 else 0})
 	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Contra Entry", "company": company, "posting_date": nowdate(),

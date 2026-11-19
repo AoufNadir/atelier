@@ -308,7 +308,12 @@ def pack_cycle(item_code):
 		if cint(so.get("atelier_materials_done")) or cint(so.get("atelier_outsourced")) or so.name in by_order:
 			continue
 		lines = frappe.get_all("Sales Order Item", filters={"parent": so.name},
-			fields=["qty", "atelier_unit", *(["atelier_per_sheet"] if frappe.db.has_column("Sales Order Item", "atelier_per_sheet") else []), *(["atelier_material"] if has_mat else [])])
+			fields=["qty", "item_code", "atelier_unit", *(["atelier_per_sheet"] if frappe.db.has_column("Sales Order Item", "atelier_per_sheet") else []), *(["atelier_material"] if has_mat else [])])
+		# counted materials (paper…): only lines that name this material, or whose service recipe uses it.
+		# A design service sold «per piece» is not paper.
+		if not roll:
+			lines = [l for l in lines if (l.get("atelier_material") or "") == item.name
+				or (not l.get("atelier_material") and any(x.get("item_code") == item.name for x in _recipe(l.item_code)))]
 		need = sum(_line_need(l, item.name, roll, c["waste"]) for l in lines)
 		if need > 0:
 			mine = any((l.get("atelier_material") or "") == item.name for l in lines)
@@ -359,9 +364,15 @@ def open_pack(item_code):
 		frappe.throw(_("لا توجد {0} مغلقة مسجّلة. سجّل الشراء أولًا، أو صحّح عدد المغلقة من «جرد».").format(c["pack"] or "لفّة"))
 	store = store_for(api._company())
 	before = _on_hand(item.name, store)
-	c["closed"] -= 1
-	actual = round(c["closed"] * size + size, 4)
-	gap = round(before - actual, 4)  # > 0: more was used than recorded (waste); < 0: recorded more than used
+	# unopened packs as recorded, but never more than the stock can hold: when every pack is still counted as closed,
+	# the one being finished was one of them (a full-pack opening stock, or a count never corrected)
+	closed = min(c["closed"], int(math.floor(before / size + 1e-9)))
+	if closed < 1:
+		frappe.throw(_("لا توجد {0} مغلقة في المخزون لفتحها. سجّل الشراء أولًا، أو صحّح الكمية من «جرد».").format(c["pack"] or "لفّة"))
+	# after: the closed packs minus the one just opened, plus that one full = closed × size. Finishing a pack never adds stock.
+	c["closed"] = closed - 1
+	actual = round(closed * size, 4)
+	gap = round(before - actual, 4)  # ≥ 0: the part of the finished pack that no order recorded (waste or unrecorded use)
 	if abs(gap) > 1e-6:
 		stock_count(item.name, actual)
 	c["opens"] = (c["opens"] + [{"date": nowdate(), "gap": gap, "size": size}])[-12:]
@@ -482,6 +493,11 @@ def material_ledger(item_code, limit=60):
 	orders = {o.project: o for o in frappe.get_all("Sales Order", filters={"project": ["in", [e.project for e in info.values() if e.project] or [""]]}, fields=["name", "project", "atelier_subject"])}
 	bills = [r.voucher_no for r in rows if r.voucher_type == "Purchase Invoice"] or [""]
 	sup = dict(frappe.db.sql("select name, supplier_name from `tabPurchase Invoice` where name in %s", [bills]))
+	# a count keeps actual_qty 0 in ERPNext: show the change it made instead of «+0»
+	for k, r in enumerate(rows):
+		if r.voucher_type == "Stock Reconciliation" and not flt(r.actual_qty):
+			older = rows[k + 1].qty_after_transaction if k + 1 < len(rows) else 0
+			r.actual_qty = round(flt(r.qty_after_transaction) - flt(older), 4)
 	for r in rows:
 		e = info.get(r.voucher_no)
 		so = orders.get(e.project) if e and e.project else None
@@ -492,13 +508,25 @@ def material_ledger(item_code, limit=60):
 		and voucher_type='Stock Entry' and actual_qty<0 and posting_date>=%s""", (item_code, month))[0][0])
 	used60 = -flt(frappe.db.sql("""select sum(actual_qty) from `tabStock Ledger Entry` where item_code=%s and is_cancelled=0
 		and voucher_type='Stock Entry' and actual_qty<0 and posting_date>=%s""", (item_code, frappe.utils.add_days(nowdate(), -60)))[0][0])
-	last = frappe.db.sql("""select pi.posting_date, pi.supplier_name, pii.rate from `tabPurchase Invoice Item` pii join `tabPurchase Invoice` pi on pi.name=pii.parent
+	# the price as bought (per roll / pack) and per stock unit: a roll at 5,000 is 93.46 per m², not 5,000 per m²
+	last = frappe.db.sql("""select pi.posting_date, pi.supplier_name, pii.rate, pii.uom, pii.conversion_factor,
+		pii.amount / nullif(pii.stock_qty, 0) as stock_rate from `tabPurchase Invoice Item` pii join `tabPurchase Invoice` pi on pi.name=pii.parent
 		where pii.item_code=%s and pi.docstatus=1 order by pi.posting_date desc, pi.creation desc limit 1""", item_code, as_dict=True)
 	cycles = frappe.get_all("Material Cycle", filters={"item": item_code}, fields=["opened_on", "closed_on", "size", "cost", "recorded", "gap", "coverage"],
 		order_by="closed_on desc, creation desc", limit=12) if _cycles_ok() else []
 	good = [c for c in cycles if flt(c.coverage) >= 70 and flt(c.recorded) > 0]
 	real = sum(flt(c.cost) for c in good) / sum(flt(c.recorded) for c in good) if len(good) >= 3 else None
-	return {"rows": rows, "month_used": used, "daily": used60 / 60, "last_buy": last[0] if last else None, "cycles": cycles, "real_cost": real, "good_cycles": len(good)}
+	out = {"rows": rows, "month_used": used, "daily": used60 / 60, "last_buy": last[0] if last else None, "cycles": cycles, "real_cost": real, "good_cycles": len(good)}
+	if not api._can("GL Entry"):
+		# production staff see quantities only: no purchase price, valuation or cycle cost
+		for x in rows:
+			x.pop("valuation_rate", None)
+		for c in cycles:
+			c.pop("cost", None)
+		if out["last_buy"]:
+			out["last_buy"] = {"posting_date": out["last_buy"].posting_date, "supplier_name": out["last_buy"].supplier_name}
+		out["real_cost"] = None
+	return out
 
 
 def _needed(so):
@@ -664,8 +692,12 @@ def materials_report(period="month", start=None, end=None):
 	cyc = {}
 	if _cycles_ok():
 		for c in frappe.get_all("Material Cycle", filters={"closed_on": ["between", [a, b]]}, fields=["item", "size", "cost", "recorded", "gap", "coverage"]):
-			x = cyc.setdefault(c.item, {"n": 0, "good": 0, "gap": 0, "size": 0, "gap_value": 0})
+			x = cyc.setdefault(c.item, {"n": 0, "good": 0, "gap": 0, "size": 0, "gap_value": 0, "weak": 0, "weak_value": 0})
 			x["n"] += 1
+			if flt(c.coverage) < 70:
+				# too little recorded on orders to call it waste, but the gap is real: shown apart, never hidden
+				x["weak"] += max(0, flt(c.gap))
+				x["weak_value"] += max(0, flt(c.gap)) * (flt(c.cost) / flt(c.size) if flt(c.size) else 0)
 			if flt(c.coverage) >= 70:
 				x["good"] += 1
 				x["gap"] += max(0, flt(c.gap))
@@ -685,7 +717,7 @@ def materials_report(period="month", start=None, end=None):
 		unit = buy.get(it.name) or flt((bins.get(it.name) or {}).get("valuation_rate"))
 		rows.append({"item_code": it.name, "item_name": it.item_name, "uom": it.stock_uom, "way": way, "used": round(q, 3), "used_value": round(v, 2),
 			"cycles": c.get("n", 0), "good": c.get("good", 0), "waste": round(c.get("gap", 0), 3), "waste_pct": round(c["gap"] / c["size"] * 100, 1) if c.get("size") else None,
-			"waste_value": round(c.get("gap_value", 0), 2), "unit_buy": round(unit, 4), "unit_real": round(real, 4) if real else None, "good_all": good_all,
+			"waste_value": round(c.get("gap_value", 0), 2), "weak": round(c.get("weak", 0), 3), "weak_value": round(c.get("weak_value", 0), 2), "unit_buy": round(unit, 4), "unit_real": round(real, 4) if real else None, "good_all": good_all,
 			"diff_pct": round((real - unit) / unit * 100, 1) if real and unit else None,
 			"stock_value": flt((bins.get(it.name) or {}).get("stock_value")), "low": bool(it.safety_stock) and flt((bins.get(it.name) or {}).get("actual_qty")) < flt(it.safety_stock)})
 	ink = sum(r["used_value"] for r in rows if r["way"] == "bottle")
@@ -694,7 +726,7 @@ def materials_report(period="month", start=None, end=None):
 			r["per_m2"] = round(r["used_value"] / printed_m2, 2) if printed_m2 > 0 else None
 	rows.sort(key=lambda r: (-r["waste_value"], -r["used_value"]))
 	return {"from": str(a), "to": str(b), "rows": rows,
-		"used_value": round(sum(r["used_value"] for r in rows), 2), "waste_value": round(sum(r["waste_value"] for r in rows), 2),
+		"used_value": round(sum(r["used_value"] for r in rows), 2), "waste_value": round(sum(r["waste_value"] for r in rows), 2), "weak_value": round(sum(r["weak_value"] for r in rows), 2),
 		"cycles": sum(r["cycles"] for r in rows), "good": sum(r["good"] for r in rows), "stock_value": round(sum(r["stock_value"] for r in rows), 2),
 		"low": sum(1 for r in rows if r["low"]), "ink_per_m2": round(ink / printed_m2, 2) if printed_m2 > 0 else None}
 

@@ -328,10 +328,10 @@ DEFAULT_CONFIG = {
 		{"id": "c-done", "name": "سُلّم", "color": "#22A06B", "deliver": 1},
 	],
 	"labels": [
-		{"id": "l-wait", "name": "En attente", "color": "#F5D547"},
-		{"id": "l-cours", "name": "En cours", "color": "#F59E0B"},
-		{"id": "l-valid", "name": "En validation", "color": "#22A06B"},
-		{"id": "l-done", "name": "Terminé", "color": "#2563EB"},
+		{"id": "l-wait", "name": "بالانتظار", "color": "#F5D547"},
+		{"id": "l-cours", "name": "قيد العمل", "color": "#F59E0B"},
+		{"id": "l-valid", "name": "للمراجعة", "color": "#22A06B"},
+		{"id": "l-done", "name": "منتهٍ", "color": "#2563EB"},
 		{"id": "l-urgent", "name": "عاجل", "color": "#E5484D"},
 		{"id": "l-important", "name": "مهم", "color": "#C2410C"},
 		{"id": "l-approve", "name": "في انتظار موافقة العميل", "color": "#1597A6"},
@@ -358,7 +358,8 @@ def _is_manager():
 	return bool(frappe.has_permission("Item Price", "write"))
 
 
-STATUS_NAMES = ("En attente", "En cours", "En validation", "Terminé")
+# new sites start with Arabic statuses; older sites keep the names they stored (all editable)
+STATUS_NAMES = ("En attente", "En cours", "En validation", "Terminé", "بالانتظار", "قيد العمل", "للمراجعة", "منتهٍ")
 COVER_COLORS = ("#0F6E56", "#534AB7", "#993C1D", "#185FA5", "#993556", "#5F5E5A", "#854F0B", "#3B6D11")
 
 
@@ -1066,15 +1067,18 @@ def customers2():
 		if len(l) < 3 and so.atelier_cover not in l:
 			l.append(so.atelier_cover)
 	# same rule as the customer page: invoices + open orders not yet invoiced (minus what was paid on them)
-	unbilled = {}
+	# the party balance already counts advances paid on those orders (as credit), so the orders add their full
+	# unbilled amount; «unbilled» shown = what is still owed on them, «invoices» = the rest of the balance
+	unbilled, gross = {}, {}
 	for o in api._order_rows({"customer": ["in", names], "docstatus": ["<", 2], "per_billed": ["<", 100], "status": ["!=", "Closed"]}, limit=0):
 		if not o.price_pending:
 			unbilled[o.customer] = unbilled.get(o.customer, 0) + max(0, flt(o.grand_total) - flt(o.paid))
+			gross[o.customer] = gross.get(o.customer, 0) + flt(o.grand_total) * (1 - flt(o.per_billed) / 100)
 	for r in rows:
-		r.invoices = flt(r.balance)
 		r.unbilled = unbilled.get(r.name, 0)
 		if r.balance is not None:
-			r.balance = flt(r.balance) + r.unbilled
+			r.balance = round(flt(r.balance) + gross.get(r.name, 0), 2)
+		r.invoices = round(flt(r.balance) - r.unbilled, 2)
 		r.covers = covers.get(r.name, [])
 		e = extra.get(r.name) or {}
 		r.vip = cint(e.get("atelier_vip"))
@@ -1238,7 +1242,9 @@ def money3(offset=0):
 		(cash, start, end), as_dict=True)
 	for m in moves:
 		m.title = _title(m)
-		m.by = frappe.utils.get_fullname(m.owner)
+		# a seller's payment is saved by the system user but owned by the seller who took the money
+		who = frappe.db.get_value(m.voucher_type, m.voucher_no, "owner") if m.voucher_type in ("Payment Entry", "Journal Entry") else None
+		m.by = frappe.utils.get_fullname(who or m.owner)
 		m.category, m.order, m.order_title = _move_meta(m)
 		m.files = frappe.db.count("File", {"attached_to_doctype": m.voucher_type, "attached_to_name": m.voucher_no})
 		m.fund = next((a.account_name for a in accs if a.name == m.account), "")
@@ -1246,6 +1252,8 @@ def money3(offset=0):
 		"""select acc.account_name name, sum(gle.debit - gle.credit) amount from `tabGL Entry` gle join `tabAccount` acc on acc.name=gle.account
 		where gle.is_cancelled=0 and gle.company=%s and acc.root_type='Expense' and gle.posting_date between %s and %s
 		group by acc.account_name having amount > 0 order by amount desc limit 8""", (company, start, end), as_dict=True)
+	for c in cats:
+		c.name = _plain_account(c.name)
 	debtors = frappe.db.sql(
 		"""select si.customer, si.customer_name, sum(si.outstanding_amount) amount,
 		max(case when si.due_date < curdate() then datediff(curdate(), si.due_date) else 0 end) late, c.mobile_no
@@ -1284,6 +1292,10 @@ def money3(offset=0):
 				m.kind, m.category = "owner", (_("سحب شخصي") if m.amount < 0 else _("إيداع من المالك"))
 			elif (frappe.db.get_value("Journal Entry", m.voucher_no, "user_remark") or "").startswith(_("تسليم صندوق")):
 				m.kind, m.category = "handover", _("تسليم صندوق")
+				got, closed = frappe.db.sql("""select sum(jea.debit_in_account_currency), sum(jea.credit_in_account_currency)
+					from `tabJournal Entry Account` jea join `tabAccount` acc on acc.name=jea.account
+					where jea.parent=%s and acc.account_type='Cash'""", m.voucher_no)[0]
+				m.handover = {"received": flt(got), "closed": flt(closed), "diff": round(flt(got) - flt(closed), 2)}
 		if m.voucher_type == "Payment Entry":
 			m.ref = frappe.db.get_value("Payment Entry", m.voucher_no, "reference_no")
 			if m.ref == "—":
@@ -1305,6 +1317,16 @@ def money3(offset=0):
 		"weeks": weeks, "moves": moves, "categories": cats, "debtors": debtors, "payables": payables,
 		"modes": [{"value": v, "label": l} for v, l in api.all_modes() if frappe.db.exists("Mode of Payment", v)],
 	}
+
+
+def _plain_account(name):
+	"""Long chart-of-accounts names in a summary read as the thing they are; the official name stays in the books."""
+	n = (name or "").lower()
+	if n.startswith("variation") and "stock" in n:
+		return _("مواد مصروفة من المخزون")
+	if n.startswith("achats stock"):
+		return _("مشتريات مواد")
+	return name
 
 
 CLOSINGS_KEY = "atelier_cash_closings"
@@ -1335,9 +1357,9 @@ def close_cash(account, counted, note=None):
 	diff = round(counted - expected, 2)
 	entry = None
 	if abs(diff) >= 0.01:
-		off, cc = frappe.get_cached_value("Company", company, ["round_off_account", "round_off_cost_center"])
-		if not off:
-			frappe.throw(_("لا يوجد حساب فروق التقريب في إعدادات الشركة"))
+		from atelier.cashbox import cash_diff_account
+
+		off, cc = cash_diff_account(company), frappe.get_cached_value("Company", company, "round_off_cost_center") or frappe.get_cached_value("Company", company, "cost_center")
 		je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Journal Entry", "company": company, "posting_date": nowdate(),
 			"user_remark": _("فرق إغلاق الصندوق") + (" — " + note.strip()[:100] if note and note.strip() else ""),
 			"accounts": [
@@ -1975,6 +1997,8 @@ def reports2(period="month", start=None, end=None):
 	expense_types = frappe.db.sql("""select acc.account_name name, sum(gle.debit - gle.credit) total from `tabGL Entry` gle join `tabAccount` acc on acc.name=gle.account
 		where gle.is_cancelled=0 and gle.company=%s and acc.root_type='Expense' and gle.posting_date between %s and %s
 		group by acc.account_name having total > 0 order by total desc limit 8""", (company, a, b), as_dict=True)
+	for c in expense_types:
+		c.name = _plain_account(c.name)
 	purchases = frappe.db.sql("""select supplier, supplier_name name, count(*) n, sum(base_net_total) total from `tabPurchase Invoice`
 		where docstatus=1 and company=%s and posting_date between %s and %s group by supplier order by total desc limit 8""", (company, a, b), as_dict=True)
 	materials = frappe.db.sql("""select sle.item_code, item.item_name name, item.stock_uom uom, -sum(sle.actual_qty) qty, -sum(sle.stock_value_difference) total
