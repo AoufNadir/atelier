@@ -2638,13 +2638,13 @@ const SimpleMoney = {
       for (const m of moves.value) {
         const k = String(m.posting_date); let g = out.find((x) => x.k === k);
         if (!g) { g = { k, items: [], total: 0 }; out.push(g); }
-        g.items.push(m); if (m.kind !== "transfer") g.total += m.amount;
+        g.items.push(m); if (m.kind !== "transfer" && m.kind !== "handover") g.total += m.amount;
       }
       return out;
     });
     const dayFmt = new Intl.DateTimeFormat("ar", { weekday: "long", day: "numeric", month: "long" });
     const dayLabel = (iso) => { const n = daysFromToday(iso); return (n === 0 ? "اليوم · " : n === -1 ? "أمس · " : "") + dayFmt.format(parseDate(iso)); };
-    const KINDS = [["all", "الكل"], ["in", "دخل"], ["out", "مصاريف"], ["transfer", "تحويلات"]];
+    const KINDS = [["all", "الكل"], ["in", "دخل"], ["out", "مصاريف"], ["owner", "سحب شخصي / إيداع"], ["transfer", "تحويلات"], ["handover", "تسليم صناديق"]];
     const exportMoves = () => {
       const rows = [["التاريخ", "البيان", "النوع", "الصندوق", "المبلغ", "سجّلها"], ...moves.value.map((m) => [m.posting_date, m.title, m.category, m.fund, m.amount.toFixed(2), m.by])];
       const text = "\ufeff" + rows.map((r) => r.map((v) => '"' + String(v ?? "").replace(/"/g, '""') + '"').join(",")).join("\n");
@@ -2686,10 +2686,17 @@ const SimpleMoney = {
     };
     // transfer between funds
     const tr = ref(null), trBusy = ref(false);
-    const openTransfer = () => { const f = d.value.funds; tr.value = { from: f[0]?.name, to: f[1]?.name || f[0]?.name, amount: "", note: "" }; };
+    // «حركة»: transfer, personal withdrawal or owner deposit (an expense opens its own sheet)
+    const mvMenu = ref(false);
+    const closeMv = () => (mvMenu.value = false);
+    onMounted(() => document.addEventListener("click", closeMv)); onBeforeUnmount(() => document.removeEventListener("click", closeMv));
+    const MOVE_KINDS = [["transfer", "تحويل بين الصناديق", "من الصندوق إلى البنك مثلًا"], ["withdraw", "سحب شخصي", "مال أخذته لنفسك — ليس مصروفًا للشركة"], ["deposit", "إيداع من المالك", "مال وضعته من جيبك في الصندوق"]];
+    const openTransfer = (k = "transfer") => { mvMenu.value = false; const f = d.value.funds; tr.value = { kind: k, from: f[0]?.name, to: f[1]?.name || f[0]?.name, amount: "", note: "" }; };
     const doTransfer = async () => {
-      trBusy.value = true;
-      try { await call("transfer_funds", { from_account: tr.value.from, to_account: tr.value.to, amount: +tr.value.amount, note: tr.value.note }, true); toast("تم التحويل"); tr.value = null; await load(); }
+      trBusy.value = true; const t = tr.value;
+      try { if (t.kind === "transfer") { await call("transfer_funds", { from_account: t.from, to_account: t.to, amount: +t.amount, note: t.note }, true); toast("تم التحويل"); }
+        else { await call("owner_move", { kind: t.kind, account: t.kind === "withdraw" ? t.from : t.to, amount: +String(t.amount).replace(/[\s,]/g, ""), note: t.note }, true); toast(t.kind === "withdraw" ? "سُجّل السحب الشخصي" : "سُجّل الإيداع"); }
+        tr.value = null; await load(); }
       catch (e) { toast(e.message, "error"); } finally { trBusy.value = false; }
     };
     // pay a supplier
@@ -2703,7 +2710,7 @@ const SimpleMoney = {
     const prevName = computed(() => (d.value ? new Intl.DateTimeFormat("ar", { month: "long" }).format(new Date(parseDate(d.value.month).getFullYear(), parseDate(d.value.month).getMonth() - 1, 1)) : ""));
     const change = (now, prev) => { const p = pct(now, prev); return p === null ? `لا أرقام لشهر ${prevName.value}` : p === 0 ? `مثل ${prevName.value}` : `${p > 0 ? "أكثر" : "أقل"} بـ ${Math.abs(p)}% من ${prevName.value}`; };
     return { fundSel, days, dayLabel, KINDS, exportMoves, fundNote, cashFunds, cl, clBusy, openClose, clExpected, clDiff, doClose, clearing, clearCheque, chequeTotal, ago,
-      change, s, load, d, offset, month, pct, kind, q, moves, maxWeek, maxCat, catTotal, owed, owe, CAT_COLORS, fund, pay, remind, tr, trBusy, openTransfer, doTransfer,
+      change, s, load, d, offset, month, pct, kind, q, moves, maxWeek, maxCat, catTotal, owed, owe, CAT_COLORS, fund, pay, remind, tr, trBusy, openTransfer, doTransfer, mvMenu, MOVE_KINDS,
       paying, paySupplier, supplierMode, waLink, money, fig, date, dueWord, daysFromToday, state, go, t };
   },
   template: `
@@ -2716,16 +2723,19 @@ const SimpleMoney = {
             <button type="button" aria-label="الشهر السابق" @click="offset++"><Icon name="back" :size="16"/></button>
             <button type="button" class="mn-month-l" :aria-pressed="offset === 0" @click="offset = 0">{{ month }}</button>
             <button type="button" aria-label="الشهر التالي" :disabled="offset === 0" @click="offset > 0 && offset--"><Icon name="chev" :size="16"/></button></div>
-          <div v-if="d && d.funds.length > 1" class="cl-pop-host"><button type="button" class="cl-btn" :aria-expanded="!!tr" @click.stop="tr ? (tr = null) : openTransfer()"><Icon name="sort" :size="16"/>تحويل</button>
+          <div v-if="d && state.boot.can.expense" class="cl-pop-host"><button type="button" class="cl-btn" :aria-expanded="mvMenu || !!tr" @click.stop="tr ? (tr = null) : (mvMenu = !mvMenu)">حركة ▾</button>
+            <div v-if="mvMenu" class="tm-pop mv-menu" @click.stop>
+              <button type="button" class="tm-pop-row" @click="mvMenu = false; state.sheet = {type: 'expense'}"><b>مصروف</b><span>كراء، كهرباء، أجور، نقل…</span></button>
+              <button v-for="k in MOVE_KINDS" :key="k[0]" type="button" class="tm-pop-row" :disabled="k[0] === 'transfer' && d.funds.length < 2" @click="openTransfer(k[0])"><b>{{ k[1] }}</b><span>{{ k[2] }}</span></button></div>
             <form v-if="tr" class="cl-pop cl-filters" @click.stop @submit.prevent="doTransfer">
-              <b>تحويل بين الصناديق</b>
-              <label class="cl-fgroup"><span>من</span><select class="input" v-model="tr.from"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }} — {{ fig(f.balance) }}</option></select></label>
-              <label class="cl-fgroup"><span>إلى</span><select class="input" v-model="tr.to"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }}</option></select></label>
+              <div class="cal2-seg mv-seg" role="group" aria-label="نوع الحركة"><button v-for="k in MOVE_KINDS" :key="k[0]" type="button" :aria-pressed="tr.kind === k[0]" @click="tr.kind = k[0]">{{ k[0] === 'transfer' ? 'تحويل' : k[0] === 'withdraw' ? 'سحب شخصي' : 'إيداع' }}</button></div>
+              <label v-if="tr.kind !== 'deposit'" class="cl-fgroup"><span>من</span><select class="input" v-model="tr.from"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }} — {{ fig(f.balance) }}</option></select></label>
+              <label v-if="tr.kind !== 'withdraw'" class="cl-fgroup"><span>إلى</span><select class="input" v-model="tr.to"><option v-for="f in d.funds" :key="f.name" :value="f.name">{{ f.label }}</option></select></label>
               <label class="cl-fgroup"><span>المبلغ</span><div class="unit-wrap"><input class="input num" inputmode="decimal" v-model="tr.amount" placeholder="0"><span class="u">دج</span></div></label>
-              <label class="cl-fgroup"><span>ملاحظة</span><input class="input" v-model="tr.note" placeholder="اختياري"></label>
-              <div class="cl-pop-foot"><button type="button" class="cl-link" @click="tr = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="trBusy || !(+tr.amount > 0) || tr.from === tr.to">تحويل</button></div></form></div>
+              <label class="cl-fgroup"><span>ملاحظة</span><input class="input" v-model="tr.note" :placeholder="tr.kind === 'withdraw' ? 'مثلًا: مصروف البيت' : 'اختياري'"></label>
+              <p class="mv-note">{{ tr.kind === 'transfer' ? 'لا يغيّر الدخل ولا المصاريف — ينقل المال فقط.' : 'لا يدخل في المصاريف ولا الدخل، ولا يغيّر الربح. يُسجَّل على حساب المالك.' }}</p>
+              <div class="cl-pop-foot"><button type="button" class="cl-link" @click="tr = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="trBusy || !(+String(tr.amount).replace(/[\s,]/g, '') > 0) || (tr.kind === 'transfer' && tr.from === tr.to)">{{ tr.kind === 'transfer' ? 'تحويل' : tr.kind === 'withdraw' ? 'تسجيل السحب' : 'تسجيل الإيداع' }}</button></div></form></div>
           <button v-if="d && cashFunds.length" type="button" class="cl-btn" :aria-pressed="!!cl" @click="cl ? (cl = null) : openClose()"><Icon name="check" :size="16"/>إغلاق الصندوق</button>
-          <button v-if="state.boot.can.expense" type="button" class="cl-btn" @click="state.sheet = {type: 'expense'}"><Icon name="out" :size="16"/>مصروف</button>
           <button v-if="state.boot.can.payment" type="button" class="cl-btn primary" @click="pay()"><Icon name="in" :size="16"/>تسجيل دخل</button>
         </div>
       </header>
@@ -2742,7 +2752,7 @@ const SimpleMoney = {
           <div><span>دخل {{ offset ? 'الشهر' : 'هذا الشهر' }}</span><b class="money ok">{{ money(d.income) }}</b><small>{{ change(d.income, d.prev_income) }}</small></div>
           <div><span>خرج من الصناديق {{ offset ? 'في الشهر' : 'هذا الشهر' }}</span><b class="money bad">{{ money(d.expenses) }}</b>
             <small>مصاريف مسجّلة {{ fig(catTotal) }}<template v-if="catTotal - d.expenses > 0.005"> · منها {{ fig(catTotal - d.expenses) }} لم تُدفع بعد</template></small></div>
-          <div><span>الصافي في الصناديق</span><b class="money" :class="{bad: d.profit < 0}">{{ money(d.profit) }}</b><small>ما دخل ناقص ما خرج</small></div>
+          <div><span>الصافي في الصناديق</span><b class="money" :class="{bad: d.profit < 0}">{{ money(d.profit) }}</b><small>ما دخل ناقص ما خرج<template v-if="d.owner_out || d.owner_in"> · سحب شخصي {{ fig(d.owner_out || 0) }}<template v-if="d.owner_in"> · إيداع {{ fig(d.owner_in) }}</template> (خارج الربح)</template></small></div>
         </div>
 
         <form v-if="cl" class="mn-card mn-close" @submit.prevent="doClose">
@@ -2769,10 +2779,10 @@ const SimpleMoney = {
               <template v-for="g in days" :key="g.k">
                 <div class="mn-day"><span>{{ dayLabel(g.k) }}</span><span class="spacer"></span><b :class="g.total >= 0 ? 'ok' : 'bad'">{{ g.total >= 0 ? '+' : '−' }}{{ fig(Math.abs(g.total)) }}</b></div>
                 <div v-for="m in g.items" :key="m.voucher_no" class="mn-mv">
-                  <span class="mn-ic" :class="m.kind" aria-hidden="true">{{ m.kind === 'in' ? '↓' : m.kind === 'out' ? '↑' : '⇄' }}</span>
+                  <span class="mn-ic" :class="m.kind" aria-hidden="true">{{ m.kind === 'in' ? '↓' : m.kind === 'out' ? '↑' : m.kind === 'owner' ? (m.amount < 0 ? '↑' : '↓') : '⇄' }}</span>
                   <div style="min-width:0"><span class="cl-name">{{ m.title }}<Icon v-if="m.files" name="file" :size="13" class="mn-clip"/></span>
                     <span class="muted mn-sub">{{ m.category }}<template v-if="m.ref"> · صك {{ m.ref }}</template><template v-if="m.order"> · <a :href="'/atelier/?card=' + m.order" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">{{ m.order_title || m.order }}</a></template> · {{ [m.fund, m.by].filter(Boolean).join(' · ') }}</span></div>
-                  <span class="mn-amt" :class="m.kind">{{ m.kind === 'transfer' ? '' : m.amount >= 0 ? '+' : '−' }}{{ fig(Math.abs(m.amount)) }}</span>
+                  <span class="mn-amt" :class="m.kind">{{ m.kind === 'transfer' || m.kind === 'handover' ? '' : m.amount >= 0 ? '+' : '−' }}{{ fig(Math.abs(m.amount)) }}</span>
                 </div>
               </template>
             </section>

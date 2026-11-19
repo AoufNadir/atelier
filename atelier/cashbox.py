@@ -179,7 +179,7 @@ def confirm_handover(id):
 			frappe.throw(_("لا يوجد حساب فروق التقريب في إعدادات الشركة"))
 		lines.append({"account": off, "cost_center": occ or cc, "debit_in_account_currency": -diff if diff < 0 else 0,
 			"credit_in_account_currency": diff if diff > 0 else 0})
-	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Cash Entry", "company": company, "posting_date": nowdate(),
+	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Contra Entry", "company": company, "posting_date": nowdate(),
 		"user_remark": _("تسليم صندوق") + " — " + h["name"] + ((" · " + _("فرق صندوق") + f" {diff:+.2f}" + (" — " + h["reason"] if h["reason"] else "")) if abs(diff) >= 0.01 else ""),
 		"accounts": lines})
 	je.insert(ignore_permissions=True)

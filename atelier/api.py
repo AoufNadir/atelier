@@ -1300,3 +1300,4 @@ from atelier.simple import set_file_kind  # noqa: E402, F401
 from atelier.simple import delete_customer_file  # noqa: E402, F401
 from atelier.sharing import create_share, revoke_share  # noqa: E402, F401
 from atelier.cashbox import my_box, hand_over, boxes, confirm_handover, reject_handover  # noqa: E402, F401
+from atelier.simple import owner_move  # noqa: E402, F401

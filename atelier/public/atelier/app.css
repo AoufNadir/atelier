@@ -3040,3 +3040,13 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .hv-sub { display: block; font-size: 12px; }
 .hv-pill { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
 .hv-pill.ok { background: #ECFDF3; color: #067647; } .hv-pill.bad { background: #FEF3F2; color: #B42318; } .hv-pill.warn { background: #FFFAEB; color: #B54708; }
+
+/* money: one «حركة» menu */
+.mv-menu { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; width: 270px; z-index: 30; }
+.mv-menu .tm-pop-row { display: block; text-align: start; padding: 8px 10px; height: auto; }
+.mv-menu .tm-pop-row b { display: block; font-size: 14px; }
+.mv-menu .tm-pop-row span { display: block; font-size: 12px; color: #667085; white-space: normal; }
+.mv-seg { display: flex; margin-bottom: 4px; } .mv-seg button { flex: 1; }
+.mv-note { margin: 4px 0 0; font-size: 12px; color: #667085; background: #F9FAFB; border: 1px solid #E4E7EC; border-radius: 8px; padding: 7px 9px; }
+.mn-ic.owner, .mn-amt.owner { color: #B54708; }
+.mn-ic.handover { color: #3538CD; }

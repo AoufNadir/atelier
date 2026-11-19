@@ -1173,9 +1173,17 @@ def money3(offset=0):
 	def one(sql, *args):
 		return flt(frappe.db.sql(sql, args)[0][0])
 
+	owner = owner_account(create=False) or ""
+	# transfers, handovers and the owner's own money are not income nor expenses
+	skip = """ and voucher_no not in (select je.name from `tabJournal Entry` je where je.voucher_type='Contra Entry'
+		or exists (select 1 from `tabJournal Entry Account` x where x.parent=je.name and x.account=%s))"""
+
 	def inout(a, b):
-		return (one("select sum(debit) from `tabGL Entry` where is_cancelled=0 and is_opening='No' and posting_date between %s and %s and account in %s", a, b, cash),
-			one("select sum(credit) from `tabGL Entry` where is_cancelled=0 and is_opening='No' and posting_date between %s and %s and account in %s", a, b, cash))
+		return (one("select sum(debit) from `tabGL Entry` where is_cancelled=0 and is_opening='No' and posting_date between %s and %s and account in %s" + skip, a, b, cash, owner),
+			one("select sum(credit) from `tabGL Entry` where is_cancelled=0 and is_opening='No' and posting_date between %s and %s and account in %s" + skip, a, b, cash, owner))
+
+	def own(col):
+		return one(f"select sum({col}) from `tabGL Entry` where is_cancelled=0 and account=%s and posting_date between %s and %s", owner, start, end) if owner else 0
 
 	income, expenses = inout(start, end)
 	pin, pout = inout(pstart, pend)
@@ -1222,6 +1230,11 @@ def money3(offset=0):
 	closings = _closings()
 	for m in moves:
 		m.kind = "transfer" if m.category in (_("تحويل"), _("تحويل بين الصناديق")) else ("in" if m.amount > 0 else "out")
+		if m.voucher_type == "Journal Entry":
+			if owner and frappe.db.exists("Journal Entry Account", {"parent": m.voucher_no, "account": owner}):
+				m.kind, m.category = "owner", (_("سحب شخصي") if m.amount < 0 else _("إيداع من المالك"))
+			elif (frappe.db.get_value("Journal Entry", m.voucher_no, "user_remark") or "").startswith(_("تسليم صندوق")):
+				m.kind, m.category = "handover", _("تسليم صندوق")
 		if m.voucher_type == "Payment Entry":
 			m.ref = frappe.db.get_value("Payment Entry", m.voucher_no, "reference_no")
 			if m.ref == "—":
@@ -1237,7 +1250,7 @@ def money3(offset=0):
 			"cheques": sum(1 for c in cheques if c.paid_to == a.name)} for a in shown],
 		"ages": {"a": flt(ages.a), "b": flt(ages.b), "c": flt(ages.c)}, "cheques": cheques, "closings": closings[:10],
 		"cash_balance": sum(balances.values()),
-		"income": income, "expenses": expenses, "profit": income - expenses, "prev_income": pin, "prev_expenses": pout,
+		"income": income, "expenses": expenses, "profit": income - expenses, "owner_out": own("credit"), "owner_in": own("debit"), "prev_income": pin, "prev_expenses": pout,
 		"payers": cint(one("""select count(distinct party) from `tabPayment Entry` where docstatus=1 and payment_type='Receive'
 			and party_type='Customer' and posting_date between %s and %s""", start, end)),
 		"weeks": weeks, "moves": moves, "categories": cats, "debtors": debtors, "payables": payables,
@@ -1324,6 +1337,53 @@ def _move_meta(m):
 		order = frappe.db.get_value("Sales Order", {"project": acc[0].project}, "name") if acc[0].project else None
 		return acc[0].account_name, order, frappe.db.get_value("Sales Order", order, "atelier_subject") if order else None
 	return m.voucher_type, None, None
+
+
+def owner_account(create=True):
+	"""The owner's current account (equity): personal withdrawals and deposits, never income nor expenses."""
+	acc = frappe.db.get_default("atelier_owner_account")
+	if acc and frappe.db.exists("Account", acc):
+		return acc
+	if not create:
+		return None
+	company = api._company()
+	name = _("حساب المالك الجاري")
+	acc = frappe.db.get_value("Account", {"company": company, "account_name": name, "is_group": 0})
+	if not acc:
+		parent = frappe.db.get_value("Account", {"company": company, "root_type": "Equity", "is_group": 1, "parent_account": ["is", "set"]}) or \
+			frappe.db.get_value("Account", {"company": company, "root_type": "Equity", "is_group": 1})
+		if not parent:
+			frappe.throw(_("لا يوجد حساب حقوق ملكية في دليل الحسابات"))
+		doc = frappe.get_doc({"doctype": "Account", "company": company, "account_name": name, "parent_account": parent, "is_group": 0, "root_type": "Equity"})
+		doc.flags.ignore_permissions = True
+		doc.insert()
+		acc = doc.name
+	frappe.db.set_default("atelier_owner_account", acc)
+	return acc
+
+
+@frappe.whitelist(methods=["POST"])
+def owner_move(kind, account, amount, note=None):
+	"""«سحب شخصي» (money out of a fund to the owner) or «إيداع من المالك» (money into a fund from the owner)."""
+	_manager_only()
+	amount = flt(amount)
+	if amount <= 0:
+		frappe.throw(_("المبلغ يجب أن يكون أكبر من صفر"))
+	if kind not in ("withdraw", "deposit"):
+		frappe.throw(_("نوع حركة غير معروف"))
+	company = api._company()
+	if tuple(frappe.db.get_value("Account", account, ["company", "account_type"]) or ()) not in ((company, "Cash"), (company, "Bank")):
+		frappe.throw(_("اختر صندوقًا"))
+	owner = owner_account()
+	out = kind == "withdraw"
+	label = _("سحب شخصي") if out else _("إيداع من المالك")
+	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Journal Entry", "company": company, "posting_date": nowdate(),
+		"user_remark": label + (" — " + note.strip()[:120] if note and note.strip() else ""),
+		"accounts": [{"account": owner, "debit_in_account_currency": amount if out else 0, "credit_in_account_currency": 0 if out else amount},
+			{"account": account, "debit_in_account_currency": 0 if out else amount, "credit_in_account_currency": amount if out else 0}]})
+	je.insert(ignore_permissions=True)
+	je.submit()
+	return je.name
 
 
 @frappe.whitelist(methods=["POST"])
