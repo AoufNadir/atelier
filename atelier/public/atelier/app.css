@@ -3000,3 +3000,4 @@ button.cs-big { cursor: pointer; } button.cs-big:hover { background: #FAFAFF; }
 .stk-payres { margin: 6px 0 4px; font-size: 13px; color: #475467; } .stk-payres b { color: #17202A; } .stk-payres .warn { color: #B54708; }
 .overlay .sheet.stk-bill { width: min(760px, calc(100vw - 32px)); max-width: none; }
 .stk-bl td:nth-child(2), .stk-bl td:nth-child(3) { width: 130px; } .stk-bl td:nth-child(4) { width: 110px; white-space: nowrap; }
+.overlay .sheet.stk-collect { width: min(560px, calc(100vw - 32px)); } .stk-res .bad { color: #B42318; }

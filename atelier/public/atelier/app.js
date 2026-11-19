@@ -1560,7 +1560,7 @@ const Board = {
     const moveAll = async (from, to) => {
       colMenu.value = null; const list = (s.data?.cards || []).filter((c) => c.column === from.id); if (!list.length) return;
       busy.value = "*";
-      try { for (const c of list) await call("move_card", { name: c.name, column: to.id }, true); toast(`نُقلت ${list.length} بطاقة إلى «${to.name}»`); if (to.supplier) list.forEach((c) => call("mark_outsourced", { order: c.name }, true).catch(() => {})); if (stockCol(to)) list.forEach((c) => offerMaterials(c.name)); }
+      try { for (const c of list) await call("move_card", { name: c.name, column: to.id }, true); toast(`نُقلت ${list.length} بطاقة إلى «${to.name}»`); if (to.supplier) list.forEach((c) => call("mark_outsourced", { order: c.name }, true).catch(() => {})); if (stockCol(to)) list.forEach((c) => offerMaterials(c.name)); if (to.deliver) list.forEach(offerPayment); }
       catch (e) { toast(e.message, "error"); } finally { busy.value = null; await load(); }
     };
     // save a card as a template
@@ -1581,7 +1581,8 @@ const Board = {
       try {
         if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); const toCol = cfg.value.columns.find((x) => x.id === col);
           if (toCol?.supplier) { call("mark_outsourced", { order: c.name }, true).catch(() => {}); if (s.data?.manager || state.boot.can.cost) state.sheet = { type: "outsource", order: c.name, title: c.title, column: toCol.name }; }
-          else if (stockCol(toCol)) offerMaterials(c.name); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
+          else if (stockCol(toCol)) offerMaterials(c.name);
+          if (toCol?.deliver) offerPayment(c); toast(`نُقلت إلى «${cfg.value.columns.find((x) => x.id === col).name}»`); }
         if (beforeName !== undefined) {
           const list = cols.value.find((x) => x.id === col).items.map((x) => x.name).filter((n) => n !== c.name);
           const i = beforeName ? list.indexOf(beforeName) : -1;
@@ -3927,10 +3928,42 @@ const SECTION_NAV = [
 ];
 
 // Delivery never waits for this: the sheet opens after it, and can be left for later from the card.
+// one window at a time: a second one (payment after materials…) waits its turn
+function showSheet(x) { if (state.sheet) (state.sheetQueue ||= []).push(x); else state.sheet = x; }
+watch(() => state.sheet, (v) => { if (!v && state.sheetQueue?.length) nextTick(() => { state.sheet = state.sheetQueue.shift(); }); });
+// at delivery: «استلمت الباقي؟» with the same single field as purchases (amount + method; less = stays owed)
+function offerPayment(c) {
+  if (!c || c.price_pending || !state.boot.can?.payment) return;
+  const left = (+c.grand_total || 0) - (+c.paid || 0);
+  if (left > 0.005) showSheet({ type: "collect", order: c.name, title: c.title, customer: c.customer, customer_name: c.customer_name, total: +c.grand_total, paid: +c.paid || 0 });
+}
+const CollectSheet = {
+  props: ["opts"],
+  setup(props) {
+    const o = props.opts, left = +(o.total - o.paid).toFixed(2), amount = ref(left), mode = ref((state.boot.modes || [])[0]?.value || "Cash"), busy = ref(false), err = ref(null);
+    const got = computed(() => Math.min(left, +String(amount.value).replace(/[\s,]/g, "") || 0));
+    const close = () => (state.sheet = null);
+    const save = async () => { if (!(got.value > 0)) return close(); busy.value = true; err.value = null;
+      try { await call("record_payment", { customer: o.customer, amount: got.value, mode_of_payment: mode.value, sales_order: o.order }, true);
+        toast(left - got.value > 0.005 ? `سُجّل التحصيل — يبقى على العميل ${money(left - got.value)}` : "سُجّل التحصيل — خالص"); state.rev++; close(); }
+      catch (e) { err.value = e.message; } finally { busy.value = false; } };
+    return { o, left, amount, mode, got, busy, err, close, save, money, state, modeLabel: (v) => (state.boot.modes || []).find((m) => m.value === v)?.label || v };
+  },
+  template: `
+  <div class="overlay" @click.self="close"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>استلمت الباقي؟</h2><span class="muted">«{{ o.title }}» — {{ o.customer_name }}</span></div></div>
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <div class="stk-res"><div><span>المجموع</span><b>{{ money(o.total) }}</b></div><div><span>دُفع من قبل</span><b>{{ money(o.paid) }}</b></div><div><span>الباقي</span><b class="bad">{{ money(left) }}</b></div></div>
+    <div class="stk-pay"><div class="stk-g3"><div class="field"><label for="co-a">استلمت الآن</label><div class="stk-suf"><input id="co-a" class="input" inputmode="decimal" v-model="amount"><em>دج</em></div></div>
+      <div class="field stk-span2"><label>الطريقة</label><div class="stk-modes"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="mode === m.value" :disabled="!(got > 0)" @click="mode = m.value">{{ m.label }}</button></div></div></div>
+      <p class="stk-payres"><template v-if="got > 0">يدخل <b>{{ money(got) }}</b> ({{ modeLabel(mode) }})</template><template v-else>لا شيء الآن</template>
+        <template v-if="left - got > 0.005"> · يبقى على العميل <b class="warn">{{ money(left - got) }}</b></template><template v-else> · خالص</template></p></div>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy">{{ got > 0 ? 'تسجيل التحصيل' : 'تسليم بلا دفع' }}</button></div>
+  </form></div>`,
+};
 async function offerMaterials(order) {
   try {
     const m = await call("order_materials", { order });
-    if (m.rows.length && !m.done) state.sheet = { type: "materials", order, title: m.title, rows: m.rows.map((r) => ({ ...r, qty: r.ask && !r.item_code ? "" : +Math.min(r.need, r.on_hand).toFixed(3) })) };
+    if (m.rows.length && !m.done) showSheet({ type: "materials", order, title: m.title, rows: m.rows.map((r) => ({ ...r, qty: r.ask && !r.item_code ? "" : +Math.min(r.need, r.on_hand).toFixed(3) })) });
   } catch { /* the delivery itself already succeeded */ }
 }
 // printed at a supplier: optional, what it cost, so the order's profit is real
@@ -4487,7 +4520,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -4576,6 +4609,7 @@ const App = {
     <ItemSheet v-if="state.sheet && state.sheet.type==='item'" :opts="state.sheet"/>
     <MaterialsSheet v-if="state.sheet && state.sheet.type==='materials'" :opts="state.sheet"/>
     <OutsourceSheet v-if="state.sheet && state.sheet.type==='outsource'" :opts="state.sheet"/>
+    <CollectSheet v-if="state.sheet && state.sheet.type==='collect'" :key="state.sheet.order" :opts="state.sheet"/>
     <div v-if="state.subsheet" class="subsheet-layer"><PaymentSheet v-if="state.subsheet.type === 'payment'" :opts="state.subsheet"/><ItemSheet v-else :opts="state.subsheet"/></div>
     <BoardPanel v-if="state.sheet && state.sheet.type==='order'" :key="state.sheet.edit || 'new'" mode="new" :edit="state.sheet.edit" :preset="state.sheet.customer" @close="state.sheet = null; route.name === 'order-new' && go('/')" @saved="state.sheet = null; state.rev++; route.name === 'order-new' && go('/')"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>
