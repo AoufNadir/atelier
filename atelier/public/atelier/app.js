@@ -4198,7 +4198,7 @@ const OutsourceSheet = {
     <div class="stk-g3"><div class="field stk-span2"><label for="os-s">المورد</label><select id="os-s" class="input" v-model="supplier"><option value="">—</option><option v-for="x in list" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select></div>
       <div class="field"><label for="os-a">كم كلّفك؟</label><div class="stk-suf"><input id="os-a" class="input" inputmode="decimal" v-model="amount" placeholder="0"><em>دج</em></div></div></div>
     <div class="field"><label for="os-n">ملاحظة</label><input id="os-n" class="input" v-model="note" placeholder="مثلًا: طباعة أوفست 1000 نسخة"></div>
-    <p class="stk-payres">هذا <b>تقدير تكلفة</b> يدخل في ربح الطلب فقط، ولا يُنشئ دينًا للمورد. حين تصلك فاتورته سجّلها من ملف المورد ← «فاتورة».</p>
+    <p class="stk-payres">هذا <b>تقدير تكلفة</b> يدخل في ربح الطلب فقط، ولا يُنشئ دينًا للمورد. حين تصلك فاتورته سجّلها من ملف المورد ← «فاتورة» واختر هذا الطلب: يصير مبلغها هو التكلفة بدل التقدير، دون تكرار.</p>
     <div class="sh-foot"><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy || !(parseAmount(amount) > 0)">تسجيل تقدير التكلفة</button></div>
   </form></div>`,
 };

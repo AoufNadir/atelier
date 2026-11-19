@@ -84,7 +84,8 @@ def boot():
 		"company_label": (frappe.db.get_value("Company", company, "company_name") or company or "").replace("Atelier Démo تجريبي", "مطبعة الرؤية"),
 		"currency": frappe.db.get_value("Company", company, "default_currency"),
 		"is_demo": "DÉMO" in (company or "") or "تجريبي" in (company or ""),
-		"items": _with_prices(items),
+		# design and production staff do not sell: the service list without prices
+		"items": [{k: v for k, v in i.items() if k not in ("standard_rate", "price_individual", "price_company")} for i in items] if worker else _with_prices(items),
 		"stages": STAGES,
 		"units": simple_units(),
 		"lists": simple_lists(),

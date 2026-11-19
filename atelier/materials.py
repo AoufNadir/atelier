@@ -835,6 +835,13 @@ def profit_report(period="month", start=None, end=None):
 				continue  # already counted from the stock it took
 			else:
 				other[so_name] = other.get(so_name, 0) + flt(l.amount)
+	# a supplier invoice recorded on the order replaces the estimate (the real amount, never both)
+	for proj, amount in frappe.db.sql("""select pii.project, sum(pii.base_net_amount) from `tabPurchase Invoice Item` pii
+		join `tabPurchase Invoice` pi on pi.name=pii.parent left join `tabItem` it on it.name=pii.item_code
+		where pi.docstatus=1 and pii.project in %s and ifnull(it.is_stock_item, 0)=0 group by pii.project""", [list(projects) or [""]]):
+		so_name = projects.get(proj)
+		if so_name and flt(amount) > 0:
+			sup[so_name] = flt(amount)
 	rows = []
 	for s in sos:
 		parts = {"materials": round(mat.get(s.name, 0), 2), "supplier": round(sup.get(s.name, 0), 2), "recipes": round(rec.get(s.name, 0), 2),
