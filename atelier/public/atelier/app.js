@@ -11,7 +11,9 @@ const t = (k, ...a) => String(STR[k] ?? k).replace(/\{(\d)\}/g, (_, i) => a[i] ?
 const LRI = "⁦", PDI = "⁩";
 const nf2 = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const nfq = new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 });
-const money = (v) => (v === null || v === undefined || Number.isNaN(+v) ? "—" : `${LRI}${nf2.format(+v)}${PDI} ${t("currency")}`);
+// rounded to the cent first, so a tiny negative remainder never shows as «-0.00»
+const cents = (v) => { const r = Math.round((+v || 0) * 100) / 100; return r === 0 ? 0 : r; };
+const money = (v) => (v === null || v === undefined || Number.isNaN(+v) ? "—" : `${LRI}${nf2.format(cents(v))}${PDI} ${t("currency")}`);
 const num = (v) => (v === null || v === undefined || v === "" ? "—" : `${LRI}${nfq.format(+v)}${PDI}`);
 const df = new Intl.DateTimeFormat("ar-DZ-u-nu-latn", { day: "numeric", month: "long" });
 const dfy = new Intl.DateTimeFormat("ar-DZ-u-nu-latn", { day: "numeric", month: "long", year: "numeric" });
@@ -364,7 +366,7 @@ const tagRank = (o) => { const order = quickTags().map((q) => q[0]); const hits 
 const phaseOf = (o) => (["جاهز للتسليم", "سُلّم"].includes(o.atelier_stage) ? "ready" : o.step && o.step.mode === "خارجي" ? "ext" : "work");
 const PHASE_TABS = [["work", "قيد التنفيذ", (o) => phaseOf(o) === "work"], ["ext", "عند مورد", (o) => phaseOf(o) === "ext"], ["ready", "جاهز للتسليم", (o) => phaseOf(o) === "ready"]];
 // amounts always show two decimals (1,377.00); whole counts use figN
-const fig = (v) => `${LRI}${nf2.format(+v || 0)}${PDI}`;
+const fig = (v) => `${LRI}${nf2.format(cents(v))}${PDI}`;
 const figN = (v) => `${LRI}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(+v || 0)}${PDI}`;
 
 
@@ -5006,7 +5008,7 @@ const App = {
     const loadBoot = async () => {
       bootErr.value = null;
       try { state.boot = await call("boot"); applyScale(state.boot.ui_scale); sizeState.zoom = zoomOf(); } catch (e) { bootErr.value = e.message; }
-      call("orders").then((l) => (state.openOrders = l.length)).catch(() => {});
+      if (state.boot && !["designer", "printer"].includes(state.boot.role)) call("orders").then((l) => (state.openOrders = l.length)).catch(() => {});
     };
     onMounted(async () => {
       await loadBoot();

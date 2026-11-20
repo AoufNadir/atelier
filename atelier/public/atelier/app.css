@@ -2097,7 +2097,10 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
 @media (max-width: 900px) {
   .od-ov { padding: 0; } .od { max-height: none; height: 100%; border-radius: 0; }
   .od-bd { grid-template-columns: 1fr; padding: 12px; } .od-side { position: static; }
-  .od-kbd { display: none; } .od-ft { padding: 10px 12px; } .od-btn { flex: 1; }
+  .od-kbd { display: none; } .od-ft { padding: 10px 12px; }
+  /* phone: the totals on their own row, then the actions sharing one row without overlapping */
+  .od-big { flex: 1 1 calc(50% - 10px); margin: 0; } .od-ft > .spacer { display: none; } .od-err { flex: 1 1 100%; }
+  .od-btn { flex: 1 1 0; min-width: 0; padding: 0 8px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* ==== rule: action buttons sit on one line ==== */
