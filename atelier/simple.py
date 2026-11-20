@@ -917,14 +917,15 @@ def archived_cards():
 
 @frappe.whitelist(methods=["POST"])
 def copy_card(name):
-	"""Same customer, title, description, checklist (unticked), labels, members and files; a fresh order with no price."""
+	"""A repeat order: same customer, lines (service, unit, sizes, quantity, price, material), description, checklist
+	(unticked), labels, members and files. It starts in the first column with no payment."""
 	src = frappe.get_doc("Sales Order", name)
 	src.check_permission("read")
 	cfg = get_config()
-	col = _column_for(src, cfg)
-	if col == _deliver_col(cfg):
-		col = cfg["columns"][0]["id"]
-	res = quick_order(json.dumps({"customer": src.customer, "what": f"{src.atelier_subject or src.name} (نسخة)", "price": None,
+	col = cfg["columns"][0]["id"]
+	lines = [{k: v for k, v in l.items() if k not in ("row", "amount", "item_name")} for l in _card_lines(src)]
+	res = quick_order(json.dumps({"customer": src.customer, "what": f"{src.atelier_subject or src.name} (نسخة)", "subject": f"{src.atelier_subject or src.name} (نسخة)",
+		"lines": lines or None, "price": None,
 		"delivery_date": max(str(src.delivery_date), nowdate()) if src.delivery_date else add_days(nowdate(), 3)}, ensure_ascii=False))
 	new = res["sales_order"]
 	checklist = [{"text": c.get("text"), "done": 0} for c in _jl(src.get("atelier_checklist"))]

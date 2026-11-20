@@ -614,7 +614,7 @@ const ServicesPage = {
           <div class="sv-sh"><h2>{{ cur.item_name }}</h2><span class="m">{{ cur.atelier_category || 'بلا تصنيف' }} · يُباع بـ{{ uom(cur.stock_uom) }}</span></div>
           <div class="sv-facts"><div><span>سعر الأفراد</span><b>{{ cur.price_individual != null ? money(cur.price_individual) : '—' }}</b></div><div><span>سعر المؤسسات</span><b>{{ cur.price_company != null ? money(cur.price_company) : '—' }}</b></div>
             <div><span>التكلفة / {{ uom(cur.stock_uom) }}</span><b>{{ cur.cost !== null ? money(cur.cost) : '—' }}</b></div><div><span>الهامش {{ cur.price_company != null ? '(مؤسسات)' : '(أفراد)' }}</span><b class="sv-mgt" :class="tone(cur)">{{ cur.margin !== null ? Math.round(cur.margin) + '%' : '—' }}</b></div></div>
-          <div class="sv-sec2"><h3>من أين تأتي التكلفة<a href="/atelier/calc" @click.prevent="go('/calc')">{{ cur.parts.length ? 'تعديل الوصفة' : 'أضف وصفة' }}</a></h3>
+          <div class="sv-sec2"><h3>من أين تأتي التكلفة<a :href="'/atelier/settings?tab=prices&recipe=' + encodeURIComponent(cur.item_code)" @click.prevent="go('/settings?tab=prices&recipe=' + encodeURIComponent(cur.item_code))">{{ cur.parts.length ? 'تعديل الوصفة' : 'أضف وصفة' }}</a></h3>
             <template v-if="cur.parts.length"><div v-for="(p, k) in cur.parts" :key="k" class="sv-r"><span>{{ p.label }} — {{ num(+p.qty.toFixed(3)) }} {{ uom(p.uom) }} × {{ num(+p.unit.toFixed(2)) }}<em v-if="p.real"> (حقيقية)</em></span><span>{{ money(p.amount) }}</span></div>
               <div class="sv-r t"><span>التكلفة لكل {{ uom(cur.stock_uom) }}</span><span>{{ money(cur.cost) }}</span></div>
               <div v-if="cur.min_price && priceOf(cur) != null && priceOf(cur) < cur.min_price" class="sv-hint">بهامش {{ num(s.data.target) }}% لا تبع بأقل من <b>{{ money(cur.min_price) }}</b>. السعر الآن أقل بـ {{ money(cur.min_price - priceOf(cur)) }}.</div>
@@ -1684,6 +1684,8 @@ const Board = {
     watch(open, (v) => { if (v) { state.sheet = { type: "order", edit: v }; open.value = null; } }, { immediate: true });
     const busy = ref(null), dragging = ref(null), over = ref(null), before = ref(null);
     async function moveTo(c, col, beforeName) {
+      // delivery invoices the order: only for who may deliver (said before, not refused after)
+      if (c.column !== col && cfg.value.columns.find((x) => x.id === col)?.deliver && state.boot.can.deliver === false) { toast("التسليم يُسجّله المدير. اطلب منه نقل الطلب إلى «" + cfg.value.columns.find((x) => x.id === col).name + "».", "error"); return; }
       busy.value = c.name;
       try {
         if (c.column !== col) { await call("move_card", { name: c.name, column: col }, true); const toCol = cfg.value.columns.find((x) => x.id === col);
@@ -1975,7 +1977,7 @@ const Board = {
       <button v-if="!s.data.worker" type="button" class="tm-pop-row" @click="act('template')"><Icon name="grid" :size="15"/>حفظ كقالب</button>
       <button type="button" class="tm-pop-row" @click="act('archive')"><Icon name="box" :size="15"/>أرشفة</button>
       <hr class="tm2-hr"><b>نقل إلى</b>
-      <div class="tb-moves"><button v-for="col in cfg.columns.filter(x => x.id !== menu.c.column)" :key="col.id" type="button" class="tm-pop-row" @click="act('move', col.id)"><i class="st-sw" :style="{background: col.color}"></i><span class="ellipsis">{{ col.name }}</span></button></div>
+      <div class="tb-moves"><button v-for="col in cfg.columns.filter(x => x.id !== menu.c.column)" :key="col.id" type="button" class="tm-pop-row" :disabled="col.deliver && state.boot.can.deliver === false" :title="col.deliver && state.boot.can.deliver === false ? 'التسليم يُسجّله المدير' : null" @click="act('move', col.id)"><i class="st-sw" :style="{background: col.color}"></i><span class="ellipsis">{{ col.name }}</span></button></div>
       <template v-if="state.boot.can.order"><hr class="tm2-hr">
         <button v-if="!(menu.c.paid > 0.005) && !(menu.c.per_delivered > 0)" type="button" class="tm-pop-row tm3-danger" @click="act('delete')"><Icon name="trash" :size="15"/>حذف البطاقة</button>
         <span v-else class="m tm3-hint">عليها دفعة أو تسليم: أرشفها بدل الحذف.</span></template>
@@ -4270,7 +4272,8 @@ const MaterialsSheet = {
 const RecipesCard = {
   setup() {
     const d = ref(null), code = ref(""), rows = ref([]), busy = ref(false), err = ref(null);
-    const load = async () => { try { d.value = await call("recipes"); } catch (e) { err.value = e.message; } };
+    const load = async () => { try { d.value = await call("recipes"); const want = state.query.get("recipe");
+        if (want && d.value.services.some((x) => x.item_code === want)) { code.value = want; nextTick(() => document.querySelector(".rc-card, .recipes")?.scrollIntoView({ block: "start" })); } } catch (e) { err.value = e.message; } };
     const service = computed(() => d.value?.services.find((s) => s.item_code === code.value));
     watch(code, () => { rows.value = (service.value?.recipe || []).map((r) => ({ ...r })); });
     const add = () => rows.value.push({ item_code: "", qty: "" });
@@ -4283,7 +4286,7 @@ const RecipesCard = {
     return { d, code, rows, busy, err, service, add, save, uom };
   },
   template: `
-  <section v-if="d" class="mn-card"><div class="mn-card-h"><b>وصفات الخدمات</b><span class="muted">ما تستهلكه الوحدة الواحدة، لتُقترح الكميات عند التسليم</span></div>
+  <section v-if="d" class="mn-card rc-card"><div class="mn-card-h"><b>وصفات الخدمات</b><span class="muted">ما تستهلكه الوحدة الواحدة، لتُقترح الكميات عند التسليم</span></div>
     <div style="display:flex;flex-direction:column;gap:8px;padding:12px 16px">
       <div v-if="err" class="alert error">{{ err }}</div>
       <p v-if="!d.services.length" class="muted" style="margin:0">أضف خدمة أولًا من الخدمات والأسعار.</p>
@@ -4329,7 +4332,8 @@ const CalcPage = {
     const unitCost = computed(() => (units.value ? total.value / units.value : 0));
     const suggest = (k) => { const m = Math.min(90, num(c.value.margins[k])); return unitCost.value ? Math.ceil(unitCost.value / (1 - m / 100) / 10) * 10 : 0; };
     const current = (k) => (svc.value ? svc.value[k === "Individual" ? "price_individual" : "price_company"] : null);
-    const curMargin = (k) => { const p = num(current(k)); return p ? Math.round((p - unitCost.value) / p * 100) : null; };
+    // no cost lines = cost unknown, not zero: no margin then (it would read 100%)
+    const curMargin = (k) => { const p = num(current(k)); return p && unitCost.value > 0 ? Math.round((p - unitCost.value) / p * 100) : null; };
     const KINDS = [["Individual", "الأفراد"], ["Company", "المؤسسات"]];
     const PRESETS = [20, 30, 40, 50, 60];
     const busy = ref(null), err = ref(null);
@@ -4421,7 +4425,7 @@ const CalcPage = {
               <div class="unit-wrap" style="width:96px"><input class="input num" v-model="c.margins[k[0]]" inputmode="decimal" :aria-label="'هامش ' + k[1]"><span class="u">%</span></div></div>
             <div class="calc-chips"><button v-for="p in PRESETS" :key="p" type="button" :class="{on: num(c.margins[k[0]]) === p}" @click="c.margins[k[0]] = p">{{ p }}%</button></div>
             <div class="calc-sug"><span class="money">{{ money(suggest(k[0])) }}</span><span class="muted"> لكل {{ unitName }}</span></div>
-            <span v-if="svc" class="muted">السعر المسجّل: {{ current(k[0]) ? money(current(k[0])) : 'غير محدد' }}<template v-if="curMargin(k[0]) !== null"> · <b :class="curMargin(k[0]) < num(c.margins[k[0]]) ? 'bad' : 'good'">ربحه {{ curMargin(k[0]) }}%</b></template></span>
+            <span v-if="svc" class="muted">السعر المسجّل: {{ current(k[0]) ? money(current(k[0])) : 'غير محدد' }}<template v-if="curMargin(k[0]) === null && current(k[0])"> · <span class="muted">التكلفة غير معروفة بعد، أضف بنودها لحساب الهامش</span></template><template v-if="curMargin(k[0]) !== null"> · <b :class="curMargin(k[0]) < num(c.margins[k[0]]) ? 'bad' : 'good'">ربحه {{ curMargin(k[0]) }}%</b></template></span>
             <button v-if="svc && s.data.can_price" type="button" class="cl-btn sm" :disabled="!suggest(k[0]) || !!busy" @click="savePrice(k[0])">حفظ كسعر {{ k[1] }}</button></div>
           <button type="button" class="cl-link" :disabled="!!busy" @click="saveMargins">اجعل هذه الهوامش افتراضية</button></section>
         <div class="calc-actions"><button type="button" class="cl-btn primary" :disabled="!total || !!busy" @click="startOrder('devis')"><Icon name="file" :size="16"/>إنشاء عرض سعر</button>

@@ -97,6 +97,7 @@ def boot():
 			"prices": _can("Item Price", "write"),
 			"payment": (_can("Payment Entry", "create") or role == "sales") and not worker,
 			"box": role == "sales" and not worker,
+			"deliver": _can("Delivery Note", "create") and _can("Sales Invoice", "create"),
 			"expense": _can("Journal Entry", "create"),
 			"finance": _can("GL Entry", "read"),
 			"cost": _can("Cost Estimate", "read"),
