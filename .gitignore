@@ -41,3 +41,4 @@ tools/docs/
 *.log
 
 tools/dev/out/
+tools/dev/node_modules/

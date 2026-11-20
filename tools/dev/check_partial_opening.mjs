@@ -14,7 +14,11 @@
 import { chromium } from "playwright";
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 
-const BASE = "http://test-tour.localhost:8002";
+// test sites only: the user's test-tour, or a throwaway local site
+const ALLOWED = ["http://test-tour.localhost:8002", "http://test.localhost:8000"];
+const BASE = process.env.NASAQ_BASE || ALLOWED[0];
+if (!ALLOWED.includes(BASE)) { console.error("Refused: test sites only"); process.exit(2); }
+const HOST = new URL(BASE).host;
 const SELLER_ORDER = process.env.NASAQ_SELLER_ORDER || "SAL-ORD-2026-00022";
 const FORBIDDEN = "SAL-ORD-2026-00021";
 const OUT = new URL("./out/", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
@@ -45,14 +49,14 @@ for (const r of ["manager", "seller", "printer"]) if (!existsSync(stateOf(r))) {
 const results = [];
 const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? " — " + detail : ""}`); };
 const near = (a, b) => Math.abs(Number(a) - Number(b)) < 0.01;
-const stamp = new Date().toISOString().slice(5, 16).replace(/[-T:]/g, "");
+const stamp = new Date().toISOString().slice(5, 19).replace(/[-T:]/g, "");
 const browser = await chromium.launch();
 
 async function session(role) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "ar", storageState: stateOf(role) });
   const page = await ctx.newPage();
   // never leave the test site
-  await ctx.route("**/*", (r) => (new URL(r.request().url()).host === "test-tour.localhost:8002" || r.request().url().startsWith("data:") ? r.continue() : r.abort()));
+  await ctx.route("**/*", (r) => (new URL(r.request().url()).host === HOST || r.request().url().startsWith("data:") ? r.continue() : r.abort()));
   await page.goto(`${BASE}/atelier`);
   if (!page.url().includes("/atelier")) throw new Error(`${role}: session expired, run --login ${role} again`);
   // read-only lookups (GET) for comparing; nothing is written through the API
@@ -83,11 +87,27 @@ const invoicesOf = async (read, so) => {
   for (const n of [...new Set(rows.map((r) => r.parent))]) out.push(await read("frappe.client.get_value", { doctype: "Sales Invoice", filters: n, fieldname: ["name", "grand_total", "outstanding_amount", "is_return"] }));
   return out.filter((i) => !i.is_return).sort((a, b) => a.grand_total - b.grand_total);
 };
+// the board uses HTML5 drag and drop: the same events a mouse drag fires, on the card and the delivery column
 async function dragToDeliver(page, title) {
-  const card = page.locator("article.tc", { hasText: title }).first();
-  const col = page.locator('section.tb-col.deliver').first();
-  await card.scrollIntoViewIfNeeded();
-  await card.dragTo(col);
+  const moved = page.waitForResponse((r) => /move_card|\.move$/.test(r.url()), { timeout: 60000 }).catch(() => null);
+  await page.locator("article.tc", { hasText: title }).first().waitFor();
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(1500); // the board re-renders once its settings arrive
+  const ok = await page.evaluate((title) => {
+    const c = [...document.querySelectorAll("article.tc")].find((x) => x.textContent.includes(title));
+    const t = document.querySelector("section.tb-col.deliver");
+    if (!c || !t) return false;
+    const dt = new DataTransfer();
+    c.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: dt }));
+    t.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    t.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    c.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: dt }));
+    return true;
+  }, title);
+  if (!ok) throw new Error("card or delivery column not found: " + title);
+  const r = await moved;
+  if (!r) throw new Error("no answer from the server after the drag: " + title);
+  if (!r.ok()) throw new Error("the server refused the delivery: " + (await r.text()).slice(0, 200));
 }
 const numbers = (o) => Object.fromEntries(Object.entries(o || {}).filter(([, v]) => typeof v === "number"));
 
@@ -104,10 +124,10 @@ try {
   const p = M.page;
   await p.goto(`${BASE}/atelier/orders/new`);
   await p.locator("#qo-customer").fill(CUSTOMER);
-  await p.getByRole("option", { name: new RegExp(CUSTOMER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).first().click();
+  await p.locator(".cf-list [role=option]", { hasText: CUSTOMER }).first().click();
   await p.locator("#qo-subject").fill(subject);
   const addLine = p.getByRole("button", { name: "بند جديد" });
-  const desc = p.locator("textarea.lb-desc"), qtyIn = p.locator("label.lb-c input.lb-in"), rateIn = p.locator('input[placeholder="لاحقًا"]');
+  const desc = p.locator("textarea.lb-desc"), qtyIn = p.locator("label.lb-c", { has: p.locator("span", { hasText: /^(الكمية|عدد القطع)$/ }) }).locator("input"), rateIn = p.locator('input[placeholder="لاحقًا"]');
   if (await desc.count() < 1) await addLine.click();
   await desc.nth(0).fill("لافتة PW"); await qtyIn.nth(0).fill("1"); await rateIn.nth(0).fill("400");
   await addLine.click();
@@ -144,6 +164,7 @@ try {
   // 3. the board shows the badge; drag the card to «سُلّم»
   await p.goto(`${BASE}/atelier`);
   await p.keyboard.press("Escape").catch(() => {});
+  await p.locator("article.tc", { hasText: subject }).first().waitFor({ timeout: 20000 }).catch(() => {});
   const badge = await p.locator("article.tc", { hasText: subject }).locator(".tc-part").isVisible().catch(() => false);
   await shot(p, "3-board-badge-1440");
   check("board: «سُلّم جزئيًا» on the card", badge);
@@ -156,7 +177,8 @@ try {
   check("after «سُلّم»: left 0 and 500", inv.length === 2 && near(inv[0].outstanding_amount, 0) && near(inv[1].outstanding_amount, 500), JSON.stringify(inv));
 
   // 4. opening debt 12,500: customer and supplier, from their pages, then reversed
-  const bal = async (pt, party) => Number(await M.read("erpnext.accounts.utils.get_balance_on", { party_type: pt, party })) || 0;
+  const bal = async (pt, party) => (await M.read("frappe.client.get_list", { doctype: "GL Entry", filters: { party_type: pt, party, is_cancelled: 0 },
+    fields: ["debit", "credit"], limit_page_length: 0 })).reduce((a, g) => a + Number(g.debit) - Number(g.credit), 0);
   const money0 = numbers(await M.read("money3").catch(() => ({})));
   async function opening(kind, party, path) {
     const before = await bal(kind, party);
@@ -197,12 +219,14 @@ try {
   const S = await session("seller");
   const sinfo = await M.read("frappe.client.get_value", { doctype: "Sales Order", filters: SELLER_ORDER, fieldname: ["atelier_subject", "grand_total", "per_delivered", "docstatus"] });
   const box0 = await S.read("my_box");
+  const posts = [];
+  S.page.on("response", async (r) => { if (r.request().method() === "POST" && r.url().includes("/api/method/")) posts.push(`${r.url().split("/").pop()} ${r.status()} ${(await r.text().catch(() => "")).slice(0, 160)}`); });
   await S.page.goto(`${BASE}/atelier`);
   await dragToDeliver(S.page, sinfo.atelier_subject || SELLER_ORDER);
   const collect = S.page.locator(".overlay .stk-collect");
   const shown = await collect.isVisible({ timeout: 8000 }).catch(() => false);
   await shot(S.page, "7-seller-collect-1440");
-  check("seller: delivery accepted and the collect window opened", shown);
+  check("seller: delivery accepted and the collect window opened", shown, shown ? "" : posts.join(" | "));
   let got = 0;
   if (shown) {
     got = Number((await S.page.locator("#co-a").inputValue()).replace(/[^\d.]/g, "")) || 0;

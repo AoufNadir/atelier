@@ -154,3 +154,22 @@ class TestFinancePaths(unittest.TestCase):
 		self.assertAlmostEqual(flt(get_balance_on(party_type="Customer", party=cust, company=api._company())), before, places=2)
 		with self.assertRaises(frappe.ValidationError):
 			opening.reverse_opening(r["journal"])
+
+	def test_repeat_order_same_subject_is_accepted(self):
+		a = simple.quick_order(json.dumps({"customer": _customer(), "subject": "بطاقات زيارة", "lines": [{"text": "x", "qty": 1, "rate": 100}]}, ensure_ascii=False))
+		b = simple.quick_order(json.dumps({"customer": _customer(), "subject": "بطاقات زيارة", "lines": [{"text": "x", "qty": 1, "rate": 100}]}, ensure_ascii=False))
+		self.assertNotEqual(a["sales_order"], b["sales_order"])
+
+	def test_seller_can_deliver(self):
+		from atelier.simple import save_user
+
+		so = _order(500)
+		save_user("seller-t@test.local", "Seller T", "sales")
+		frappe.set_user("seller-t@test.local")
+		try:
+			simple.move(so, "done")
+		finally:
+			frappe.set_user("Administrator")
+		self.assertEqual(flt(frappe.db.get_value("Sales Order", so, "per_billed")), 100)
+		dn = frappe.db.get_value("Delivery Note Item", {"against_sales_order": so}, "parent")
+		self.assertEqual(frappe.db.get_value("Delivery Note", dn, "owner"), "seller-t@test.local")

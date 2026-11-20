@@ -267,8 +267,11 @@ def partial_deliver(name, qtys):
 	inv = api.invoice_order(name, delivery_note=dn)
 	so.reload()
 	_log(name, _("سلّم جزءًا من الطلب — فاتورة {0}").format(inv))
-	if so.per_delivered >= 100:
+	if so.per_delivered >= 100:  # everything delivered: the card goes to the delivery column like a drag would
 		so.db_set("atelier_stage", COLUMNS["done"])
+		col = _deliver_col(get_config())
+		if col:
+			frappe.db.set_value("Sales Order", name, "atelier_column", col)
 	return {"delivery_note": dn, "invoice": inv, "complete": so.per_delivered >= 100,
 		"outstanding": flt(frappe.db.get_value("Sales Invoice", inv, "outstanding_amount"))}
 

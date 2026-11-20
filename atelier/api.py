@@ -32,6 +32,22 @@ def _may_deliver():
 	return app_role() in ("manager", "sales") or (_can("Delivery Note", "create") and _can("Sales Invoice", "create"))
 
 
+def _elevated(fn):
+	"""Run fn with the rights to make the delivery note and invoice when the user (a seller) may deliver without
+	holding ERPNext's stock/accounting roles; the documents keep the seller as their owner."""
+	if _can("Delivery Note", "create") and _can("Sales Invoice", "create"):
+		return fn()
+	user = frappe.session.user
+	frappe.flags.atelier_real_user = user
+	frappe.set_user("Administrator")
+	try:
+		name = fn()
+	finally:
+		frappe.set_user(user)
+		frappe.flags.atelier_real_user = None
+	return name
+
+
 def _no_worker():
 	from atelier.simple import no_worker
 
@@ -659,8 +675,14 @@ def create_order(data):
 		}).insert().name
 
 	subject = data["subject"].strip()
+	# the same job for the same customer again (a repeat order) is normal: number the project name, never refuse
+	base = f"{subject} — {customer}"[:130]
+	pname, n = base, 1
+	while frappe.db.exists("Project", {"project_name": pname}):
+		n += 1
+		pname = f"{base} ({n})"
 	project = frappe.get_doc({
-		"doctype": "Project", "project_name": f"{subject} — {customer}"[:140], "company": company, "customer": customer,
+		"doctype": "Project", "project_name": pname, "company": company, "customer": customer,
 		"expected_end_date": data.get("delivery_date") or None,
 	}).insert().name
 
@@ -1192,6 +1214,11 @@ def deliver_order(name, qtys=None):
 		frappe.throw(_("اعتمد الطلب أولًا"))
 	if not _may_deliver():
 		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	return _elevated(lambda: _make_delivery(so, make_delivery_note, qtys))
+
+
+def _make_delivery(so, make_delivery_note, qtys):
+	owner = frappe.flags.get("atelier_real_user") or frappe.session.user
 	dn = make_delivery_note(so.name)
 	qtys = frappe.parse_json(qtys) if qtys else None
 	if qtys:
@@ -1203,6 +1230,7 @@ def deliver_order(name, qtys=None):
 	dn.flags.ignore_permissions = True
 	dn.insert()
 	dn.submit()
+	dn.db_set("owner", owner, update_modified=False)
 	so.reload()
 	if so.per_delivered >= 100:
 		so.db_set("atelier_stage", STAGES[-1])
@@ -1220,6 +1248,10 @@ def invoice_order(name, delivery_note=None):
 		frappe.throw(_("اعتمد الطلب أولًا"))
 	if not _may_deliver():
 		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
+	return _elevated(lambda: _make_invoice(so, delivery_note, make_sales_invoice))
+
+
+def _make_invoice(so, delivery_note, make_sales_invoice):
 	if delivery_note:
 		from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_invoice as from_dn
 
@@ -1239,6 +1271,8 @@ def invoice_order(name, delivery_note=None):
 	si.flags.ignore_permissions = True
 	si.insert()
 	si.submit()
+	if frappe.flags.get("atelier_real_user"):
+		si.db_set("owner", frappe.flags.atelier_real_user, update_modified=False)
 	return si.name
 
 
