@@ -50,23 +50,21 @@ def _refund(customer, amount, mode, remark):
 
 
 def _refund_against(invoice, amount, mode, remark):
-	"""Pay back a negative outstanding, allocated to that invoice so it closes to zero."""
-	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-
+	"""Pay back a negative outstanding with a journal: the customer's account against that invoice, out of the
+	fund of the payment method. The invoice closes to zero (a Payment Entry refuses negative allocations here)."""
 	if mode not in [m[0] for m in api.all_modes()]:
 		frappe.throw(_("طريقة الدفع غير صالحة"))
-	company = api._company()
-	pe = get_payment_entry("Sales Invoice", invoice, party_amount=flt(amount))
-	pe.mode_of_payment = mode
-	pe.paid_from = api._cash_account(mode, company)
-	pe.paid_amount = pe.received_amount = flt(amount)
-	for ref in pe.references:
-		ref.allocated_amount = -flt(amount) if flt(ref.outstanding_amount) < 0 else ref.allocated_amount
-	pe.reference_no, pe.reference_date, pe.remarks = "—", nowdate(), remark[:140]
-	pe.flags.ignore_permissions = True
-	pe.insert()
-	pe.submit()
-	return pe.name
+	si = frappe.get_doc("Sales Invoice", invoice)
+	amount = flt(amount)
+	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Journal Entry", "company": si.company, "posting_date": nowdate(),
+		"mode_of_payment": mode, "cheque_no": "—", "cheque_date": nowdate(), "user_remark": remark[:140], "accounts": [
+			{"account": si.debit_to, "party_type": "Customer", "party": si.customer, "debit_in_account_currency": amount,
+				"reference_type": "Sales Invoice", "reference_name": invoice},
+			{"account": api._cash_account(mode, si.company), "credit_in_account_currency": amount}]})
+	je.flags.ignore_permissions = True
+	je.insert()
+	je.submit()
+	return je.name
 
 
 def _settle(inv, cn):

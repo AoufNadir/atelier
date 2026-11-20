@@ -111,6 +111,7 @@ class TestFinancePaths(unittest.TestCase):
 		returns.create_return(so, json.dumps({row: 1}))
 		self.assertAlmostEqual(flt(frappe.db.get_value("Sales Invoice", inv, "outstanding_amount")), 250, places=2)
 		res = returns.create_return(so, json.dumps({row: 3}), refund_mode="Cash")
-		self.assertAlmostEqual(flt(frappe.db.get_value("Payment Entry", res["refund"].split(", ")[0], "paid_amount")), 2000, places=2)
+		paid = sum(flt(frappe.db.get_value("Journal Entry", n, "total_debit")) for n in res["refund"].split(", "))
+		self.assertAlmostEqual(paid, 2000, places=2)
 		for n in [inv] + frappe.get_all("Sales Invoice", filters={"return_against": inv, "docstatus": 1}, pluck="name"):
 			self.assertAlmostEqual(flt(frappe.db.get_value("Sales Invoice", n, "outstanding_amount")), 0, places=2)
