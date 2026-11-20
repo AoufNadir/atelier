@@ -3922,7 +3922,7 @@ const ReportsPage2 = {
                   <span class="rp-v">{{ kfig(m.sales) }}</span><span class="rp-v2">{{ kfig(m.expenses) }}</span>
                   <div class="mn-bars"><span class="rp-s" :style="{height: (m.sales / maxM * 100) + '%'}"></span><span class="rp-e" :style="{height: (m.expenses / maxM * 100) + '%'}"></span></div><small>{{ mlabel(m.month) }}</small></div></div></section>
             <section class="mn-card"><div class="mn-card-h"><b>ربحية الطلبات</b><span class="muted">الأقل ربحًا أولًا</span></div>
-              <table class="cl-table mn-table"><thead><tr><th>الطلب</th><th class="n">المبيعات</th><th class="n desktop-only">التكلفة</th><th class="n">الربح</th><th class="n">الهامش</th></tr></thead><tbody>
+              <table class="cl-table mn-table"><thead><tr><th>الطلب</th><th class="n">المبيعات</th><th class="n desktop-only" title="المواد المصروفة والتكاليف المسجّلة على الطلب، دون الحبر التقديري (تبويب «الربح» يضيفه)">التكلفة المسجّلة</th><th class="n">الربح</th><th class="n">الهامش</th></tr></thead><tbody>
                 <tr v-if="!d.profit.length"><td colspan="5" class="cl-empty">لا طلبات مفوترة في هذه الفترة.</td></tr>
                 <tr v-for="r in d.profit" :key="r.name" @click="go('/?card=' + encodeURIComponent(r.name))"><td style="white-space:normal"><span class="cl-name">{{ r.title }}</span><span class="muted" style="display:block">{{ r.customer }}</span></td>
                   <td class="n">{{ fig(r.revenue) }}</td><td class="n desktop-only muted">{{ fig(r.cost) }}</td><td class="n"><span class="cl-bal" :class="r.result < 0 ? 'bad' : ''">{{ fig(r.result) }}</span></td>

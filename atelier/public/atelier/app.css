@@ -3190,3 +3190,8 @@ html { overflow-x: clip; }
 /* screen-reader-only labels are positioned inside their cell: an unanchored one in a wide table widened the phone page */
 th, td { position: relative; }
 .sr-only { inset-inline-start: 0; top: 0; }
+/* touch screens: small icon buttons and links get a finger-sized target (24px at least, visually unchanged) */
+@media (pointer: coarse), (max-width: 700px) {
+  .od button, .od a, .sheet button, .lp-ed, .od-fold, .cl-link, .tb-cm-sw button, .lp-sw button { min-height: 28px; min-width: 28px; }
+  .od .cl-link, .od a { display: inline-flex; align-items: center; }
+}
