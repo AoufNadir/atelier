@@ -49,6 +49,47 @@ def _refund(customer, amount, mode, remark):
 	return pe.name
 
 
+def _refund_against(invoice, amount, mode, remark):
+	"""Pay back a negative outstanding, allocated to that invoice so it closes to zero."""
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+	if mode not in [m[0] for m in api.all_modes()]:
+		frappe.throw(_("طريقة الدفع غير صالحة"))
+	company = api._company()
+	pe = get_payment_entry("Sales Invoice", invoice, party_amount=flt(amount))
+	pe.mode_of_payment = mode
+	pe.paid_from = api._cash_account(mode, company)
+	pe.paid_amount = pe.received_amount = flt(amount)
+	for ref in pe.references:
+		ref.allocated_amount = -flt(amount) if flt(ref.outstanding_amount) < 0 else ref.allocated_amount
+	pe.reference_no, pe.reference_date, pe.remarks = "—", nowdate(), remark[:140]
+	pe.flags.ignore_permissions = True
+	pe.insert()
+	pe.submit()
+	return pe.name
+
+
+def _unlink_advances(so):
+	"""Free the order's advances: they stay on the customer as unallocated payments."""
+	try:
+		from erpnext.accounts.utils import unlink_ref_doc_from_payment_entries
+
+		unlink_ref_doc_from_payment_entries(so)
+	except ImportError:
+		pass
+	rows = frappe.db.sql("""select r.name, r.parent, r.allocated_amount from `tabPayment Entry Reference` r
+		where r.reference_doctype='Sales Order' and r.reference_name=%s""", so.name)
+	for row, pe, alloc in rows:
+		if flt(alloc):
+			frappe.db.sql("""update `tabPayment Entry` set unallocated_amount=unallocated_amount+%s, total_allocated_amount=total_allocated_amount-%s
+				where name=%s""", (flt(alloc), flt(alloc), pe))
+		frappe.db.sql("delete from `tabPayment Entry Reference` where name=%s", row)
+	if frappe.db.table_exists("Payment Ledger Entry"):
+		frappe.db.sql("""update `tabPayment Ledger Entry` set against_voucher_type=voucher_type, against_voucher_no=voucher_no
+			where against_voucher_type='Sales Order' and against_voucher_no=%s""", so.name)
+	frappe.local.message_log = []  # erpnext's English "un-linked" note is not shown
+
+
 @frappe.whitelist()
 def cancel_info(name):
 	_manager()
@@ -74,8 +115,15 @@ def cancel_order(name, refund_mode=None, reason=""):
 	if so.docstatus == 1:
 		# the advance stays on the customer (unallocated) instead of blocking the cancellation
 		frappe.db.set_single_value("Accounts Settings", "unlink_advance_payment_on_cancelation_of_order", 1)
+		_unlink_advances(so)
+		so.reload()
+		so.ignore_linked_doctypes = tuple(so.get("ignore_linked_doctypes") or ()) + ("Payment Entry", "Payment Ledger Entry", "GL Entry")
 		so.flags.ignore_permissions = True
-		so.cancel()
+		try:
+			so.cancel()
+		except frappe.LinkExistsError:
+			frappe.db.rollback()
+			frappe.throw(_("تعذّر إلغاء الطلب: ما زال مرتبطًا بمستند آخر معتمد (دفعة أو تسليم). لم يتغيّر شيء."))
 	else:
 		so.db_set("docstatus", 2, update_modified=True)  # a draft (priced later) is closed the same way, nothing posted
 	if frappe.db.has_column("Payment Entry", "atelier_order"):
@@ -99,7 +147,8 @@ def return_info(name):
 		where si.docstatus=1 and si.is_return=1 and si.return_against=%s group by sii.sales_invoice_item""", inv):
 		returned[r[0]] = flt(r[1])
 	lines = [{"row": i.name, "item_name": frappe.utils.strip_html(i.description or "") or i.item_name, "qty": flt(i.qty),
-		"left": flt(i.qty) - returned.get(i.name, 0), "rate": flt(i.rate)} for i in si.items]
+		"left": flt(i.qty) - returned.get(i.name, 0), "rate": flt(i.rate),
+		"whole": bool(frappe.db.get_value("UOM", i.uom, "must_be_whole_number"))} for i in si.items]
 	return {"invoice": inv, "customer": si.customer, "customer_name": si.customer_name, "outstanding": flt(si.outstanding_amount),
 		"lines": lines, "modes": [{"value": v, "label": l} for v, l in api.all_modes()]}
 
@@ -128,23 +177,28 @@ def create_return(name, qtys, refund_mode=None, reason=""):
 	for row, q in qtys.items():
 		if row not in info or q > info[row]["left"] + 1e-9:
 			frappe.throw(_("كمية الإرجاع أكبر من الباقي في الفاتورة"))
+		if info[row]["whole"] and q != int(q):
+			frappe.throw(_("وحدة «{0}» لا تقبل الكسور: اكتب عددًا صحيحًا").format(info[row]["item_name"]))
 	cn = make_sales_return(inv)
 	cn.items = [i for i in cn.items if i.sales_invoice_item in qtys]
 	for i in cn.items:
 		i.qty = -qtys[i.sales_invoice_item]
 	cn.update_stock = 0  # spoiled printing does not go back on the shelf
-	if hasattr(cn, "update_outstanding_for_self"):
-		cn.update_outstanding_for_self = 0  # the return lowers what is owed on the original invoice
+	if cn.meta.has_field("update_outstanding_for_self"):
+		cn.set("update_outstanding_for_self", 0)  # the return lowers what is owed on the original invoice
 	cn.disable_rounded_total = 1
 	cn.remarks = ((reason or "").strip() or _("إرجاع"))[:140]
 	cn.flags.ignore_permissions = True
 	cn.insert()
 	cn.submit()
 	si = frappe.get_doc("Sales Invoice", inv)
-	excess = -flt(si.outstanding_amount)  # the return made the invoice negative: the customer has that much with us
+	cn.reload()
+	# what the customer now has with us: the negative outstanding left on the invoice or on the credit note itself
+	neg = [(d.name, -flt(d.outstanding_amount)) for d in (si, cn) if flt(d.outstanding_amount) < -0.005]
+	excess = sum(a for _n, a in neg)
 	refund = None
 	if refund_mode and excess > 0.005:
-		refund = _refund(si.customer, excess, refund_mode, _("استرداد إرجاع {0}").format(cn.name))
+		refund = ", ".join(_refund_against(n, a, refund_mode, _("استرداد إرجاع {0}").format(cn.name)) for n, a in neg)
 	_log(name, _("إرجاع {0} بقيمة {1}").format(cn.name, frappe.format_value(-flt(cn.grand_total), {"fieldtype": "Currency"}))
 		+ (" — " + reason.strip()[:80] if (reason or "").strip() else ""))
 	return {"credit_note": cn.name, "amount": -flt(cn.grand_total), "refund": refund, "credit": 0 if refund else max(0, excess)}

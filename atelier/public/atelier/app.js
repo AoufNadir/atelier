@@ -4199,14 +4199,15 @@ const ReturnSheet = {
     onMounted(async () => { try { d.value = await call("return_info", { name: props.opts.order }); d.value.lines.forEach((l) => (l.back = l.left)); } catch (e) { err.value = e.message; } });
     const amount = computed(() => (d.value?.lines || []).reduce((a, l) => a + Math.min(l.left, Math.max(0, parseAmount(l.back))) * l.rate, 0));
     const after = computed(() => (d.value ? d.value.outstanding - amount.value : 0));
-    const bad = computed(() => (d.value?.lines || []).some((l) => parseAmount(l.back) > l.left + 1e-9 || parseAmount(l.back) < 0));
+    const frac = computed(() => (d.value?.lines || []).some((l) => l.whole && !Number.isInteger(parseAmount(l.back) || 0)));
+    const bad = computed(() => frac.value || (d.value?.lines || []).some((l) => parseAmount(l.back) > l.left + 1e-9 || parseAmount(l.back) < 0));
     const close = () => (state.sheet = null);
     const save = async () => { busy.value = true; err.value = null;
       try { const qtys = Object.fromEntries(d.value.lines.filter((l) => parseAmount(l.back) > 0).map((l) => [l.row, parseAmount(l.back)]));
         const r = await call("create_return", { name: props.opts.order, qtys: JSON.stringify(qtys), refund_mode: keep.value ? null : mode.value, reason: reason.value }, true);
         toast(`سُجّل الإرجاع ${money(r.amount)}` + (r.refund ? " ورُدّ المبلغ" : r.credit > 0 ? ` — له ${money(r.credit)} رصيدًا` : "")); state.rev++; close(); }
       catch (e) { err.value = e.message; } finally { busy.value = false; } };
-    return { d, err, busy, keep, mode, reason, amount, after, bad, close, save, money, num, state, parseAmount };
+    return { d, err, busy, keep, mode, reason, amount, after, bad, frac, close, save, money, num, state, parseAmount };
   },
   template: `
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-bill" @submit.prevent="save"><div class="sh-head"><div><h2>إرجاع / فاتورة دائنة</h2><span class="muted">«{{ opts.title }}»<template v-if="d"> — {{ d.customer_name }} · فاتورة {{ d.invoice }}</template></span></div></div>
@@ -4223,6 +4224,7 @@ const ReturnSheet = {
           <span v-if="!keep" class="stk-modes"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="mode === m.value" @click="mode = m.value">{{ m.label }}</button></span></span></label></template>
       <div class="field"><label for="rt-r">السبب</label><input id="rt-r" class="input" v-model="reason" placeholder="مثلًا: خطأ في الطباعة"></div>
       <p class="stk-payres">الفاتورة الأصلية تبقى كما هي؛ يُنشأ مقابلها مستند دائن برقمه ويظهر في كشف حساب العميل. المواد المصروفة لا تعود للمخزون.</p></template>
+    <p v-if="frac" class="err" role="alert">هذه الوحدة لا تقبل الكسور: اكتب عددًا صحيحًا.</p>
     <div class="sh-foot"><button type="button" class="cl-btn" @click="close">رجوع</button><button type="submit" class="cl-btn primary" :disabled="busy || !d || !(amount > 0) || bad">تسجيل الإرجاع</button></div>
   </form></div>`,
 };
