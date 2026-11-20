@@ -253,18 +253,19 @@ def _cycles_ok():
 
 
 def _cycle_start(item_code):
-	"""When the pack now finishing was opened: the end of the previous cycle, else the first move of the material."""
-	last = frappe.db.get_value("Material Cycle", {"item": item_code}, "closed_on", order_by="closed_on desc, creation desc") if _cycles_ok() else None
+	"""When the pack now finishing was opened, to the second: the end of the previous cycle, else the first move of the
+	material. A time, not a day: two reams finished the same day must not share their usage."""
+	last = frappe.db.get_value("Material Cycle", {"item": item_code}, "creation", order_by="creation desc") if _cycles_ok() else None
 	if not last:
 		opens = _cfg_of(item_code)["opens"]
-		last = opens[-1]["date"] if opens else None
-	return str(last or frappe.db.get_value("Stock Ledger Entry", {"item_code": item_code, "is_cancelled": 0}, "posting_date", order_by="posting_date asc") or nowdate())
+		last = (opens[-1].get("at") or opens[-1]["date"]) if opens else None
+	return str(last or frappe.db.get_value("Stock Ledger Entry", {"item_code": item_code, "is_cancelled": 0}, "creation", order_by="creation asc") or nowdate())
 
 
 def _used_since(item_code, since):
 	"""Issued on orders (and by hand) since a date: [(order, qty)], total."""
 	rows = frappe.db.sql("""select sle.voucher_no, -sum(sle.actual_qty) from `tabStock Ledger Entry` sle
-		where sle.item_code=%s and sle.is_cancelled=0 and sle.voucher_type='Stock Entry' and sle.actual_qty<0 and sle.posting_date>=%s
+		where sle.item_code=%s and sle.is_cancelled=0 and sle.voucher_type='Stock Entry' and sle.actual_qty<0 and sle.creation>=%s
 		group by sle.voucher_no""", (item_code, since))
 	entries = {r[0]: flt(r[1]) for r in rows}
 	proj = dict(frappe.db.sql("select name, project from `tabStock Entry` where name in %s", [list(entries) or [""]]))
@@ -321,7 +322,7 @@ def pack_cycle(item_code):
 			mine = any((l.get("atelier_material") or "") == item.name for l in lines)
 			cands.append({"order": so.name, "title": so.atelier_subject or so.name, "qty": round(need, 3), "checked": 1 if mine else 0})
 	titles = {o.name: o.atelier_subject or o.name for o in frappe.get_all("Sales Order", filters={"name": ["in", [k for k in by_order if k] or [""]]}, fields=["name", "atelier_subject"])}
-	return {"pack": c["pack"] or ("لفّة" if roll else "رزمة"), "size": c["pack_qty"], "uom": item.stock_uom, "since": since, "used": round(used, 3),
+	return {"pack": c["pack"] or ("لفّة" if roll else "رزمة"), "size": c["pack_qty"], "uom": item.stock_uom, "since": str(since)[:10], "used": round(used, 3),
 		"done": [{"order": k, "title": titles.get(k, "صرف يدوي" if not k else k), "qty": round(v, 3)} for k, v in by_order.items()], "candidates": cands[:30], "closed": c["closed"]}
 
 
@@ -362,7 +363,7 @@ def close_pack(item_code, orders=None):
 	size = flt(res.get("size")) or _cfg_of(item.name)["pack_qty"]
 	if _cycles_ok():
 		frappe.get_doc({"doctype": "Material Cycle", "item": item.name, "item_name": frappe.db.get_value("Item", item.name, "item_name"),
-			"opened_on": since, "closed_on": nowdate(), "size": size, "uom": item.stock_uom, "cost": round(size * rate, 2),
+			"opened_on": str(since)[:10], "closed_on": nowdate(), "size": size, "uom": item.stock_uom, "cost": round(size * rate, 2),
 			"recorded": round(used, 4), "gap": round(size - used, 4), "coverage": min(100, round(used / size * 100, 1)) if size else 0,
 			"orders": json.dumps([{"order": k, "qty": round(v, 3)} for k, v in by_order.items()], ensure_ascii=False)}).insert(ignore_permissions=True)
 	return {**res, "used": round(used, 3), "waste": round(size - used, 3), "coverage": min(100, round(used / size * 100, 1)) if size else 0}
@@ -394,7 +395,7 @@ def open_pack(item_code):
 	gap = round(before - actual, 4)  # ≥ 0: the part of the finished pack that no order recorded (waste or unrecorded use)
 	if abs(gap) > 1e-6:
 		stock_count(item.name, actual)
-	c["opens"] = (c["opens"] + [{"date": nowdate(), "gap": gap, "size": size}])[-12:]
+	c["opens"] = (c["opens"] + [{"date": nowdate(), "at": str(frappe.utils.now_datetime()), "gap": gap, "size": size}])[-12:]
 	_save_cfg(item.name, c)
 	return {"gap": gap, "closed": c["closed"], "stock": actual, "pack": c["pack"] or "لفّة", "size": size}
 
@@ -533,9 +534,8 @@ def material_ledger(item_code, limit=60):
 		where pii.item_code=%s and pi.docstatus=1 order by pi.posting_date desc, pi.creation desc limit 1""", item_code, as_dict=True)
 	cycles = frappe.get_all("Material Cycle", filters={"item": item_code}, fields=["opened_on", "closed_on", "size", "cost", "recorded", "gap", "coverage"],
 		order_by="closed_on desc, creation desc", limit=12) if _cycles_ok() else []
-	good = [c for c in cycles if flt(c.coverage) >= 70 and flt(c.recorded) > 0]
-	real = sum(flt(c.cost) for c in good) / sum(flt(c.recorded) for c in good) if len(good) >= 3 else None
-	out = {"rows": rows, "month_used": used, "daily": used60 / 60, "last_buy": last[0] if last else None, "cycles": cycles, "real_cost": real, "good_cycles": len(good)}
+	real, good = _real_cost(item_code)  # the same figure as the stock list and the reports (all reliable cycles)
+	out = {"rows": rows, "month_used": used, "daily": used60 / 60, "last_buy": last[0] if last else None, "cycles": cycles, "real_cost": real, "good_cycles": good}
 	if not api._can("GL Entry"):
 		# production staff see quantities only: no purchase price, valuation or cycle cost
 		for x in rows:
