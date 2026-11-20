@@ -1122,7 +1122,11 @@ const BoardPanel = {
       } catch (e) { error.value = e.message; } finally { saving.value = false; }
     }
     const paid = computed(() => +(ed.value?.paid || 0));
-    const remain = computed(() => priced.value - (editing.value ? paid.value : (+f.advance || 0)));
+    // TVA as the invoice will carry it (off, or the customer is exempt: none)
+    const taxRate = computed(() => (+state.boot.tva_rate > 0 && !credit.value?.tva_exempt ? +state.boot.tva_rate : 0));
+    const tax = computed(() => Math.round(priced.value * taxRate.value) / 100);
+    const gross = computed(() => priced.value + tax.value);
+    const remain = computed(() => gross.value - (editing.value ? paid.value : (+f.advance || 0)));
     const popular = computed(() => (state.boot.items || []).filter((it) => it.item_code !== "SRV-GENERAL").slice(0, 3));
     const tpls = ref([]), tplOn = ref(null);
     onMounted(async () => { if (props.mode === "new") { try { tpls.value = await call("card_templates"); } catch { /* none */ } } });
@@ -1140,7 +1144,7 @@ const BoardPanel = {
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
     const folderHint = () => setTimeout(() => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة على هذا الحاسوب — استعمل «نسخ المسار»"), 1500);
-    return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, secOpen, isOpen, toggleSec, secHas, secLabel, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, noSize, customerType, boardStatuses, boardLabels, tagEdit, tagMode, tagBusy, canTag, editTag, saveTag, delTag, BOARD_COLORS, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, secOpen, isOpen, toggleSec, secHas, secLabel, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, noSize, customerType, boardStatuses, boardLabels, tagEdit, tagMode, tagBusy, canTag, editTag, saveTag, delTag, BOARD_COLORS, colName, flip, pickCust, priced, unpriced, remain, taxRate, tax, gross, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, num, matKind, matChoices, openMat, matInfo, matState, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
@@ -1230,7 +1234,9 @@ const BoardPanel = {
             <div v-if="!ro" class="od-add"><button type="button" class="od-addb" @click="addLine"><Icon name="plus" :size="16"/>بند جديد</button><span class="spacer"></span>
               <template v-if="popular.length"><span class="m">الأكثر طلبًا:</span><button v-for="it in popular" :key="it.item_code" type="button" class="od-sug" @click="addFrom(it)">{{ it.item_name }}</button></template></div>
             <div v-if="!worker" class="od-totals"><div class="od-tbox">
-              <div><span>مجموع البنود المسعّرة</span><span class="num">{{ money(priced) }}</span></div>
+              <div><span>{{ taxRate ? 'المجموع خارج الرسم' : 'مجموع البنود المسعّرة' }}</span><span class="num">{{ money(priced) }}</span></div>
+              <template v-if="taxRate"><div><span>TVA {{ taxRate }}%</span><span class="num">{{ money(tax) }}</span></div>
+                <div><span>المجموع مع الرسم</span><span class="num">{{ money(gross) }}</span></div></template>
               <div v-if="unpriced - noSize > 0"><span>بنود بلا سعر</span><span>{{ unpriced - noSize }}</span></div>
               <div v-if="noSize"><span>بنود ينقصها المقاس أو الكمية</span><span class="warn">{{ noSize }}</span></div>
               <div v-if="editing && paid > 0.005"><span>المدفوع</span><span class="num od-ok">− {{ money(paid) }}</span></div>
@@ -1340,7 +1346,7 @@ const BoardPanel = {
         </aside>
       </div>
       <footer class="od-ft">
-        <template v-if="!worker"><div class="od-big"><span>المجموع</span><b>{{ money(priced) }}</b></div>
+        <template v-if="!worker"><div class="od-big"><span>{{ taxRate ? 'المجموع مع الرسم' : 'المجموع' }}</span><b>{{ money(gross) }}</b></div>
         <div class="od-big"><span>الباقي</span><b :class="{bad: remain > 0.005}">{{ money(Math.max(0, remain)) }}</b></div></template>
         <div v-if="error" class="alert error od-err" role="alert">{{ error }}</div>
         <span class="spacer"></span>

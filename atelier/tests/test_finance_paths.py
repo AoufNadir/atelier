@@ -210,3 +210,32 @@ class TestFinancePaths(unittest.TestCase):
 		self.assertAlmostEqual(sum(out.values()), 200, places=2)  # 600 − the 400 returned
 		o = api._order_rows({"name": so}, limit=1)[0]
 		self.assertAlmostEqual(flt(o.grand_total) - flt(o.paid), 200, places=2)
+
+	def test_reports_match_the_books(self):
+		before = simple.reports2("month")["now"]
+		so = _order(3000, advance=1000, qty=3)
+		inv = _deliver(so)
+		api.record_payment(_customer(), 2000, "Cash", so)
+		returns.create_return(so, json.dumps({frappe.get_doc("Sales Invoice", inv).items[0].name: 1}), refund_mode="Cash")
+		after = simple.reports2("month")["now"]
+		self.assertAlmostEqual(after["invoiced"] - before["invoiced"], 2000, places=2)  # 3000 sold − 1000 returned
+		self.assertAlmostEqual(after["collected"] - before["collected"], 2000, places=2)  # 1000 + 2000 in − 1000 paid back
+		self.assertAlmostEqual(after["income"] - before["income"], 2000, places=2)
+
+	def _tva_invoice(self, rate, exempt=False):
+		simple.save_doc_settings(json.dumps({**simple.doc_settings(), "tva": 1, "tva_rate": rate}))
+		cust = _customer()
+		frappe.db.set_value("Customer", cust, "atelier_tva_exempt", 1 if exempt else 0)
+		inv = frappe.get_doc("Sales Invoice", _deliver(_order(1000)))
+		frappe.db.set_value("Customer", cust, "atelier_tva_exempt", 0)
+		return inv
+
+	def test_tva_19_on_its_own_account_and_exempt(self):
+		inv = self._tva_invoice(19)
+		self.assertAlmostEqual(flt(inv.grand_total), 1190, places=2)
+		self.assertTrue(all("19%" in t.account_head for t in inv.taxes), [t.account_head for t in inv.taxes])
+		inv9 = self._tva_invoice(9)
+		self.assertAlmostEqual(flt(inv9.grand_total), 1090, places=2)
+		self.assertTrue(all("19%" not in t.account_head and "9%" in t.account_head for t in inv9.taxes), [t.account_head for t in inv9.taxes])
+		ex = self._tva_invoice(19, exempt=True)
+		self.assertAlmostEqual(flt(ex.grand_total), 1000, places=2)

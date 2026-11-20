@@ -1632,8 +1632,8 @@ def customer_credit(name):
 		if not o.price_pending:
 			owes += flt(o.grand_total) * (1 - flt(o.per_billed) / 100)
 	owes = round(owes, 2)
-	c = frappe.db.get_value("Customer", name, ["customer_type", "mobile_no", "atelier_note"], as_dict=True) or {}
-	return {"limit": limit, "owes": owes, "over": bool(limit) and owes > limit, "note": c.get("atelier_note"),
+	c = frappe.db.get_value("Customer", name, ["customer_type", "mobile_no", "atelier_note", "atelier_tva_exempt"], as_dict=True) or {}
+	return {"limit": limit, "owes": owes, "over": bool(limit) and owes > limit, "note": c.get("atelier_note"), "tva_exempt": cint(c.get("atelier_tva_exempt")),
 		"customer_type": c.get("customer_type"), "mobile_no": c.get("mobile_no")}
 
 
@@ -1769,8 +1769,12 @@ def _tva_template(rate):
 	name = frappe.db.get_value("Sales Taxes and Charges Template", {"title": TVA_TEMPLATE, "company": company})
 	# the account must say the rate charged: «TVA 19%» for 19% (the chart has several TVA accounts, e.g. 9%)
 	rate_txt = f"{flt(rate):g}%"
-	account = frappe.db.get_value("Account", {"company": company, "is_group": 0, "root_type": "Liability", "account_type": "Tax",
-		"account_name": ["like", f"%{rate_txt}%"]})
+	# the exact rate, not one that contains it: «9%» must not pick «TVA 19%»
+	import re
+
+	account = next((a.name for a in frappe.get_all("Account", filters={"company": company, "is_group": 0, "root_type": "Liability",
+		"account_type": "Tax", "account_name": ["like", f"%{rate_txt}%"]}, fields=["name", "account_name"])
+		if re.search(rf"(?<![\d.,]){re.escape(rate_txt)}", a.account_name)), None)
 	if not account:
 		base = frappe.db.get_value("Account", {"company": company, "account_number": "4457", "is_group": 0}) or \
 			frappe.db.get_value("Account", {"company": company, "account_type": "Tax", "is_group": 0, "root_type": "Liability"})
@@ -2019,6 +2023,13 @@ def reports2(period="month", start=None, end=None):
 		inv = one("select sum(base_net_total) from `tabSales Invoice` where docstatus=1 and company=%s and posting_date between %s and %s", company, x, y)
 		got = one("""select sum(base_received_amount) from `tabPayment Entry` where docstatus=1 and company=%s and payment_type='Receive'
 			and party_type='Customer' and posting_date between %s and %s""", company, x, y)
+		# money given back to customers (a cancelled order, a return) is not collected money
+		got -= one("""select sum(base_paid_amount) from `tabPayment Entry` where docstatus=1 and company=%s and payment_type='Pay'
+			and party_type='Customer' and posting_date between %s and %s""", company, x, y)
+		got -= one("""select sum(jea.debit) from `tabJournal Entry Account` jea join `tabJournal Entry` je on je.name=jea.parent
+			where je.docstatus=1 and je.company=%s and je.is_opening='No' and je.posting_date between %s and %s and jea.party_type='Customer'
+			and exists (select 1 from `tabJournal Entry Account` c join `tabAccount` acc on acc.name=c.account
+				where c.parent=je.name and acc.account_type in ('Cash','Bank') and c.credit > 0)""", company, x, y)
 		pl = dict(frappe.db.sql("""select acc.root_type, sum(gle.credit - gle.debit) from `tabGL Entry` gle join `tabAccount` acc on acc.name=gle.account
 			where gle.company=%s and gle.is_cancelled=0 and gle.posting_date between %s and %s and acc.root_type in ('Income','Expense') group by acc.root_type""", (company, x, y)))
 		orders = frappe.db.sql("""select count(*), coalesce(sum(grand_total), 0) from `tabSales Order` where docstatus<2 and company=%s

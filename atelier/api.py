@@ -24,6 +24,14 @@ def _can(doctype, ptype="read"):
 	return frappe.has_permission(doctype, ptype)
 
 
+def _tva_rate_on():
+	"""The TVA rate new invoices carry (0 when TVA is off), so the order window can show the total with tax."""
+	from atelier.simple import doc_settings
+
+	d = doc_settings()
+	return flt(d.get("tva_rate")) if cint(d.get("tva")) else 0
+
+
 def _may_deliver():
 	"""Delivering makes the delivery note and the invoice. The manager can; a seller too (decision: he also takes
 	the payment into his own box). Designers and printers cannot."""
@@ -128,6 +136,7 @@ def boot():
 			"stock": _can("Bin", "read") and role != "designer",
 		},
 		"role": role, "worker": worker, "ui_scale": ui_scale(),
+		"tva_rate": _tva_rate_on(),
 	}
 
 
