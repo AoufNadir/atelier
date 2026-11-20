@@ -69,6 +69,25 @@ def _refund_against(invoice, amount, mode, remark):
 	return pe.name
 
 
+def _settle(inv, cn):
+	"""Set the credit note against what is still owed on the invoice (a Credit Note journal on the customer's
+	account), so both close as far as they can. ERPNext may keep a return's outstanding on itself."""
+	si = frappe.get_doc("Sales Invoice", inv)
+	note = frappe.get_doc("Sales Invoice", cn)
+	amount = min(flt(si.outstanding_amount), -flt(note.outstanding_amount))
+	if amount <= 0.005:
+		return None
+	row = {"account": si.debit_to, "party_type": "Customer", "party": si.customer}
+	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Credit Note", "company": si.company, "posting_date": nowdate(),
+		"user_remark": _("تسوية {0} مع {1}").format(cn, inv)[:140], "accounts": [
+			dict(row, debit_in_account_currency=amount, reference_type="Sales Invoice", reference_name=cn),
+			dict(row, credit_in_account_currency=amount, reference_type="Sales Invoice", reference_name=inv)]})
+	je.flags.ignore_permissions = True
+	je.insert()
+	je.submit()
+	return je.name
+
+
 def _unlink_advances(so):
 	"""Free the order's advances: they stay on the customer as unallocated payments."""
 	try:
@@ -116,6 +135,8 @@ def cancel_order(name, refund_mode=None, reason=""):
 		# the advance stays on the customer (unallocated) instead of blocking the cancellation
 		frappe.db.set_single_value("Accounts Settings", "unlink_advance_payment_on_cancelation_of_order", 1)
 		_unlink_advances(so)
+		if frappe.db.has_column("Payment Entry", "atelier_order"):
+			frappe.db.sql("update `tabPayment Entry` set atelier_order=null where atelier_order=%s", so.name)
 		so.reload()
 		so.ignore_linked_doctypes = tuple(so.get("ignore_linked_doctypes") or ()) + ("Payment Entry", "Payment Ledger Entry", "GL Entry")
 		so.flags.ignore_permissions = True
@@ -149,7 +170,8 @@ def return_info(name):
 	lines = [{"row": i.name, "item_name": frappe.utils.strip_html(i.description or "") or i.item_name, "qty": flt(i.qty),
 		"left": flt(i.qty) - returned.get(i.name, 0), "rate": flt(i.rate),
 		"whole": bool(frappe.db.get_value("UOM", i.uom, "must_be_whole_number"))} for i in si.items]
-	return {"invoice": inv, "customer": si.customer, "customer_name": si.customer_name, "outstanding": flt(si.outstanding_amount),
+	notes = flt(frappe.db.sql("""select sum(outstanding_amount) from `tabSales Invoice` where docstatus=1 and is_return=1 and return_against=%s""", inv)[0][0])
+	return {"invoice": inv, "customer": si.customer, "customer_name": si.customer_name, "outstanding": flt(si.outstanding_amount) + notes,
 		"lines": lines, "modes": [{"value": v, "label": l} for v, l in api.all_modes()]}
 
 
@@ -191,10 +213,13 @@ def create_return(name, qtys, refund_mode=None, reason=""):
 	cn.flags.ignore_permissions = True
 	cn.insert()
 	cn.submit()
+	notes = frappe.get_all("Sales Invoice", filters={"docstatus": 1, "is_return": 1, "return_against": inv}, pluck="name", order_by="creation")
+	for n in notes:  # earlier returns too, so nothing is left open between them
+		_settle(inv, n)
+	# what the customer now has with us: the negative outstanding left on the invoice or on its credit notes
+	neg = [(n, -flt(o)) for n in [inv] + notes for o in [frappe.db.get_value("Sales Invoice", n, "outstanding_amount")] if flt(o) < -0.005]
 	si = frappe.get_doc("Sales Invoice", inv)
 	cn.reload()
-	# what the customer now has with us: the negative outstanding left on the invoice or on the credit note itself
-	neg = [(d.name, -flt(d.outstanding_amount)) for d in (si, cn) if flt(d.outstanding_amount) < -0.005]
 	excess = sum(a for _n, a in neg)
 	refund = None
 	if refund_mode and excess > 0.005:

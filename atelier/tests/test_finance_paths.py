@@ -103,3 +103,14 @@ class TestFinancePaths(unittest.TestCase):
 			self.skipTest("unit accepts fractions")
 		with self.assertRaises(frappe.ValidationError):
 			returns.create_return(so, json.dumps({item.name: 0.75}))
+
+	def test_two_returns_with_advance_refund_the_rest(self):
+		so = _order(3000, advance=2000, qty=4)
+		inv = _deliver(so)
+		row = frappe.get_doc("Sales Invoice", inv).items[0].name
+		returns.create_return(so, json.dumps({row: 1}))
+		self.assertAlmostEqual(flt(frappe.db.get_value("Sales Invoice", inv, "outstanding_amount")), 250, places=2)
+		res = returns.create_return(so, json.dumps({row: 3}), refund_mode="Cash")
+		self.assertAlmostEqual(flt(frappe.db.get_value("Payment Entry", res["refund"].split(", ")[0], "paid_amount")), 2000, places=2)
+		for n in [inv] + frappe.get_all("Sales Invoice", filters={"return_against": inv, "docstatus": 1}, pluck="name"):
+			self.assertAlmostEqual(flt(frappe.db.get_value("Sales Invoice", n, "outstanding_amount")), 0, places=2)
