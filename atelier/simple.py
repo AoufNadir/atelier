@@ -2489,6 +2489,11 @@ def units():
 @frappe.whitelist(methods=["POST"])
 def save_units(rows):
 	_manager_only()
+	# a unit already on orders keeps its name: renaming or removing it here would orphan those lines
+	new_names = {(r.get("name") or "").strip() for r in frappe.parse_json(rows) or []}
+	for u in units():
+		if u["name"] not in new_names and _unit_used(u["name"]):
+			frappe.throw(_("الوحدة «{0}» مستعملة في طلبات، فلا يمكن حذفها أو تغيير اسمها. أضف وحدة جديدة بدلها.").format(u["name"]))
 	seen, out = set(), []
 	for row in frappe.parse_json(rows) or []:
 		name = (row.get("name") or "").strip()[:40]

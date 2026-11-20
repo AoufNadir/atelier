@@ -33,7 +33,7 @@ def _need(doctype):
 
 
 def _material(item_code):
-	item = frappe.db.get_value("Item", item_code, ["name", "is_stock_item", "stock_uom"], as_dict=True)
+	item = frappe.db.get_value("Item", item_code, ["name", "item_name", "is_stock_item", "stock_uom"], as_dict=True)
 	if not item or not item.is_stock_item:
 		frappe.throw(_("مادة غير صالحة"))
 	return item
@@ -308,12 +308,14 @@ def pack_cycle(item_code):
 		if cint(so.get("atelier_materials_done")) or cint(so.get("atelier_outsourced")) or so.name in by_order:
 			continue
 		lines = frappe.get_all("Sales Order Item", filters={"parent": so.name},
-			fields=["qty", "item_code", "atelier_unit", *(["atelier_per_sheet"] if frappe.db.has_column("Sales Order Item", "atelier_per_sheet") else []), *(["atelier_material"] if has_mat else [])])
+			fields=["qty", "item_code", "description", "atelier_unit", *(["atelier_per_sheet"] if frappe.db.has_column("Sales Order Item", "atelier_per_sheet") else []), *(["atelier_material"] if has_mat else [])])
 		# counted materials (paper…): only lines that name this material, or whose service recipe uses it.
 		# A design service sold «per piece» is not paper.
 		if not roll:
+			name = (item.item_name or "").strip()
 			lines = [l for l in lines if (l.get("atelier_material") or "") == item.name
-				or (not l.get("atelier_material") and any(x.get("item_code") == item.name for x in _recipe(l.item_code)))]
+				or (not l.get("atelier_material") and (any(x.get("item_code") == item.name for x in _recipe(l.item_code))
+					or _plain(l.get("description")) == name))]  # a free line written exactly as the material's name
 		need = sum(_line_need(l, item.name, roll, c["waste"]) for l in lines)
 		if need > 0:
 			mine = any((l.get("atelier_material") or "") == item.name for l in lines)
@@ -321,6 +323,12 @@ def pack_cycle(item_code):
 	titles = {o.name: o.atelier_subject or o.name for o in frappe.get_all("Sales Order", filters={"name": ["in", [k for k in by_order if k] or [""]]}, fields=["name", "atelier_subject"])}
 	return {"pack": c["pack"] or ("لفّة" if roll else "رزمة"), "size": c["pack_qty"], "uom": item.stock_uom, "since": since, "used": round(used, 3),
 		"done": [{"order": k, "title": titles.get(k, "صرف يدوي" if not k else k), "qty": round(v, 3)} for k, v in by_order.items()], "candidates": cands[:30], "closed": c["closed"]}
+
+
+def _plain(html_text):
+	from frappe.utils import strip_html
+
+	return (strip_html(html_text or "") or "").strip()
 
 
 def _cfg_family(item_code):
