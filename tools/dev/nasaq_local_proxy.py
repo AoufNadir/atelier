@@ -14,10 +14,12 @@ networks = json.loads(subprocess.check_output([
     "docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", os.environ.get("NASAQ_COMPOSE_PROJECT", "erpdev") + "-frappe-1",
 ], text=True))
 target = str(ipaddress.ip_address(next(n["IPAddress"] for n in networks.values() if n.get("IPAddress"))))
+# 8001 = the main site; another port (NASAQ_PORT) for a separate test site served by start_test_site.sh
+port = int(os.environ.get("NASAQ_PORT", "8001"))
 
 class Forward(socketserver.BaseRequestHandler):
     def handle(self):
-        with socket.create_connection((target, 8001), timeout=15) as remote:
+        with socket.create_connection((target, port), timeout=15) as remote:
             streams = [self.request, remote]
             while True:
                 ready, _, _ = select.select(streams, [], [], 120)
@@ -33,6 +35,6 @@ class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-with Server(("127.0.0.1", 8001), Forward) as server:
-    print("Nasaq local forwarding ready on 127.0.0.1:8001", flush=True)
+with Server(("127.0.0.1", port), Forward) as server:
+    print(f"Nasaq local forwarding ready on 127.0.0.1:{port}", flush=True)
     server.serve_forever()

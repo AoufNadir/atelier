@@ -105,3 +105,11 @@ wsl -d Ubuntu-24.04 -- bash tools/dev/dc.sh "bench new-site test-tour.localhost 
 ```
 
 إن ظهر `Access denied (1045)` لموقع أُنشئ دون هذا الخيار: نفّذ `bash tools/dev/fix_site_db_host.sh test-tour.localhost` من WSL. يربط حساب قاعدة ذلك الموقع بـ `%` بدل عنوان حاوية قديم، دون لمس البيانات أو كلمة المرور.
+
+بعد كل تحديث للكود، لموقع الاختبار (من PowerShell داخل المشروع):
+
+```bash
+git pull
+wsl -d Ubuntu-24.04 -- bash tools/dev/dc.sh "bench --site test-tour.localhost migrate"
+wsl -d Ubuntu-24.04 -- bash tools/dev/start_test_site.sh test-tour.localhost 8002
+```
