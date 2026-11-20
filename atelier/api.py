@@ -1195,9 +1195,8 @@ def deliver_order(name, qtys=None):
 	dn = make_delivery_note(so.name)
 	qtys = frappe.parse_json(qtys) if qtys else None
 	if qtys:
-		for row in dn.items:
-			if row.so_detail in qtys:
-				row.qty = min(flt(qtys[row.so_detail]), row.qty)
+		for row in dn.items:  # lines not chosen are not delivered now
+			row.qty = min(flt(qtys.get(row.so_detail)), flt(row.qty))
 		dn.items = [r for r in dn.items if flt(r.qty) > 0]
 	if not dn.items:
 		frappe.throw(_("لا شيء للتسليم"))
