@@ -247,3 +247,27 @@ class TestFinancePaths(unittest.TestCase):
 		self.assertTrue(all("19%" not in t.account_head and "9%" in t.account_head for t in inv9.taxes), [t.account_head for t in inv9.taxes])
 		ex = self._tva_invoice(19, exempt=True)
 		self.assertAlmostEqual(flt(ex.grand_total), 1000, places=2)
+
+	def test_seller_hands_over_his_box_short_by_50(self):
+		from erpnext.accounts.utils import get_balance_on
+
+		from atelier import cashbox
+		from atelier.simple import save_user
+
+		save_user("seller-h@test.local", "Seller H", "sales")
+		so = _order(500)
+		frappe.set_user("seller-h@test.local")
+		try:
+			api.record_payment(_customer(), 500, "Cash", so)
+			box = cashbox.my_box()["account"]
+			h = cashbox.hand_over(450, "نقص")
+		finally:
+			frappe.set_user("Administrator")
+		main = cashbox.main_cash()
+		before = flt(get_balance_on(main))
+		cashbox.confirm_handover(h["id"])
+		self.assertAlmostEqual(flt(get_balance_on(box)), 0, places=2)
+		self.assertAlmostEqual(flt(get_balance_on(main)) - before, 450, places=2)
+		diff_acc = cashbox.cash_diff_account(api._company())
+		je = frappe.get_all("Journal Entry", filters={"user_remark": ["like", "%Seller H%"], "docstatus": 1}, pluck="name")
+		self.assertTrue(frappe.db.exists("GL Entry", {"voucher_no": je[0], "account": diff_acc, "debit": 50}))
