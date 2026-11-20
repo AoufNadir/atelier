@@ -1159,7 +1159,7 @@ const BoardPanel = {
               <button v-if="!worker" type="button" class="tm-pop-row" @click="templateIt"><Icon name="grid" :size="15"/>حفظ كقالب</button>
               <button v-if="!worker" type="button" class="tm-pop-row" @click="archiveIt"><Icon name="box" :size="15"/>أرشفة</button>
               <button v-if="ed.can_delete" type="button" class="tm-pop-row tm3-danger" @click="deleteIt"><Icon name="trash" :size="15"/>حذف البطاقة</button>
-              <span v-else-if="!worker" class="m tm3-hint">عليها دفعة أو تسليم: أرشفها بدل الحذف.</span></div></span>
+              <span v-else-if="!worker" class="m tm3-hint">عليها دفعة أو تسليم، فلا تُحذف. الأرشفة تُخفيها من اللوحة فقط: الدفعة والدين يبقيان على العميل.</span></div></span>
         </template>
         <div v-else><h2 id="od-h">طلب جديد</h2><span class="m">{{ colName ? 'يُضاف إلى لوحة الطلبات في عمود «' + colName + '»' : 'يُضاف إلى لوحة الطلبات' }}</span></div>
         <button type="button" class="od-x" aria-label="إغلاق" @click="editing ? closeEdit() : $emit('close')"><Icon name="x" :size="18"/></button></header>
@@ -1980,7 +1980,7 @@ const Board = {
       <div class="tb-moves"><button v-for="col in cfg.columns.filter(x => x.id !== menu.c.column)" :key="col.id" type="button" class="tm-pop-row" :disabled="col.deliver && state.boot.can.deliver === false" :title="col.deliver && state.boot.can.deliver === false ? 'التسليم يُسجّله المدير' : null" @click="act('move', col.id)"><i class="st-sw" :style="{background: col.color}"></i><span class="ellipsis">{{ col.name }}</span></button></div>
       <template v-if="state.boot.can.order"><hr class="tm2-hr">
         <button v-if="!(menu.c.paid > 0.005) && !(menu.c.per_delivered > 0)" type="button" class="tm-pop-row tm3-danger" @click="act('delete')"><Icon name="trash" :size="15"/>حذف البطاقة</button>
-        <span v-else class="m tm3-hint">عليها دفعة أو تسليم: أرشفها بدل الحذف.</span></template>
+        <span v-else class="m tm3-hint">عليها دفعة أو تسليم، فلا تُحذف. الأرشفة تُخفيها من اللوحة فقط: الدفعة والدين يبقيان على العميل.</span></template>
       </template>
     </div>
     <div v-if="delAsk" class="overlay tm3-confirm tb-confirm" role="alertdialog" aria-modal="true" aria-labelledby="bdel-h" @click.self="delAsk = null">
