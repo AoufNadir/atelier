@@ -830,7 +830,7 @@ def extra_fields():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 	create_custom_fields({"Sales Order": [{**f, "module": "Atelier"} for f in EXTRA_FIELDS],
-		"File": [{"fieldname": "atelier_kind", "label": "نوع الملف في نسق", "fieldtype": "Data", "insert_after": "file_url", "module": "Atelier"}]})
+		"File": [{"fieldname": "atelier_kind", "label": "نوع الملف في رقمي", "fieldtype": "Data", "insert_after": "file_url", "module": "Atelier"}]})
 
 
 def _so_write(name):
@@ -2177,7 +2177,7 @@ def save_email(cfg):
 @frappe.whitelist(methods=["POST"])
 def test_email(to):
 	_manager_only()
-	frappe.sendmail(recipients=[to], subject="نسق — رسالة تجريبية", message="<p dir='rtl'>البريد الصادر يعمل.</p>", now=True)
+	frappe.sendmail(recipients=[to], subject="رقمي — رسالة تجريبية", message="<p dir='rtl'>البريد الصادر يعمل.</p>", now=True)
 	return True
 
 

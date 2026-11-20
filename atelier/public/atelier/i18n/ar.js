@@ -1,6 +1,6 @@
 // Arabic UI strings. Every visible text goes through t(key); another language = a file with the same keys.
 export default {
-  app_name: "نَسَق", app_tagline: "مساحة عمل المطبعة", currency: "دج",
+  app_name: "رقمي", app_tagline: "تتبّع مطبعتك رقميًا", currency: "دج",
   demo_banner: "بيانات تجريبية — الأسماء والأرقام وهمية",
   skip: "تخطَّ إلى المحتوى",
   nav_home: "الرئيسية", nav_orders: "الطلبات", nav_customers: "العملاء", nav_money: "المال", nav_stock: "المخزون", nav_calc: "حاسبة التكلفة",
@@ -184,7 +184,7 @@ export default {
   it_name: "الاسم كما يظهر على الوثائق", it_name_ph: "مثال: طباعة بطاقات زيارة", it_unit: "يُباع بـ",
   it_price_ph: "اتركه فارغًا إن لم يُحدد", it_desc: "وصف افتراضي", it_save: "إضافة", it_created: "أُضيف «{0}»",
   it_err_name: "اكتب اسم الخدمة أو المنتج",
-  ds_title: "نظام تصميم نَسَق", ds_sub: "المرجع الموحد للألوان والخطوط والمكونات — كل صفحة تُبنى منه",
+  ds_title: "نظام تصميم رقمي", ds_sub: "المرجع الموحد للألوان والخطوط والمكونات — كل صفحة تُبنى منه",
   ds_colors: "الألوان", ds_type: "الخطوط والأحجام", ds_buttons: "الأزرار", ds_inputs: "الحقول والاختيارات",
   ds_status: "الحالات والتنبيهات", ds_data: "المؤشرات والجداول",
   ds_money_rule: "كل مبلغ بهذه الصيغة، والأرقام لاتينية دائمًا",

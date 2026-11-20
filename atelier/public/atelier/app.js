@@ -2432,7 +2432,7 @@ const SimpleCustomers = {
                 <button v-if="owesNow && waLink(d.mobile_no)" type="button" @click="pmenu = false; startRemind()"><Icon name="msg" :size="16"/>تذكير بالدفع</button>
                 <button type="button" @click="exportOrders"><Icon name="file" :size="16"/>تصدير أعماله (Excel)</button>
                 <button v-if="s.data && s.data.manager" type="button" @click="pmenu = false; merging = ''">دمج مع عميل آخر</button>
-                <button v-if="state.boot.role === 'manager'" type="button" @click="pmenu = false; state.sheet = {type: 'opening', party_type: 'Customer', party: d.name, title: d.customer_name || d.name}">دين سابق (قبل نَسَق)</button>
+                <button v-if="state.boot.role === 'manager'" type="button" @click="pmenu = false; state.sheet = {type: 'opening', party_type: 'Customer', party: d.name, title: d.customer_name || d.name}">دين سابق (قبل رقمي)</button>
                 <button v-if="d.can_edit" type="button" @click="toggleDisabled">{{ d.disabled ? 'إعادة تفعيل العميل' : 'إيقاف العميل' }}</button></div></div>
             <button v-if="state.boot.can.payment" type="button" class="cl-btn" @click="pay">استلمت دفعة</button>
             <button v-if="state.boot.can.order" type="button" class="cl-btn primary" @click="newOrderFor(d)"><Icon name="plus" :size="16"/>طلب جديد</button>
@@ -3134,7 +3134,7 @@ const SuppliersPage = {
               <div v-if="pmenu" class="cl-pop cl-menu" @click.stop>
                 <a v-if="waLink(d.phone)" class="cp-menu-a" target="_blank" rel="noopener" :href="waLink(d.phone)" @click="pmenu = false"><Icon name="msg" :size="16"/>واتساب</a>
                 <button v-if="d.can_edit" type="button" @click="edit"><Icon name="edit" :size="16"/>تعديل بيانات المورد</button>
-                <button v-if="state.boot.role === 'manager'" type="button" @click="pmenu = false; state.sheet = {type: 'opening', party_type: 'Supplier', party: d.name, title: d.supplier_name || d.name}">دين سابق (قبل نَسَق)</button>
+                <button v-if="state.boot.role === 'manager'" type="button" @click="pmenu = false; state.sheet = {type: 'opening', party_type: 'Supplier', party: d.name, title: d.supplier_name || d.name}">دين سابق (قبل رقمي)</button>
                 <button v-if="d.can_edit" type="button" @click="toggleDisabled">{{ d.disabled ? 'إعادة تفعيل المورد' : 'إيقاف المورد' }}</button></div></div>
             <button v-if="state.boot.can.expense" type="button" class="cl-btn" @click="newPO"><Icon name="plus" :size="15"/>أمر شراء</button>
             <button type="button" class="cl-btn" @click="newInvoice(null)"><Icon name="file" :size="15"/>فاتورة مورد</button>
@@ -4198,7 +4198,7 @@ const OpeningSheet = {
     return { cust, d, err, busy, amount, date, remark, undo, why, close, save, reverse, money, maxDate: todayISO(), parseAmount };
   },
   template: `
-  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>دين سابق</h2><span class="muted">{{ opts.title }} · {{ cust ? 'ما كان عليه' : 'ما كان علينا له' }} قبل بدء العمل على نَسَق</span></div></div>
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>دين سابق</h2><span class="muted">{{ opts.title }} · {{ cust ? 'ما كان عليه' : 'ما كان علينا له' }} قبل بدء العمل على رقمي</span></div></div>
     <div v-if="err" class="alert error">{{ err }}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="field"><label for="op-a">المبلغ (دج)</label><input id="op-a" class="input" inputmode="decimal" v-model="amount" required></div>
       <div class="field"><label for="op-d">بتاريخ</label><input id="op-d" class="input" type="date" v-model="date" :max="maxDate"></div></div>

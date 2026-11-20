@@ -1,4 +1,4 @@
-"""«دين سابق»: what a customer owed us (or we owed a supplier) before the shop started on نَسَق.
+"""«دين سابق»: what a customer owed us (or we owed a supplier) before the shop started on رقمي.
 
 An opening journal (is_opening = Yes) on the party's account against the temporary opening account: it is part of
 the party's balance and can be settled by later payments, but it is never sales, profit or a cash movement.
@@ -74,7 +74,7 @@ def _journal(party_type, party, amount, date, remark, reversal_of=None):
 
 @frappe.whitelist(methods=["POST"])
 def add_opening(party_type, party, amount, date=None, remark=""):
-	"""Record what the party owed (customer) or was owed (supplier) before نَسَق."""
+	"""Record what the party owed (customer) or was owed (supplier) before رقمي."""
 	_manager()
 	_check(party_type, party)
 	amount = flt(amount)
@@ -83,7 +83,7 @@ def add_opening(party_type, party, amount, date=None, remark=""):
 	date = date or nowdate()
 	if getdate(date) > getdate(nowdate()):
 		frappe.throw(_("تاريخ الدين السابق لا يكون في المستقبل"))
-	note = (remark or "").strip() or _("دين سابق (قبل نَسَق)")
+	note = (remark or "").strip() or _("دين سابق (قبل رقمي)")
 	name = _journal(party_type, party, amount, date, _("دين سابق: {0}").format(note) if not note.startswith(_("دين سابق")) else note)
 	frappe.get_doc(party_type, party).add_comment("Comment", _("سجّل دينًا سابقًا {0} — {1}").format(
 		frappe.format_value(amount, {"fieldtype": "Currency"}), name))

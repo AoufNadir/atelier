@@ -184,7 +184,7 @@ try {
     const before = await bal(kind, party);
     await p.goto(`${BASE}/atelier/${path}/${encodeURIComponent(party)}`);
     await p.getByRole("button", { name: "المزيد" }).last().click();
-    await p.getByRole("button", { name: "دين سابق (قبل نَسَق)" }).click();
+    await p.getByRole("button", { name: "دين سابق (قبل رقمي)" }).click();
     await p.locator("#op-a").fill("12500");
     await p.locator("#op-r").fill(`PW ${stamp}`);
     await shot(p, `5-opening-${kind}-1440`);

@@ -221,7 +221,7 @@ def _safe(fn):
 	try:
 		fn()
 	except Exception:
-		frappe.log_error(title="نسق: تعذّرت الكتابة في المجلد")
+		frappe.log_error(title="رقمي: تعذّرت الكتابة في المجلد")
 
 
 def display(path):
