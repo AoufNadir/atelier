@@ -235,7 +235,9 @@ def _order_rows(filters, limit=8):
 	paid_on_invoices = dict(frappe.db.sql(
 		"""select sii.sales_order, sum(si.grand_total - si.outstanding_amount) from `tabSales Invoice` si
 		join (select distinct parent, sales_order from `tabSales Invoice Item`) sii on sii.parent = si.name
-		where si.docstatus=1 and sii.sales_order in %s group by sii.sales_order""", [names]))
+		where si.docstatus=1 and si.is_return=0 and sii.sales_order in %s group by sii.sales_order""", [names]))
+	# a credit note settled against the invoice lowers its outstanding, so it counts as covered there; the
+	# credit notes themselves are left out (their negative totals made a returned order look unpaid)
 	# an advance taken before the order had a price is kept on the customer with the order's name (atelier_order):
 	# it is paid on that order too, until an invoice uses it
 	tagged = dict(frappe.db.sql("""select atelier_order, sum(paid_amount) from `tabPayment Entry` where docstatus=1

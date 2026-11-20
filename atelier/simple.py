@@ -1579,7 +1579,15 @@ def save_customer2(data):
 def customer_credit(name):
 	"""For the new-order form: is this customer over their credit limit?"""
 	limit = flt(frappe.db.get_value("Customer", name, "atelier_credit_limit"))
-	owes = flt(frappe.db.sql("select sum(outstanding_amount) from `tabSales Invoice` where customer=%s and docstatus=1", name)[0][0]) if api._can("Sales Invoice") else 0
+	# computed for everyone who takes orders (a seller has no invoice rights, the limit must still apply):
+	# the customer's account balance + what is still to be invoiced on his open orders
+	from erpnext.accounts.utils import get_balance_on
+
+	owes = flt(get_balance_on(party_type="Customer", party=name, company=api._company()))
+	for o in api._order_rows({"customer": name, "docstatus": ["<", 2], "per_billed": ["<", 100], "status": ["!=", "Closed"]}, limit=0):
+		if not o.price_pending:
+			owes += flt(o.grand_total) * (1 - flt(o.per_billed) / 100)
+	owes = round(owes, 2)
 	c = frappe.db.get_value("Customer", name, ["customer_type", "mobile_no", "atelier_note"], as_dict=True) or {}
 	return {"limit": limit, "owes": owes, "over": bool(limit) and owes > limit, "note": c.get("atelier_note"),
 		"customer_type": c.get("customer_type"), "mobile_no": c.get("mobile_no")}

@@ -1180,7 +1180,7 @@ const BoardPanel = {
                 <input class="input" v-model="f.phone" inputmode="tel" dir="ltr" placeholder="الهاتف (اختياري)" aria-label="هاتف العميل الجديد">
                 <div class="seg" role="group" aria-label="نوع العميل"><button type="button" :aria-pressed="f.type==='Individual'" @click="f.type='Individual'">فرد</button><button type="button" :aria-pressed="f.type==='Company'" @click="f.type='Company'">مؤسسة</button></div></div></div></div>
             <div v-if="credit && credit.note" class="sh-note warn">ملاحظة العميل: {{ credit.note }}</div>
-            <div v-if="credit && credit.over" class="sc2-alert" role="alert">هذا العميل تجاوز سقف الدين: عليه {{ fig(credit.owes) }} من {{ fig(credit.limit) }} دج</div>
+            <div v-if="credit && credit.limit && (credit.over || credit.owes + (total || 0) > credit.limit)" class="sc2-alert" role="alert">سقف دين هذا العميل {{ fig(credit.limit) }} دج: عليه الآن {{ fig(credit.owes) }}<template v-if="total"> ومع هذا الطلب {{ fig(credit.owes + total) }}</template>، أي تجاوز بـ {{ fig(credit.owes + (total || 0) - credit.limit) }} دج.</div>
             <div class="f"><label for="qo-subject">اسم المشروع</label><span class="hint">اختياري، يظهر على البطاقة والمجلد والـ Devis</span>
               <input id="qo-subject" class="input" v-model="f.subject" maxlength="120" placeholder="مثال: هوية مطعم الواحة"></div>
           </section>
