@@ -9,7 +9,6 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
-from atelier import api
 
 PARTIES = ("Customer", "Supplier")
 
@@ -106,3 +105,7 @@ def reverse_opening(journal, reason=""):
 	name = _journal(row.party_type, row.party, amount, nowdate(), note, reversal_of=je.name)
 	frappe.get_doc(row.party_type, row.party).add_comment("Comment", note + " — " + name)
 	return {"journal": name, **opening_info(row.party_type, row.party)}
+
+
+# imported last: atelier.api imports this module at its end, so the import must not run before our functions exist
+from atelier import api  # noqa: E402

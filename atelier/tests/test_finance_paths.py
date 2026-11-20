@@ -186,3 +186,27 @@ class TestFinancePaths(unittest.TestCase):
 			self.assertAlmostEqual(flt(frappe.db.get_value("Sales Invoice", inv, "outstanding_amount")), 0, places=2)
 		paid = sum(flt(frappe.db.get_value("Journal Entry", n, "total_debit")) for n in (res["refund"] or "").split(", ") if n)
 		self.assertAlmostEqual(paid, 500, places=2)  # the 500 advance comes back; the rest was never paid
+
+	def test_credit_note_prints(self):
+		from atelier.printing import tafqit
+
+		self.assertIn("أربعمائة", tafqit(-400))
+		so = _order(3000, qty=3)
+		inv = _deliver(so)
+		r = returns.create_return(so, json.dumps({frappe.get_doc("Sales Invoice", inv).items[0].name: 1}))
+		html = frappe.get_print("Sales Invoice", r["credit_note"], print_format="الورشة — عربي — Sales Invoice")
+		self.assertIn("فاتورة دائنة", html)
+		self.assertIn(inv, html)
+
+	def test_return_of_a_paid_part_settles_the_other_invoice(self):
+		so = self._two_lines(advance=400)
+		first = frappe.get_doc("Sales Order", so).items[0].name
+		simple.partial_deliver(so, json.dumps({first: 1}))  # 400, paid by the advance
+		simple.move(so, "done")  # 600 open
+		info = returns.return_info(so)
+		row = next(l["row"] for l in info["lines"] if abs(l["rate"] - 400) < 0.01)
+		returns.create_return(so, json.dumps({row: 1}))
+		out = {i: flt(frappe.db.get_value("Sales Invoice", i, "outstanding_amount")) for i in info["invoices"]}
+		self.assertAlmostEqual(sum(out.values()), 200, places=2)  # 600 − the 400 returned
+		o = api._order_rows({"name": so}, limit=1)[0]
+		self.assertAlmostEqual(flt(o.grand_total) - flt(o.paid), 200, places=2)

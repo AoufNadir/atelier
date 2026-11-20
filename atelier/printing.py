@@ -52,7 +52,7 @@ def number_words(n):
 
 def tafqit(amount):
 	"""28000.5 → «ثمانية وعشرون ألف دينار جزائري وخمسون سنتيمًا» (wording used on Algerian invoices)."""
-	amount = round(flt(amount), 2)
+	amount = abs(round(flt(amount), 2))  # a credit note's total is negative; its title already says what it is
 	dinars, cents = int(amount), int(round((amount - int(amount)) * 100))
 	text = f"{number_words(dinars)} دينار جزائري"
 	if cents:
@@ -90,7 +90,10 @@ def print_context(doc):
 	logo = prof.get("logo") or company.company_logo
 	address = "، ".join(x for x in (prof.get("address"), prof.get("city")) if x) or _address("Company", company.name)
 	return {
-		"title": "فاتورة شكلية Pro forma" if doc.get("atelier_kind") == "proforma" else TITLES.get(doc.doctype, doc.doctype),
+		"title": "فاتورة شكلية Pro forma" if doc.get("atelier_kind") == "proforma"
+			else "فاتورة دائنة (Avoir)" if doc.doctype == "Sales Invoice" and doc.get("is_return")
+			else TITLES.get(doc.doctype, doc.doctype),
+		"against": doc.get("return_against") if doc.get("is_return") else None,
 		"show_description": _show_description(),
 		"date": formatdate(doc.get("posting_date") or doc.get("transaction_date"), "dd/MM/yyyy"),
 		# the demo banner only while the workshop has not given its own name in Settings → بيانات المطبعة

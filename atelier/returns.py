@@ -11,7 +11,6 @@ import frappe
 from frappe import _
 from frappe.utils import flt, nowdate
 
-from atelier import api
 
 
 def _manager():
@@ -230,6 +229,12 @@ def create_return(name, qtys, refund_mode=None, reason=""):
 		for n in notes:
 			_settle(inv, n)
 		docs += [inv] + notes
+	# a credit left on one invoice's return (that invoice was already paid) settles the order's other open invoices
+	invoices = _invoices_of(name)
+	for n in [d for d in docs if d not in invoices]:
+		for inv in invoices:
+			if flt(frappe.db.get_value("Sales Invoice", n, "outstanding_amount")) < -0.005 and flt(frappe.db.get_value("Sales Invoice", inv, "outstanding_amount")) > 0.005:
+				_settle(inv, n)
 	# what the customer now has with us: the negative outstanding left on an invoice or a credit note
 	neg = [(n, -flt(o)) for n in docs for o in [frappe.db.get_value("Sales Invoice", n, "outstanding_amount")] if flt(o) < -0.005]
 	excess = sum(a for _n, a in neg)
@@ -240,3 +245,7 @@ def create_return(name, qtys, refund_mode=None, reason=""):
 	_log(name, _("إرجاع {0} بقيمة {1}").format(label, frappe.format_value(total, {"fieldtype": "Currency"}))
 		+ (" — " + reason.strip()[:80] if (reason or "").strip() else ""))
 	return {"credit_note": label, "amount": total, "refund": refund, "credit": 0 if refund else max(0, excess)}
+
+
+# imported last: atelier.api imports this module at its end, so the import must not run before our functions exist
+from atelier import api  # noqa: E402
