@@ -115,3 +115,33 @@ def _show_description():
 	from atelier import simple
 
 	return simple.doc_settings().get("show_description", 1)
+
+
+@frappe.whitelist()
+def pdf(doctype, name, format=None, no_letterhead=1):
+	"""The PDF of a document; when the PDF engine fails (e.g. it cannot reach the site's address), an Arabic page
+	instead of a server error, with a print view that the browser itself can print."""
+	import html
+	from urllib.parse import quote
+
+	from frappe.utils.print_format import download_pdf
+
+	try:
+		download_pdf(doctype, name, format=format, no_letterhead=no_letterhead)
+		return
+	except Exception:
+		frappe.log_error(title="Atelier PDF")
+		frappe.clear_messages()
+	view = f"/printview?doctype={quote(doctype)}&name={quote(name)}" + (f"&format={quote(format)}" if format else "") + "&no_letterhead=1&trigger_print=1"
+	page = f"""<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تعذّر إنشاء PDF</title>
+<style>body{{font-family:Cairo,Tahoma,sans-serif;background:#F5F6F8;color:#17202A;display:grid;place-items:center;min-height:90vh;margin:0}}
+main{{background:#fff;border:1px solid #E4E7EC;border-radius:12px;padding:28px;max-width:460px;text-align:center}}
+a{{display:inline-block;margin:6px;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:700}}
+.p{{background:#4F35D2;color:#fff}}.s{{border:1px solid #D0D5DD;color:#17202A}}p{{color:#475467;line-height:1.8}}</style></head>
+<body><main><h1 style="font-size:20px;margin:0 0 8px">تعذّر إنشاء ملف PDF الآن</h1>
+<p>المستند {html.escape(name)} محفوظ. يمكنك طباعته من المتصفح مباشرة، أو المحاولة لاحقًا. سُجّل الخطأ ليراجعه المسؤول.</p>
+<a class="p" href="{html.escape(view)}">طباعة من المتصفح</a><a class="s" href="javascript:history.back()">العودة</a></main></body></html>"""
+	frappe.local.response.type = "binary"
+	frappe.local.response.filecontent = page.encode()
+	frappe.local.response.filename = "error.html"
+	frappe.local.response.display_content_as = "inline"

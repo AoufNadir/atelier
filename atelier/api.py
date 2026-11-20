@@ -357,8 +357,11 @@ def customers(q=None, full=0, include_disabled=0):
 				open_orders[so.customer] = open_orders.get(so.customer, 0) + 1
 			if not last_order.get(so.customer) or str(so.transaction_date) > last_order[so.customer]:
 				last_order[so.customer] = str(so.transaction_date)
+	from atelier.simple import app_role
+
 	balances = None
-	if _can("GL Entry"):
+	# sellers take the payments, so they see what each customer owes (the totals only, not the books)
+	if _can("GL Entry") or app_role() == "sales":
 		balances = dict(frappe.db.sql(
 			"""select party, sum(debit - credit) from `tabGL Entry` where party_type='Customer' and is_cancelled=0
 			and company=%s and party in %s group by party""", (_company(), names)))
@@ -944,7 +947,9 @@ def stock():
 		for m in moves:
 			m.pop("stock_value_difference", None)
 	return {"items": list(items.values()), "moves": moves, "can_value": can_value,
-		"can_buy": _can("Purchase Invoice", "create"), "can_issue": _can("Stock Entry", "create")}
+		"can_buy": _can("Purchase Invoice", "create"), "can_issue": _can("Stock Entry", "create"),
+		# «انتهت الرزمة / اللفّة» corrects the stock with a count: only for who may count
+		"can_count": _can("Stock Reconciliation", "create")}
 
 
 @frappe.whitelist()
@@ -1335,3 +1340,4 @@ from atelier.simple import save_stock_section, delete_stock_section  # noqa: E40
 from atelier.simple import save_list_item, delete_list_item  # noqa: E402, F401
 from atelier.simple import save_board_tag, delete_board_tag  # noqa: E402, F401
 from atelier.materials import services_overview  # noqa: E402, F401
+from atelier.printing import pdf  # noqa: E402, F401

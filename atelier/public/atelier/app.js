@@ -397,7 +397,7 @@ const blankForm = () => ({
 
 // ------------------------------------------------------------------ order view
 const pdfUrl = (doctype, name, format) =>
-  `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name)}` +
+  `/api/method/atelier.api.pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name)}` +
   (format ? `&format=${encodeURIComponent(format + " — " + doctype)}&no_letterhead=1` : "");
 
 
@@ -982,6 +982,8 @@ const BoardPanel = {
     // totals for the summary and the footer
     const priced = computed(() => filled.value.filter((l) => lineTotal(l) !== null).reduce((a, l) => a + lineTotal(l), 0));
     const unpriced = computed(() => filled.value.filter((l) => lineTotal(l) === null).length);
+    // a priced line without its size is not «without price»: say what is missing
+    const noSize = computed(() => filled.value.filter((l) => l.rate !== "" && !(measure(l) > 0)).length);
     // editing an existing card in this same window: everything loads from the card, the advance becomes what was paid
     const ed = ref(null), members = ref([]);
     const editing = computed(() => !!props.edit);
@@ -1136,7 +1138,7 @@ const BoardPanel = {
     const addFrom = (it) => { const last = f.lines[f.lines.length - 1]; const l = last && !last.text.trim() ? last : (f.lines.push(newLine()), f.lines[f.lines.length - 1]); pick(l, it); };
     const initialOf = (t) => (String(t || "?").trim()[0] || "?").toUpperCase();
     const folderHint = () => setTimeout(() => toast("إن لم يُفتح المجلد فأداة «فتح المجلد» غير مثبتة على هذا الحاسوب — استعمل «نسخ المسار»"), 1500);
-    return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, secOpen, isOpen, toggleSec, secHas, secLabel, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, customerType, boardStatuses, boardLabels, tagEdit, tagMode, tagBusy, canTag, editTag, saveTag, delTag, BOARD_COLORS, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
+    return { folderLink, folderHint, draftNote, otherDraft, useOtherDraft, cancelNew, dropDraft, miss, secOpen, isOpen, toggleSec, secHas, secLabel, allActs, worker, ro, daysFromToday, payNow, comment, addComment, materials, ago, newItem, addItem, ckTpls, openCkTpls, useCkTpl, saveCkTpl, queued, fileIn, uploading, files, imagesOf, onFiles, delFile, cardSet, copyPath, COVER_COLORS, isImg, sv, svMsg, closeEdit, hdPop, quoteDoc, copyIt, archiveIt, templateIt, deleteIt, pdfUrl, boardCols, editing, ed, locked, members, flipMember, saveEdit, paid, unitChanged, tpls, tplOn, useTpl, clearTpl, dropTpl, noSize, customerType, boardStatuses, boardLabels, tagEdit, tagMode, tagBusy, canTag, editTag, saveTag, delTag, BOARD_COLORS, colName, flip, pickCust, priced, unpriced, remain, popular, addFrom, initialOf, inkOn,
       sugg, pick, blurLine, calcOf, sym, num, matKind, matChoices, openMat, matInfo, matState, lineTotal, lineCalc, addToList, priceOf, uom, lineInput, addLine, dropLine, total, filled, credit, fig, f, startColumns, dueChips, saving, error, newName, toggle, onCustomerInput, save, o, left, price, busy, setAssignee, setPrice, toggleTag, pay, next,
       QUICK_TAGS: computed(quickTags), tagTone, isoIn, money, date, dueWord, pdfUrl, go, state };
   },
@@ -1227,7 +1229,8 @@ const BoardPanel = {
               <template v-if="popular.length"><span class="m">الأكثر طلبًا:</span><button v-for="it in popular" :key="it.item_code" type="button" class="od-sug" @click="addFrom(it)">{{ it.item_name }}</button></template></div>
             <div v-if="!worker" class="od-totals"><div class="od-tbox">
               <div><span>مجموع البنود المسعّرة</span><span class="num">{{ money(priced) }}</span></div>
-              <div v-if="unpriced"><span>بنود بلا سعر</span><span>{{ unpriced }}</span></div>
+              <div v-if="unpriced - noSize > 0"><span>بنود بلا سعر</span><span>{{ unpriced - noSize }}</span></div>
+              <div v-if="noSize"><span>بنود ينقصها المقاس أو الكمية</span><span class="warn">{{ noSize }}</span></div>
               <div v-if="editing && paid > 0.005"><span>المدفوع</span><span class="num od-ok">− {{ money(paid) }}</span></div>
               <div v-else-if="!editing && +f.advance > 0"><span>التسبيق</span><span class="num od-ok">− {{ money(+f.advance) }}</span></div>
               <div class="od-g-row"><span>الباقي على العميل</span><span class="num">{{ money(Math.max(0, remain)) }}</span></div></div></div>
@@ -2725,7 +2728,7 @@ const BoxPage = {
         <div class="btn-row bx-acts"><button type="button" class="cl-btn primary" :disabled="!!s.data.pending || !(s.data.balance > 0)" @click="open">سلّمت الصندوق</button></div>
       </section>
     </div>
-    <div v-if="ho" class="overlay" @click.self="ho = null"><form class="sheet bx-sheet" @submit.prevent="send"><div class="sh-head"><h2>تسليم الصندوق</h2></div>
+    <div v-if="ho" class="overlay" @click.self="ho = null" role="dialog" aria-modal="true"><form class="sheet bx-sheet" @submit.prevent="send"><div class="sh-head"><h2>تسليم الصندوق</h2></div>
       <div v-if="ho.err" class="alert error">{{ ho.err }}</div>
       <div class="stk-res"><div><span>المسجّل</span><b class="money">{{ money(s.data.balance) }}</b></div><div><span>تحصيلات</span><b>{{ s.data.collections.length }}</b></div><div><span>لمن</span><b>المدير</b></div></div>
       <div class="field"><label for="bx-c">كم في يدك فعلًا؟ (عُدّ النقود)</label><input id="bx-c" class="input bx-in" inputmode="decimal" v-model="ho.counted"></div>
@@ -2899,7 +2902,7 @@ const SimpleMoney = {
                   <span class="mn-ic" :class="m.kind" aria-hidden="true">{{ m.kind === 'in' ? '↓' : m.kind === 'out' ? '↑' : m.kind === 'owner' ? (m.amount < 0 ? '↑' : '↓') : '⇄' }}</span>
                   <div style="min-width:0"><span class="cl-name">{{ m.title }}<Icon v-if="m.files" name="file" :size="13" class="mn-clip"/></span>
                     <span class="muted mn-sub">{{ m.category }}<template v-if="m.handover"> · استلم المدير {{ fig(m.handover.received) }} · أُغلق {{ fig(m.handover.closed) }}<template v-if="Math.abs(m.handover.diff) > 0.005"> · {{ m.handover.diff < 0 ? 'عجز' : 'زيادة' }} {{ fig(Math.abs(m.handover.diff)) }}</template></template><template v-if="m.ref"> · مرجع {{ m.ref }}</template><template v-if="m.order"> · <a :href="'/atelier/?card=' + m.order" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">{{ m.order_title || m.order }}</a></template> · {{ [m.fund, m.by].filter(Boolean).join(' · ') }}</span></div>
-                  <span class="mn-amt" :class="m.kind">{{ m.kind === 'transfer' || m.kind === 'handover' ? '' : m.amount >= 0 ? '+' : '−' }}{{ fig(m.handover ? m.handover.received : Math.abs(m.amount)) }}</span>
+                  <span class="mn-amt" :class="m.kind">{{ m.kind === 'transfer' || m.kind === 'handover' ? '' : m.amount >= 0 ? '+' : '−' }}{{ fig(m.handover ? m.handover.received : m.kind === 'transfer' && m.moved ? m.moved : Math.abs(m.amount)) }}</span>
                 </div>
               </template>
             </section>
@@ -4147,7 +4150,7 @@ const CollectSheet = {
     return { o, left, amount, mode, got, busy, err, close, save, money, state, modeLabel: (v) => (state.boot.modes || []).find((m) => m.value === v)?.label || v };
   },
   template: `
-  <div class="overlay" @click.self="close"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>استلمت الباقي؟</h2><span class="muted">«{{ o.title }}» — {{ o.customer_name }}</span></div></div>
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>استلمت الباقي؟</h2><span class="muted">«{{ o.title }}» — {{ o.customer_name }}</span></div></div>
     <div v-if="err" class="alert error">{{ err }}</div>
     <div class="stk-res"><div><span>المجموع</span><b>{{ money(o.total) }}</b></div><div><span>دُفع من قبل</span><b>{{ money(o.paid) }}</b></div><div><span>الباقي</span><b class="bad">{{ money(left) }}</b></div></div>
     <div class="stk-pay"><div class="stk-g3"><div class="field"><label for="co-a">استلمت الآن</label><div class="stk-suf"><input id="co-a" class="input" inputmode="decimal" v-model="amount"><em>دج</em></div></div>
@@ -4175,7 +4178,7 @@ const SupplierPaySheet = {
     return { o, left, amount, mode, out, problem, busy, err, close, save, money, state, modeLabel: (v) => (state.boot.modes || []).find((m) => m.value === v)?.label || v };
   },
   template: `
-  <div class="overlay" @click.self="close"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>دفع للمورد</h2><span class="muted">{{ o.supplier_name }}<template v-if="o.ref"> — {{ o.ref }}</template></span></div></div>
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>دفع للمورد</h2><span class="muted">{{ o.supplier_name }}<template v-if="o.ref"> — {{ o.ref }}</template></span></div></div>
     <div v-if="err" class="alert error">{{ err }}</div>
     <div class="stk-res"><div><span>الباقي عليك</span><b class="bad">{{ money(left) }}</b></div><div><span>تدفع الآن</span><b>{{ money(out) }}</b></div><div><span>يبقى بعدها</span><b :class="{warn: left - out > 0.005}">{{ money(left - out) }}</b></div></div>
     <div class="stk-pay"><div class="stk-g3"><div class="field"><label for="sp-a">المبلغ</label><div class="stk-suf"><input id="sp-a" class="input" inputmode="decimal" v-model="amount"><em>دج</em></div></div>
@@ -4219,7 +4222,7 @@ const OutsourceSheet = {
     return { parseAmount, amount, supplier, note, list, busy, err, close, save, opts: props.opts };
   },
   template: `
-  <div class="overlay" @click.self="close"><form class="sheet" @submit.prevent="save"><div class="sh-head"><div><h2>عند مورد</h2><span class="muted">«{{ opts.title }}» انتقل إلى «{{ opts.column }}». لن يُخصم ورق ولا لفّات من مخزنك.</span></div></div>
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet" @submit.prevent="save"><div class="sh-head"><div><h2>عند مورد</h2><span class="muted">«{{ opts.title }}» انتقل إلى «{{ opts.column }}». لن يُخصم ورق ولا لفّات من مخزنك.</span></div></div>
     <div v-if="err" class="alert error">{{ err }}</div>
     <div class="stk-g3"><div class="field stk-span2"><label for="os-s">المورد</label><select id="os-s" class="input" v-model="supplier"><option value="">—</option><option v-for="x in list" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select></div>
       <div class="field"><label for="os-a">كم كلّفك؟</label><div class="stk-suf"><input id="os-a" class="input" inputmode="decimal" v-model="amount" placeholder="0"><em>دج</em></div></div></div>
@@ -4251,7 +4254,7 @@ const MaterialsSheet = {
     return { rows, busy, err, close, short, submit, uom, choose, left, num, setPer, ready, skip, opts: props.opts };
   },
   template: `
-  <div class="overlay" @click.self="close"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><div><h2>مواد هذا الطلب</h2><span class="muted">راجع الكميات الفعلية قبل الخصم</span></div></div>
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><div><h2>مواد هذا الطلب</h2><span class="muted">راجع الكميات الفعلية قبل الخصم</span></div></div>
     <div v-if="err" class="alert error">{{ err }}</div>
     <p v-if="opts.title" class="muted" style="margin:0 0 6px">«{{ opts.title }}» — راجع المواد المقترحة ثم اخصم. ما لم تختر له مادة لا يُخصم.</p>
     <div v-for="(r, k) in rows" :key="k" class="mt-line">
@@ -4426,7 +4429,7 @@ const CalcPage = {
             <button type="button" class="cl-btn" style="flex:1" :disabled="!c.lines.length || !!busy" @click="save">{{ busy === 'save' ? 'جارٍ…' : 'حفظ التقدير' }}</button></div></div>
       </aside>
     </div>
-    <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submitOrder"><div class="sh-head"><h2>{{ sheet.kind === 'devis' ? 'إنشاء عرض سعر' : 'إنشاء طلب' }}</h2></div>
+    <div v-if="sheet" class="overlay" @click.self="sheet = null" role="dialog" aria-modal="true"><form class="sheet" @submit.prevent="submitOrder"><div class="sh-head"><h2>{{ sheet.kind === 'devis' ? 'إنشاء عرض سعر' : 'إنشاء طلب' }}</h2></div>
       <div v-if="err" class="alert error">{{ err }}</div>
       <div class="field"><label for="calc-cust">العميل</label><select id="calc-cust" class="input" v-model="sheet.customer" @change="pickCustomer"><option value="">زبون نقدي</option><option v-for="x in customers" :key="x.name" :value="x.name">{{ x.customer_name }}</option></select></div>
       <div class="field"><label for="calc-rate">السعر لكل {{ unitName }} (دج)</label><input id="calc-rate" class="input num" v-model="sheet.rate" inputmode="decimal"><span class="muted">مقترح حسب نوع العميل. المجموع: {{ money(num(sheet.rate) * units) }}</span></div>
@@ -4450,7 +4453,9 @@ const ListPicker = {
     placeholder: String, valueKey: { default: "name" }, labelKey: { default: "name" }, disabled: Boolean },
   emits: ["update:modelValue"],
   setup(props, { emit }) {
-    const open = ref(false), q = ref(""), ed = ref(null), busy = ref(false), root = ref(null);
+    const open = ref(false), q = ref(""), ed = ref(null), busy = ref(false), root = ref(null), up = ref(false);
+    // near the bottom of the window the list opens upward instead of running off the screen
+    watch(open, (v) => { if (v && root.value) { const r = root.value.getBoundingClientRect(); up.value = window.innerHeight - r.bottom < 380 && r.top > window.innerHeight - r.bottom; } });
     const canEdit = computed(() => state.boot.role === "manager");
     // entries as {name (shown), _v (stored)}: cost types store a value apart from their label
     const rows = computed(() => (props.list || []).map((x) => ({ ...x, name: x[props.labelKey], _v: x[props.valueKey] })));
@@ -4476,10 +4481,10 @@ const ListPicker = {
     const CALCS = [["count", "بالعدد"], ["length", "بالطول"], ["area", "بالمساحة"]];
     const away = (ev) => { if (root.value && !root.value.contains(ev.target)) { open.value = false; ed.value = null; } };
     onMounted(() => document.addEventListener("mousedown", away)); onBeforeUnmount(() => document.removeEventListener("mousedown", away));
-    return { open, q, ed, busy, root, canEdit, rows, shown, exact, label, color, pick, edit, save, del, CALCS, LIST_COLORS, STOCK_WAY_LABEL };
+    return { up, open, q, ed, busy, root, canEdit, rows, shown, exact, label, color, pick, edit, save, del, CALCS, LIST_COLORS, STOCK_WAY_LABEL };
   },
   template: `
-  <div ref="root" class="lp">
+  <div ref="root" class="lp" :class="{'lp-up': up}">
     <button type="button" class="input lp-box" :disabled="disabled" :aria-expanded="open" @click="open = !open; ed = null"><i v-if="modelValue && withColor" class="lp-dot" :style="{background: color(modelValue)}"></i><span :class="{'lp-ph': !modelValue}">{{ modelValue ? label : emptyLabel || placeholder }}</span><span class="lp-car" aria-hidden="true">▾</span></button>
     <div v-if="open && !ed" class="lp-pop">
       <div class="lp-s"><input class="input" v-model="q" placeholder="ابحث أو اكتب اسمًا جديدًا" aria-label="بحث" @keydown.enter.prevent="shown.length === 1 ? pick(shown[0]._v) : (canEdit && q.trim() && !exact ? edit(null) : null)"></div>
@@ -4729,7 +4734,7 @@ const StockPage = {
           <td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
           <td class="n" @click.stop><div class="btn-row stk-acts">
             <button v-if="wayOf(i) === 'bottle' && s.data.can_issue" type="button" class="cl-btn sm stk-act" :disabled="i.qty < 1" @click="fitBottle(i)">ركّبت قارورة</button>
-            <button v-else-if="canOpen(i) && s.data.can_issue" type="button" class="cl-btn sm stk-act" :disabled="!(i.cfg.closed > 0)" :title="i.cfg.closed > 0 ? 'السابقة انتهت وفتحت جديدة' : 'لا ' + packWord(i) + ' مغلقة مسجّلة'" @click="openPack(i)">انتهت ال{{ packWord(i) }}</button>
+            <button v-else-if="canOpen(i) && s.data.can_issue && s.data.can_count !== false" type="button" class="cl-btn sm stk-act" :disabled="!(i.cfg.closed > 0)" :title="i.cfg.closed > 0 ? 'السابقة انتهت وفتحت جديدة' : 'لا ' + packWord(i) + ' مغلقة مسجّلة'" @click="openPack(i)">انتهت ال{{ packWord(i) }}</button>
             <button v-else-if="s.data.can_issue" type="button" class="cl-btn sm stk-act" @click="i.qty > 0 ? open('issue', i) : toast('لا كمية في المخزون للصرف — سجّل شراءً أولًا', 'error')">صرف</button>
             <button type="button" class="cl-btn sm stk-more-btn" :aria-label="'إجراءات أخرى لـ ' + i.item_name" :aria-expanded="rowMenu === i.item_code" @click.stop="rowMenu = rowMenu === i.item_code ? null : i.item_code">▾</button>
             <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop>
@@ -4762,7 +4767,7 @@ const StockPage = {
       </aside></div>
 
     </div>
-    <div v-if="bill" class="overlay" @click.self="bill = null"><form class="sheet stk-bill" @submit.prevent="saveBill"><div class="sh-head"><h2>شراء من مورد</h2></div>
+    <div v-if="bill" class="overlay" @click.self="bill = null" role="dialog" aria-modal="true"><form class="sheet stk-bill" @submit.prevent="saveBill"><div class="sh-head"><h2>شراء من مورد</h2></div>
       <div v-if="bill.err" class="alert error">{{ bill.err }}</div>
       <div class="stk-g3"><div class="field"><label for="bl-s">المورد</label><select id="bl-s" class="input" v-model="bill.supplier"><option value="" disabled>{{ suppliers.length ? 'اختر المورد' : 'لا موردين بعد' }}</option><option v-for="x in suppliers" :key="x.name" :value="x.name">{{ x.supplier_name }}</option></select>
           <button type="button" class="cl-link" style="align-self:flex-start;font-size:12px" @click="quickSupplierBill">+ مورد جديد</button></div>
@@ -4783,20 +4788,21 @@ const StockPage = {
         <div v-if="billTotal - billPaid > 0.005" class="field" style="max-width:220px"><label for="bl-due">يُدفع قبل (اختياري)</label><input id="bl-due" class="input" type="date" v-model="bill.due"></div></div>
       <div class="sh-foot"><button type="button" class="cl-btn" @click="bill = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="bill.busy || !billTotal">تسجيل الشراء</button></div>
     </form></div>
-    <div v-if="closing" class="overlay" @click.self="closing = null"><form class="sheet stk-close" @submit.prevent="confirmClose"><div class="sh-head"><div><h2>انتهت {{ closing.d ? closing.d.pack : '' }} — {{ closing.item.item_name }}</h2>
+    <div v-if="closing" class="overlay" @click.self="closing = null" role="dialog" aria-modal="true"><form class="sheet stk-close" @submit.prevent="confirmClose"><div class="sh-head"><div><h2>انتهت {{ closing.d ? closing.d.pack : '' }} — {{ closing.item.item_name }}</h2>
         <span v-if="closing.d" class="muted">من {{ date(closing.d.since) }} إلى اليوم. فتحت الجديدة؟ هذه نتيجة المنتهية:</span></div></div>
       <div v-if="closing.err" class="alert error">{{ closing.err }}</div>
       <div v-if="!closing.d && !closing.err" class="muted">جارٍ الحساب…</div>
       <template v-if="closing.d && cycleCalc">
         <div class="stk-res"><div><span>استُهلك فعلًا</span><b>{{ qn(closing.item, closing.d.size) }} {{ uom(closing.item.uom) }}</b></div><div><span>خُصم على الطلبات</span><b>{{ qn(closing.item, cycleCalc.rec) }}</b></div>
-          <div><span>الفرق (تالف؟)</span><b :class="cycleCalc.pct > 10 ? 'bad' : 'ok'">{{ qn(closing.item, cycleCalc.waste) }} · {{ Math.round(cycleCalc.pct) }}%</b></div></div>
+          <div v-if="cycleCalc.waste >= 0"><span>الفرق (تالف؟)</span><b :class="cycleCalc.pct > 10 ? 'bad' : 'ok'">{{ qn(closing.item, cycleCalc.waste) }} · {{ Math.round(cycleCalc.pct) }}%</b></div>
+          <div v-else><span>خُصم أكثر من العبوة</span><b class="warn">{{ qn(closing.item, -cycleCalc.waste) }}</b><small class="m">راجع الكميات المخصومة: ربما خُصم طلب مرتين أو بكمية أكبر</small></div></div>
         <template v-if="closing.d.candidates.length"><b class="stk-q">طلبات طُبعت ولم تُخصم بعد؟ علّمها لتُحسب على هذه ال{{ closing.d.pack }}:</b>
           <label v-for="x in closing.d.candidates" :key="x.order" class="stk-ord"><input type="checkbox" v-model="x.on"><span>{{ x.title }}</span><span class="spacer"></span><input class="input" inputmode="decimal" v-model="x.qty" :aria-label="'كمية ' + x.title"><em>{{ uom(closing.item.uom) }}</em></label></template>
         <p class="stk-cov">التغطية <b :class="cycleCalc.cov >= 70 ? 'ok' : 'bad'">{{ Math.round(cycleCalc.cov) }}% · {{ cycleCalc.cov >= 70 ? 'موثوقة' : 'غير موثوقة — لن تدخل في التكلفة الحقيقية' }}</b></p>
         <p v-if="!(closing.d.closed > 0)" class="alert warn">لا {{ closing.d.pack }} مغلقة مسجّلة. صحّح العدد من «جرد» أو سجّل شراءً أولًا.</p></template>
       <div class="sh-foot"><button type="button" class="cl-btn" @click="closing = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="!closing.d || closing.busy || !(closing.d.closed > 0)">تأكيد — فتحت الجديدة</button></div>
     </form></div>
-    <div v-if="sheet" class="overlay" @click.self="sheet = null"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><h2>{{ TITLES[sheet.kind] }}<template v-if="sheet.item"> · {{ sheet.item.item_name }}</template></h2></div>
+    <div v-if="sheet" class="overlay" @click.self="sheet = null" role="dialog" aria-modal="true"><form class="sheet" @submit.prevent="submit"><div class="sh-head"><h2>{{ TITLES[sheet.kind] }}<template v-if="sheet.item"> · {{ sheet.item.item_name }}</template></h2></div>
       <div v-if="err" class="alert error">{{ err }}</div>
       <template v-if="sheet.kind === 'add' || sheet.kind === 'edit'">
         <div class="cal2-seg stk-wayseg" role="group" aria-label="نوع المادة"><button v-for="(w, k) in STOCK_WAYS" :key="k" type="button" :aria-pressed="sheet.way === k" :disabled="sheet.kind === 'edit' && sheet.item.has_moves && sheet.way !== k" @click="sheet.way = k">{{ k === 'roll' ? 'لفّة' : k === 'bottle' ? 'قارورة حبر' : 'ورق / قطع' }}</button></div>
@@ -4914,7 +4920,7 @@ const App = {
         <Board v-if="['home', 'orders', 'order-new'].includes(route.name)" :key="route.name === 'order-new' ? state.path : 'board'" :start-new="route.name === 'order-new'"/>
         <Board v-else-if="route.name==='order'" :key="'order-' + route.id" :open-card="route.id"/>
         <SimpleCustomers v-else-if="route.name==='customers' || route.name==='customer'" :key="state.path + state.query" :open-id="route.id"/>
-        <div v-else-if="['money', 'reports', 'suppliers', 'supplier', 'calc', 'prices'].includes(route.name) && !state.boot.can.finance" class="noaccess"><h1>هذه الصفحة للمدير</h1><p class="muted">لا تظهر بيانات المال والتقارير والموردين إلا للمدير.</p><button type="button" class="cl-btn primary" @click="go('/')">العودة إلى الطلبات</button></div>
+        <div v-else-if="['money', 'reports', 'suppliers', 'supplier', 'calc', 'prices'].includes(route.name) && !state.boot.can.finance" class="noaccess"><h1>هذه الصفحة للمدير</h1><p class="muted">{{ ({money: 'المال والصناديق', reports: 'التقارير', suppliers: 'الموردون وديونهم', supplier: 'ملف المورد وديونه', calc: 'حاسبة التكلفة', prices: 'قائمة الأسعار والتكاليف والهوامش'})[route.name] }} للمدير فقط.</p><button type="button" class="cl-btn primary" @click="go('/')">العودة إلى الطلبات</button></div>
         <SimpleMoney v-else-if="route.name==='money'"/>
         <BoxPage v-else-if="route.name==='box'"/>
         <SuppliersPage v-else-if="route.name==='suppliers' || route.name==='supplier'" :key="state.path" :open-id="route.id"/>

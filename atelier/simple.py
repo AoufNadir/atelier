@@ -1287,6 +1287,10 @@ def money3(offset=0):
 	closings = _closings()
 	for m in moves:
 		m.kind = "transfer" if m.category in (_("تحويل"), _("تحويل بين الصناديق")) else ("in" if m.amount > 0 else "out")
+		if m.kind == "transfer":
+			# a transfer nets to 0 across the funds: show what moved, not the net
+			m.moved = flt(frappe.db.sql("""select sum(gle.debit) from `tabGL Entry` gle where gle.voucher_no=%s and gle.is_cancelled=0
+				and gle.account in %s""", (m.voucher_no, cash))[0][0])
 		if m.voucher_type == "Journal Entry":
 			if owner and frappe.db.exists("Journal Entry Account", {"parent": m.voucher_no, "account": owner}):
 				m.kind, m.category = "owner", (_("سحب شخصي") if m.amount < 0 else _("إيداع من المالك"))
