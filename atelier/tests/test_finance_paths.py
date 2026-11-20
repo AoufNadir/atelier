@@ -231,6 +231,14 @@ class TestFinancePaths(unittest.TestCase):
 		return inv
 
 	def test_tva_19_on_its_own_account_and_exempt(self):
+		saved = simple.doc_settings()
+		try:
+			self._tva_checks()
+		finally:  # the settings are cached: a rollback alone would leave TVA on for the next tests
+			simple.save_doc_settings(json.dumps(saved))
+			frappe.clear_cache()
+
+	def _tva_checks(self):
 		inv = self._tva_invoice(19)
 		self.assertAlmostEqual(flt(inv.grand_total), 1190, places=2)
 		self.assertTrue(all("19%" in t.account_head for t in inv.taxes), [t.account_head for t in inv.taxes])
