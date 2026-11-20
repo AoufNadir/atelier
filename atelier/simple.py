@@ -219,6 +219,7 @@ def move(name, column):
 	if column_of(so.atelier_stage, so.per_delivered) == "done":
 		frappe.throw(_("هذا الطلب سُلّم ولا يمكن إرجاعه"))
 	if column == "done":
+		api.confirm_if_priced(so)
 		if so.docstatus == 0:
 			frappe.throw(_("حدد سعر الطلب قبل تسليمه"))
 		if so.per_delivered < 100:
@@ -845,6 +846,7 @@ def update_lines(name, lines):
 				"rate": 0 if r["rate"] is None else r["rate"], "atelier_price_pending": 1 if r["rate"] is None else 0,
 				"delivery_date": so.delivery_date, **extra(r)})
 		so.save()
+		api.confirm_if_priced(so)  # the last price given: the order is confirmed (and can be delivered)
 	else:
 		if any(r["rate"] is None for r in rows):
 			frappe.throw(_("الطلب مؤكَّد: اكتب سعر كل بند"))

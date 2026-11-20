@@ -236,6 +236,10 @@ def _order_rows(filters, limit=8):
 		"""select sii.sales_order, sum(si.grand_total - si.outstanding_amount) from `tabSales Invoice` si
 		join (select distinct parent, sales_order from `tabSales Invoice Item`) sii on sii.parent = si.name
 		where si.docstatus=1 and sii.sales_order in %s group by sii.sales_order""", [names]))
+	# an advance taken before the order had a price is kept on the customer with the order's name (atelier_order):
+	# it is paid on that order too, until an invoice uses it
+	tagged = dict(frappe.db.sql("""select atelier_order, sum(paid_amount) from `tabPayment Entry` where docstatus=1
+		and payment_type='Receive' and atelier_order in %s group by atelier_order""", [names])) if frappe.db.has_column("Payment Entry", "atelier_order") else {}
 	names_cache = {}
 	steps = production.current_steps([r.project for r in rows if r.project])
 	for r in rows:
@@ -243,7 +247,7 @@ def _order_rows(filters, limit=8):
 		r.step = steps.get(r.project)
 		r.owner_name = names_cache.setdefault(r.owner, frappe.utils.get_fullname(r.owner))
 		r.price_pending = r.name in pending
-		r.paid = max(flt(r.advance_paid), flt(paid_on_invoices.get(r.name)))
+		r.paid = max(flt(r.advance_paid), flt(paid_on_invoices.get(r.name)), flt(tagged.get(r.name)))
 	return rows
 
 
@@ -1144,7 +1148,16 @@ def price_order(name, rates):
 			row.atelier_price_pending = 0
 	so.save()
 	_sync_estimate(so)
+	confirm_if_priced(so)
 	return {"pending": sum(1 for i in so.items if i.atelier_price_pending)}
+
+
+def confirm_if_priced(so):
+	"""A «priced later» order becomes a confirmed order as soon as its last line has a price."""
+	if so.docstatus == 0 and so.items and not any(i.atelier_price_pending for i in so.items) and flt(so.grand_total) > 0:
+		so.submit()
+		return True
+	return False
 
 
 @frappe.whitelist(methods=["POST"])
