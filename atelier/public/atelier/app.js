@@ -137,7 +137,7 @@ document.addEventListener("focusout", (e) => {
 let toastTimer;
 function toast(message, kind = "success") {
   state.toast = { message, kind }; clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (state.toast = null), 4000);
+  toastTimer = setTimeout(() => (state.toast = null), kind === "error" ? 9000 : 4000);  // errors stay long enough to be read
 }
 const route = computed(() => {
   const p = state.path.replace(/^\/atelier/, "").replace(/\/$/, "") || "/";
