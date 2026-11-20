@@ -24,6 +24,14 @@ def _can(doctype, ptype="read"):
 	return frappe.has_permission(doctype, ptype)
 
 
+def _may_deliver():
+	"""Delivering makes the delivery note and the invoice. The manager can; a seller too (decision: he also takes
+	the payment into his own box). Designers and printers cannot."""
+	from atelier.simple import app_role
+
+	return app_role() in ("manager", "sales") or (_can("Delivery Note", "create") and _can("Sales Invoice", "create"))
+
+
 def _no_worker():
 	from atelier.simple import no_worker
 
@@ -97,7 +105,7 @@ def boot():
 			"prices": _can("Item Price", "write"),
 			"payment": (_can("Payment Entry", "create") or role == "sales") and not worker,
 			"box": role == "sales" and not worker,
-			"deliver": _can("Delivery Note", "create") and _can("Sales Invoice", "create"),
+			"deliver": _may_deliver(),
 			"expense": _can("Journal Entry", "create"),
 			"finance": _can("GL Entry", "read"),
 			"cost": _can("Cost Estimate", "read"),
@@ -593,7 +601,7 @@ def order(name):
 	row["outstanding"] = sum(flt(d.get("outstanding_amount")) for d in row["docs"] if d["doctype"] == "Sales Invoice")
 	row["print_format"] = PRINT_FORMAT
 	row["can"] = {"edit": bool(so.has_permission("write")), "submit": bool(so.has_permission("submit")),
-		"deliver": _can("Delivery Note", "create"), "invoice": _can("Sales Invoice", "create"), "payment": _can("Payment Entry", "create")}
+		"deliver": _may_deliver(), "invoice": _may_deliver(), "payment": _can("Payment Entry", "create")}
 	if _can("Cost Estimate"):
 		row["estimate"] = frappe.get_all("Cost Estimate", {"sales_order": name},
 			["name", "total_cost", "missing_count", "estimated_margin", "pricing_status"], limit=1)
@@ -956,7 +964,8 @@ def stock():
 	return {"items": list(items.values()), "moves": moves, "can_value": can_value,
 		"can_buy": _can("Purchase Invoice", "create"), "can_issue": _can("Stock Entry", "create"),
 		# «انتهت الرزمة / اللفّة» corrects the stock with a count: only for who may count
-		"can_count": _can("Stock Reconciliation", "create")}
+		"can_count": _can("Stock Reconciliation", "create"),
+		"can_close": __import__("atelier.simple", fromlist=["app_role"]).app_role() == "manager"}
 
 
 @frappe.whitelist()
@@ -1181,7 +1190,7 @@ def deliver_order(name, qtys=None):
 	so = _so_for(name, "read")
 	if so.docstatus != 1:
 		frappe.throw(_("اعتمد الطلب أولًا"))
-	if not _can("Delivery Note", "create"):
+	if not _may_deliver():
 		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
 	dn = make_delivery_note(so.name)
 	qtys = frappe.parse_json(qtys) if qtys else None
@@ -1192,6 +1201,7 @@ def deliver_order(name, qtys=None):
 		dn.items = [r for r in dn.items if flt(r.qty) > 0]
 	if not dn.items:
 		frappe.throw(_("لا شيء للتسليم"))
+	dn.flags.ignore_permissions = True
 	dn.insert()
 	dn.submit()
 	so.reload()
@@ -1201,16 +1211,24 @@ def deliver_order(name, qtys=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def invoice_order(name):
-	"""Sales invoice for what is not billed yet; customer advances are deducted automatically."""
+def invoice_order(name, delivery_note=None):
+	"""Sales invoice for what is not billed yet (or only what one delivery note delivered, for a partial delivery);
+	this order's advances are deducted, each invoice taking at most its own total, the rest left for the next."""
 	from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
 
 	so = _so_for(name, "read")
 	if so.docstatus != 1:
 		frappe.throw(_("اعتمد الطلب أولًا"))
-	if not _can("Sales Invoice", "create"):
+	if not _may_deliver():
 		frappe.throw(_("ليست لديك صلاحية لهذا الإجراء."), frappe.PermissionError)
-	si = make_sales_invoice(so.name)
+	if delivery_note:
+		from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_invoice as from_dn
+
+		si = from_dn(delivery_note)
+	else:
+		si = make_sales_invoice(so.name)
+	if not si.items:
+		frappe.throw(_("لا شيء للفوترة: كل ما سُلّم مفوتر"))
 	si.allocate_advances_automatically = 1
 	si.set_advances()
 	# ERPNext offers every open advance of the customer; keep only this order's own advances,
@@ -1219,6 +1237,7 @@ def invoice_order(name):
 	own |= set(frappe.get_all("Payment Entry", filters={"atelier_order": so.name, "docstatus": 1}, pluck="name"))
 	si.set("advances", [a for a in si.advances if a.reference_type != "Payment Entry" or a.reference_name in own])
 	si.allocate_advances_automatically = 0  # otherwise validate() reallocates every open advance again
+	si.flags.ignore_permissions = True
 	si.insert()
 	si.submit()
 	return si.name
@@ -1357,4 +1376,6 @@ from atelier.simple import save_list_item, delete_list_item  # noqa: E402, F401
 from atelier.simple import save_board_tag, delete_board_tag  # noqa: E402, F401
 from atelier.materials import services_overview  # noqa: E402, F401
 from atelier.printing import pdf  # noqa: E402, F401
-from atelier.returns import cancel_info, cancel_order, return_info, create_return  # noqa: E402, F401
+from atelier.returns import cancel_info, cancel_order, return_info, create_return
+from atelier.simple import partial_info, partial_deliver  # noqa: E402, F401
+from atelier.opening import opening_info, add_opening, reverse_opening  # noqa: E402, F401  # noqa: E402, F401

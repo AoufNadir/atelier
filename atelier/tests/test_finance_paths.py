@@ -115,3 +115,42 @@ class TestFinancePaths(unittest.TestCase):
 		self.assertAlmostEqual(paid, 2000, places=2)
 		for n in [inv] + frappe.get_all("Sales Invoice", filters={"return_against": inv, "docstatus": 1}, pluck="name"):
 			self.assertAlmostEqual(flt(frappe.db.get_value("Sales Invoice", n, "outstanding_amount")), 0, places=2)
+
+	def _two_lines(self, advance=0):
+		res = simple.quick_order(json.dumps({"customer": _customer(), "subject": "اختبار جزئي", "advance": advance, "mode": "Cash",
+			"lines": [{"text": "لافتة", "qty": 1, "rate": 400}, {"text": "بطاقات", "qty": 1, "rate": 600}]}, ensure_ascii=False))
+		return res["sales_order"]
+
+	def test_partial_delivery_bills_only_delivered_and_advance_carries(self):
+		so = self._two_lines(advance=500)
+		first = frappe.get_doc("Sales Order", so).items[0].name
+		r = simple.partial_deliver(so, json.dumps({first: 1}))
+		inv1 = frappe.get_doc("Sales Invoice", r["invoice"])
+		self.assertEqual(flt(inv1.grand_total), 400)
+		self.assertAlmostEqual(flt(inv1.outstanding_amount), 0, places=2)  # 400 of the 500 advance
+		self.assertFalse(r["complete"])
+		simple.move(so, "done")  # the rest only, no duplicate
+		invs = frappe.get_all("Sales Invoice Item", filters={"sales_order": so, "docstatus": 1}, pluck="parent", distinct=True)
+		self.assertEqual(len(set(invs)), 2)
+		inv2 = frappe.get_doc("Sales Invoice", [i for i in set(invs) if i != inv1.name][0])
+		self.assertEqual(flt(inv2.grand_total), 600)
+		self.assertAlmostEqual(flt(inv2.outstanding_amount), 500, places=2)  # the remaining 100 of the advance
+
+	def test_opening_debt_is_balance_not_sales(self):
+		from erpnext.accounts.utils import get_balance_on
+
+		from atelier import opening
+
+		cust = _customer()
+		before = flt(get_balance_on(party_type="Customer", party=cust, company=api._company()))
+		r = opening.add_opening("Customer", cust, 12500, remark="اختبار")
+		self.assertEqual(frappe.db.get_value("Journal Entry", r["journal"], "is_opening"), "Yes")
+		self.assertAlmostEqual(flt(get_balance_on(party_type="Customer", party=cust, company=api._company())) - before, 12500, places=2)
+		income = frappe.db.sql("""select count(*) from `tabGL Entry` g join `tabAccount` a on a.name=g.account
+			where g.voucher_no=%s and a.root_type='Income'""", r["journal"])[0][0]
+		self.assertEqual(income, 0)
+		back = opening.reverse_opening(r["journal"])
+		self.assertEqual(frappe.db.get_value("Journal Entry", back["journal"], "reversal_of"), r["journal"])
+		self.assertAlmostEqual(flt(get_balance_on(party_type="Customer", party=cust, company=api._company())), before, places=2)
+		with self.assertRaises(frappe.ValidationError):
+			opening.reverse_opening(r["journal"])

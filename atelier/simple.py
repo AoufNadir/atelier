@@ -232,6 +232,47 @@ def move(name, column):
 	return column
 
 
+@frappe.whitelist()
+def partial_info(name):
+	"""Lines of an order with what was delivered and what is left, for «تسليم جزء»."""
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission("read")
+	no_worker()
+	whole = lambda u: bool(frappe.db.get_value("UOM", u, "must_be_whole_number"))  # noqa: E731
+	return {"name": so.name, "customer_name": so.customer_name, "title": so.get("atelier_subject") or so.name,
+		"lines": [{"row": i.name, "item_name": frappe.utils.strip_html(i.description or "") or i.item_name, "qty": flt(i.qty),
+			"delivered": flt(i.delivered_qty), "left": flt(i.qty) - flt(i.delivered_qty), "rate": flt(i.rate), "whole": whole(i.uom)}
+			for i in so.items]}
+
+
+@frappe.whitelist(methods=["POST"])
+def partial_deliver(name, qtys):
+	"""Deliver some lines now: a delivery note for them and an invoice for exactly what it delivered (the order's
+	advances deducted up to that invoice). The card stays on the board until the rest is delivered."""
+	so = frappe.get_doc("Sales Order", name)
+	so.check_permission("write")
+	no_worker()
+	if so.docstatus != 1:
+		frappe.throw(_("حدد سعر الطلب قبل تسليمه"))
+	info = {l["row"]: l for l in partial_info(name)["lines"]}
+	qtys = {k: flt(v) for k, v in (frappe.parse_json(qtys) or {}).items() if flt(v) > 0}
+	if not qtys:
+		frappe.throw(_("اختر كمية بند واحد على الأقل"))
+	for row, q in qtys.items():
+		if row not in info or q > info[row]["left"] + 1e-9:
+			frappe.throw(_("الكمية أكبر من الباقي للتسليم"))
+		if info[row]["whole"] and q != int(q):
+			frappe.throw(_("وحدة «{0}» لا تقبل الكسور: اكتب عددًا صحيحًا").format(info[row]["item_name"]))
+	dn = api.deliver_order(name, json.dumps(qtys))
+	inv = api.invoice_order(name, delivery_note=dn)
+	so.reload()
+	_log(name, _("سلّم جزءًا من الطلب — فاتورة {0}").format(inv))
+	if so.per_delivered >= 100:
+		so.db_set("atelier_stage", COLUMNS["done"])
+	return {"delivery_note": dn, "invoice": inv, "complete": so.per_delivered >= 100,
+		"outstanding": flt(frappe.db.get_value("Sales Invoice", inv, "outstanding_amount"))}
+
+
 @frappe.whitelist(methods=["POST"])
 def update_order(name, assignee=None, price=None):
 	"""Change who works on it, or give a price to an order saved without one (then it is confirmed)."""

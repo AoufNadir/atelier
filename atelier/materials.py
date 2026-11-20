@@ -335,9 +335,19 @@ def _cfg_family(item_code):
 	return (frappe.db.get_value("Item", item_code, "atelier_family") if _has("atelier_family") else "") or ""
 
 
+def _pack_manager():
+	"""Closing a pack fixes a stock difference and the material's true cost: the manager's call (the printer
+	still issues materials)."""
+	from atelier.simple import app_role
+
+	if app_role() != "manager":
+		frappe.throw(_("إغلاق الرزمة أو اللفّة للمدير: أخبره أنها انتهت"), frappe.PermissionError)
+
+
 @frappe.whitelist(methods=["POST"])
 def close_pack(item_code, orders=None):
 	"""«انتهت اللفّة / الرزمة»: deduct the orders the user ticked, then close the cycle (open_pack) and keep it for the reports."""
+	_pack_manager()
 	_need("Stock Entry")
 	item = _material(item_code)
 	since = _cycle_start(item.name)
@@ -362,6 +372,7 @@ def close_pack(item_code, orders=None):
 def open_pack(item_code):
 	"""«فتحت لفّة / رزمة جديدة»: the previous one is finished, so the true stock is known without measuring:
 	closed ones × size + the one just opened (full). The gap with the computed stock is recorded as waste or unrecorded use."""
+	_pack_manager()
 	_need("Stock Reconciliation")
 	item = _material(item_code)
 	c = _cfg_of(item.name)

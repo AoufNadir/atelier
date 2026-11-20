@@ -1297,6 +1297,7 @@ const BoardPanel = {
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('devis')"><Icon name="file" :size="15"/>Devis — عرض سعر</button>
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('proforma')"><Icon name="file" :size="15"/>Pro forma</button>
               <a class="tm-pop-row" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', ed.name, 'الورشة — عربي')" @click="hdPop = null"><Icon name="printer" :size="15"/>بون الطلب</a>
+              <button v-if="editing && state.boot.can.deliver && !ed.price_pending && !(ed.per_delivered >= 100)" type="button" class="tm-pop-row" @click="hdPop = null; state.sheet = {type: 'partial', order: ed.name, title: f.subject || ed.title}">تسليم جزء من الطلب</button>
               <template v-if="state.boot.role === 'manager' && editing"><hr class="tm2-hr">
                 <button type="button" class="tm-pop-row" @click="hdPop = null; state.sheet = {type: 'return', order: ed.name, title: f.subject || ed.title}">إرجاع / فاتورة دائنة</button>
                 <button type="button" class="tm-pop-row tm3-danger" @click="hdPop = null; state.sheet = {type: 'cancel', order: ed.name, title: f.subject || ed.title}">إلغاء الطلب</button></template>
@@ -1428,6 +1429,7 @@ const BoardCard = {
       <div v-if="c.labels.some(id => labels[id])" class="tc2-tags"><span v-for="id in c.labels.filter(id => labels[id])" :key="id" class="tc2-tag"><i :style="{background: labels[id].color}"></i>{{ labels[id].name }}</span></div>
       <div class="tc-foot">
         <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: daysFromToday(c.due) < 0, soon: daysFromToday(c.due) >= 0 && daysFromToday(c.due) <= 1}"><Icon name="clock" :size="13"/>{{ dueWord(c.due) }}<template v-if="c.due_time"> {{ c.due_time }}</template></span>
+        <span v-if="c.per_delivered > 0 && c.per_delivered < 100" class="tc-part" title="سُلّم جزء من البنود وفُوتر؛ الباقي يُسلَّم لاحقًا">سُلّم جزئيًا</span>
         <span v-if="c.comments" class="tc-m" title="تعليقات"><Icon name="msg" :size="13"/>{{ c.comments }}</span>
         <span v-if="c.files" class="tc-m" title="مرفقات"><Icon name="file" :size="13"/>{{ c.files }}</span>
         <span v-if="c.check[1]" class="tc-check" :class="{full: c.check[0] === c.check[1]}" title="قائمة المهام"><Icon name="check" :size="13"/>{{ c.check[0] }}/{{ c.check[1] }}</span>
@@ -2422,6 +2424,7 @@ const SimpleCustomers = {
                 <button v-if="owesNow && waLink(d.mobile_no)" type="button" @click="pmenu = false; startRemind()"><Icon name="msg" :size="16"/>تذكير بالدفع</button>
                 <button type="button" @click="exportOrders"><Icon name="file" :size="16"/>تصدير أعماله (Excel)</button>
                 <button v-if="s.data && s.data.manager" type="button" @click="pmenu = false; merging = ''">دمج مع عميل آخر</button>
+                <button v-if="state.boot.role === 'manager'" type="button" @click="pmenu = false; state.sheet = {type: 'opening', party_type: 'Customer', party: d.name, title: d.customer_name || d.name}">دين سابق (قبل نَسَق)</button>
                 <button v-if="d.can_edit" type="button" @click="toggleDisabled">{{ d.disabled ? 'إعادة تفعيل العميل' : 'إيقاف العميل' }}</button></div></div>
             <button v-if="state.boot.can.payment" type="button" class="cl-btn" @click="pay">استلمت دفعة</button>
             <button v-if="state.boot.can.order" type="button" class="cl-btn primary" @click="newOrderFor(d)"><Icon name="plus" :size="16"/>طلب جديد</button>
@@ -3123,6 +3126,7 @@ const SuppliersPage = {
               <div v-if="pmenu" class="cl-pop cl-menu" @click.stop>
                 <a v-if="waLink(d.phone)" class="cp-menu-a" target="_blank" rel="noopener" :href="waLink(d.phone)" @click="pmenu = false"><Icon name="msg" :size="16"/>واتساب</a>
                 <button v-if="d.can_edit" type="button" @click="edit"><Icon name="edit" :size="16"/>تعديل بيانات المورد</button>
+                <button v-if="state.boot.role === 'manager'" type="button" @click="pmenu = false; state.sheet = {type: 'opening', party_type: 'Supplier', party: d.name, title: d.supplier_name || d.name}">دين سابق (قبل نَسَق)</button>
                 <button v-if="d.can_edit" type="button" @click="toggleDisabled">{{ d.disabled ? 'إعادة تفعيل المورد' : 'إيقاف المورد' }}</button></div></div>
             <button v-if="state.boot.can.expense" type="button" class="cl-btn" @click="newPO"><Icon name="plus" :size="15"/>أمر شراء</button>
             <button type="button" class="cl-btn" @click="newInvoice(null)"><Icon name="file" :size="15"/>فاتورة مورد</button>
@@ -4168,6 +4172,74 @@ const CollectSheet = {
   </form></div>`,
 };
 // cancelling an order / returning a delivered one (manager): never a deletion, always the reversing document
+const OpeningSheet = {
+  props: ["opts"],
+  setup(props) {
+    const cust = props.opts.party_type === "Customer";
+    const d = ref(null), err = ref(null), busy = ref(false), amount = ref(""), date = ref(todayISO()), remark = ref(""), undo = ref(null), why = ref("");
+    const load = async () => { try { d.value = await call("opening_info", { party_type: props.opts.party_type, party: props.opts.party }); } catch (e) { err.value = e.message; } };
+    onMounted(load);
+    const close = () => (state.sheet = null);
+    const save = async () => { busy.value = true; err.value = null;
+      try { const r = await call("add_opening", { party_type: props.opts.party_type, party: props.opts.party, amount: parseAmount(amount.value), date: date.value, remark: remark.value }, true);
+        d.value = r; amount.value = ""; remark.value = ""; toast(`سُجّل الدين السابق — ${r.journal}`); state.rev++; }
+      catch (e) { err.value = e.message; } finally { busy.value = false; } };
+    const reverse = async () => { busy.value = true; err.value = null;
+      try { const r = await call("reverse_opening", { journal: undo.value, reason: why.value }, true); d.value = r; undo.value = null; why.value = ""; toast(`صُحّح بقيد عكسي — ${r.journal}`); state.rev++; }
+      catch (e) { err.value = e.message; } finally { busy.value = false; } };
+    return { cust, d, err, busy, amount, date, remark, undo, why, close, save, reverse, money, maxDate: todayISO(), parseAmount };
+  },
+  template: `
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>دين سابق</h2><span class="muted">{{ opts.title }} · {{ cust ? 'ما كان عليه' : 'ما كان علينا له' }} قبل بدء العمل على نَسَق</span></div></div>
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="field"><label for="op-a">المبلغ (دج)</label><input id="op-a" class="input" inputmode="decimal" v-model="amount" required></div>
+      <div class="field"><label for="op-d">بتاريخ</label><input id="op-d" class="input" type="date" v-model="date" :max="maxDate"></div></div>
+    <div class="field"><label for="op-r">ملاحظة</label><input id="op-r" class="input" v-model="remark" maxlength="120" :placeholder="cust ? 'مثلًا: فواتير 2025 غير مسددة' : 'مثلًا: بضاعة 2025 لم تُسدَّد'"></div>
+    <p class="alert info">يُسجَّل قيدًا افتتاحيًا (رصيد سابق): يدخل في {{ cust ? 'دين العميل ويُخصم منه تحصيله القادم' : 'ما علينا للمورد ويُخصم منه دفعنا القادم' }}، ولا يُحسب في مبيعات أو ربح أو حركة صندوق أي شهر. الخطأ يُصحَّح بقيد عكسي مرتبط به، لا بالحذف.</p>
+    <template v-if="d && d.entries.length"><b class="rt-q">الديون السابقة المسجلة</b>
+      <table class="stk-bl"><thead><tr><th>القيد</th><th>التاريخ</th><th>البيان</th><th class="n">المبلغ</th><th></th></tr></thead><tbody>
+        <tr v-for="e in d.entries" :key="e.name"><td>{{ e.name }}</td><td>{{ e.posting_date }}</td><td>{{ e.user_remark }}</td><td class="n">{{ money(e.amount) }}</td>
+          <td class="n"><span v-if="e.reversal_of" class="m">تصحيح</span><span v-else-if="e.reversed" class="m">صُحّح</span><button v-else type="button" class="cl-btn sm" @click="undo = e.name">تصحيح</button></td></tr></tbody></table>
+      <div class="stk-res"><div><span>صافي الدين السابق</span><b>{{ money(d.total) }}</b></div></div>
+      <div v-if="undo" class="field"><label for="op-w">سبب تصحيح {{ undo }} (قيد عكسي بنفس المبلغ)</label><input id="op-w" class="input" v-model="why">
+        <div class="btn-row" style="margin-top:6px"><button type="button" class="cl-btn" @click="undo = null">تراجع</button><button type="button" class="cl-btn danger" :disabled="busy" @click="reverse">تسجيل القيد العكسي</button></div></div></template>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">إغلاق</button><button type="submit" class="cl-btn primary" :disabled="busy || !(parseAmount(amount) > 0)">تسجيل الدين السابق</button></div>
+  </form></div>`,
+};
+const PartialSheet = {
+  props: ["opts"],
+  setup(props) {
+    const d = ref(null), err = ref(null), busy = ref(false);
+    onMounted(async () => { try { d.value = await call("partial_info", { name: props.opts.order }); d.value.lines.forEach((l) => (l.now = 0)); } catch (e) { err.value = e.message; } });
+    const q = (l) => Math.max(0, parseAmount(l.now) || 0);
+    const amount = computed(() => (d.value?.lines || []).reduce((a, l) => a + Math.min(l.left, q(l)) * l.rate, 0));
+    const frac = computed(() => (d.value?.lines || []).some((l) => l.whole && !Number.isInteger(q(l))));
+    const bad = computed(() => frac.value || (d.value?.lines || []).some((l) => q(l) > l.left + 1e-9));
+    const done = (l) => l.left <= 1e-9;
+    const close = () => (state.sheet = null);
+    const save = async () => { busy.value = true; err.value = null;
+      try { const qtys = Object.fromEntries(d.value.lines.filter((l) => q(l) > 0).map((l) => [l.row, q(l)]));
+        const r = await call("partial_deliver", { name: props.opts.order, qtys: JSON.stringify(qtys) }, true);
+        toast(`سُلّم الجزء — فاتورة ${r.invoice}` + (r.outstanding > 0.005 ? ` · الباقي عليه ${money(r.outstanding)}` : " · مدفوعة") + (r.complete ? " · اكتمل الطلب" : ""));
+        state.rev++; close(); }
+      catch (e) { err.value = e.message; } finally { busy.value = false; } };
+    return { d, err, busy, amount, frac, bad, done, close, save, money, num, parseAmount };
+  },
+  template: `
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-bill" @submit.prevent="save"><div class="sh-head"><div><h2>تسليم جزء من الطلب</h2><span class="muted">«{{ opts.title }}»<template v-if="d"> — {{ d.customer_name }}</template></span></div></div>
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <template v-if="d">
+      <table class="stk-bl"><thead><tr><th>البند</th><th class="n">الكمية</th><th class="n">سُلّم</th><th class="n">الباقي</th><th class="n">يُسلَّم الآن</th><th class="n">المبلغ</th></tr></thead><tbody>
+        <tr v-for="l in d.lines" :key="l.row"><td>{{ l.item_name }}</td><td class="n">{{ num(l.qty) }}</td><td class="n">{{ num(l.delivered) }}</td><td class="n">{{ num(l.left) }}</td>
+          <td class="n"><span v-if="done(l)" class="m">اكتمل</span><input v-else class="input rt-qty" inputmode="decimal" v-model="l.now" :aria-label="'كمية تسليم ' + l.item_name"></td>
+          <td class="n">{{ money(Math.min(l.left, Math.max(0, parseAmount(l.now) || 0)) * l.rate) }}</td></tr></tbody></table>
+      <div class="stk-res"><div><span>فاتورة هذا التسليم (قبل الضريبة)</span><b>{{ money(amount) }}</b></div></div>
+      <p v-if="frac" class="err" role="alert">هذه الوحدة لا تقبل الكسور: اكتب عددًا صحيحًا.</p>
+      <p class="alert info">تُصدر فاتورة لما يُسلَّم الآن فقط، ويُخصم منها تسبيق الطلب بحدود قيمتها والباقي للفاتورة التالية. تبقى البطاقة على اللوحة بشارة «سُلّم جزئيًا» حتى يُسلَّم الباقي، ونقلها إلى «سُلّم» بعدها يفوتر الباقي فقط.</p>
+    </template>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">رجوع</button><button type="submit" class="cl-btn primary" :disabled="busy || !d || !(amount > 0) || bad">تسليم وإصدار الفاتورة</button></div>
+  </form></div>`,
+};
 const CancelSheet = {
   props: ["opts"],
   setup(props) {
@@ -4806,7 +4878,7 @@ const StockPage = {
           <td v-if="s.data.can_value" class="n money">{{ money(i.value) }}</td>
           <td class="n" @click.stop><div class="btn-row stk-acts">
             <button v-if="wayOf(i) === 'bottle' && s.data.can_issue" type="button" class="cl-btn sm stk-act" :disabled="i.qty < 1" @click="fitBottle(i)">ركّبت قارورة</button>
-            <button v-else-if="canOpen(i) && s.data.can_issue && s.data.can_count !== false" type="button" class="cl-btn sm stk-act" :disabled="!(i.cfg.closed > 0)" :title="i.cfg.closed > 0 ? 'السابقة انتهت وفتحت جديدة' : 'لا ' + packWord(i) + ' مغلقة مسجّلة'" @click="openPack(i)">انتهت ال{{ packWord(i) }}</button>
+            <button v-else-if="canOpen(i) && s.data.can_issue && s.data.can_close" type="button" class="cl-btn sm stk-act" :disabled="!(i.cfg.closed > 0)" :title="i.cfg.closed > 0 ? 'السابقة انتهت وفتحت جديدة' : 'لا ' + packWord(i) + ' مغلقة مسجّلة'" @click="openPack(i)">انتهت ال{{ packWord(i) }}</button>
             <button v-else-if="s.data.can_issue" type="button" class="cl-btn sm stk-act" @click="i.qty > 0 ? open('issue', i) : toast('لا كمية في المخزون للصرف — سجّل شراءً أولًا', 'error')">صرف</button>
             <button type="button" class="cl-btn sm stk-more-btn" :aria-label="'إجراءات أخرى لـ ' + i.item_name" :aria-expanded="rowMenu === i.item_code" @click.stop="rowMenu = rowMenu === i.item_code ? null : i.item_code">▾</button>
             <div v-if="rowMenu === i.item_code" class="tm-pop stk-more" @click.stop>
@@ -4928,7 +5000,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, SupplierPaySheet, CancelSheet, ReturnSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, SupplierPaySheet, CancelSheet, ReturnSheet, PartialSheet, OpeningSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -5024,6 +5096,8 @@ const App = {
     <SupplierPaySheet v-if="state.sheet && state.sheet.type==='spay'" :key="state.sheet.invoice" :opts="state.sheet"/>
     <CancelSheet v-if="state.sheet && state.sheet.type==='cancel'" :key="'cx' + state.sheet.order" :opts="state.sheet"/>
     <ReturnSheet v-if="state.sheet && state.sheet.type==='return'" :key="'rt' + state.sheet.order" :opts="state.sheet"/>
+    <PartialSheet v-if="state.sheet && state.sheet.type==='partial'" :key="'pd' + state.sheet.order" :opts="state.sheet"/>
+    <OpeningSheet v-if="state.sheet && state.sheet.type==='opening'" :key="'op' + state.sheet.party" :opts="state.sheet"/>
     <div v-if="state.subsheet" class="subsheet-layer"><PaymentSheet v-if="state.subsheet.type === 'payment'" :opts="state.subsheet"/><ItemSheet v-else :opts="state.subsheet"/></div>
     <BoardPanel v-if="state.sheet && state.sheet.type==='order'" :key="state.sheet.edit || 'new'" mode="new" :edit="state.sheet.edit" :preset="state.sheet.customer" @close="state.sheet = null; route.name === 'order-new' && go('/')" @saved="state.sheet = null; state.rev++; route.name === 'order-new' && go('/')"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>

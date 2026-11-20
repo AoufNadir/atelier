@@ -3204,3 +3204,5 @@ th, td { position: relative; }
 .rt-opt .stk-modes { margin-top: 8px; }
 .rt-qty { width: 80px; height: 32px; text-align: center; }
 .cl-btn.danger { background: #B42318; border-color: #B42318; color: #fff; font-weight: 700; }
+/* partial delivery badge on a card */
+.tc-part { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 20px; background: #FFFAEB; color: #B54708; font-size: 12px; font-weight: 600; white-space: nowrap; }
