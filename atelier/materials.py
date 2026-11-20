@@ -213,7 +213,7 @@ def stock_purchase(item_code, qty, rate, supplier, bill_no=None, uom=None):
 	if not supplier or not frappe.db.exists("Supplier", supplier):
 		frappe.throw(_("اختر المورد"))
 	company = api._company()
-	invoice = frappe.get_doc({"doctype": "Purchase Invoice", "supplier": supplier, "company": company, "posting_date": nowdate(),
+	invoice = frappe.get_doc({"doctype": "Purchase Invoice", "disable_rounded_total": 1, "supplier": supplier, "company": company, "posting_date": nowdate(),
 		"update_stock": 1, "set_warehouse": store_for(company), "bill_no": (bill_no or "").strip() or None,
 		"items": [{**row, "warehouse": store_for(company)}]})
 	invoice.insert()
@@ -894,7 +894,7 @@ def purchase_bill(supplier, lines, bill_no=None, posting_date=None, paid=None, m
 		rows.append(row)
 	if not rows:
 		frappe.throw(_("أضف مادة واحدة على الأقل"))
-	inv = frappe.get_doc({"doctype": "Purchase Invoice", "supplier": supplier, "company": company,
+	inv = frappe.get_doc({"doctype": "Purchase Invoice", "disable_rounded_total": 1, "supplier": supplier, "company": company,
 		"posting_date": posting_date or nowdate(), "set_posting_time": 1 if posting_date else 0,
 		"due_date": due_date or None, "update_stock": 1, "set_warehouse": store, "bill_no": (bill_no or "").strip() or None, "items": rows})
 	inv.insert()

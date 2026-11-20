@@ -117,13 +117,21 @@ function revealActive() {
 }
 document.addEventListener("focusin", (e) => { if (e.target instanceof HTMLElement) setTimeout(revealActive, 300); });
 // Numeric fields are text + decimal keypad (browsers localise type=number to Arabic-Indic digits).
-// Normalise before Vue reads the value: ٠-٩ / ۰-۹ → 0-9, decimal comma → ".", separators dropped.
+// While typing: Arabic-Indic digits → 0-9, «٫» → «.», spaces dropped; commas and a leading minus are kept, because
+// «4,0…» may still become «4,000» (thousands) or stay «4,05» (decimal). On leaving the field the value is read once
+// with parseAmount and written back plainly (4,000 → 4000 · 100,50 → 100.5), so «-» reaches the checks instead of vanishing.
+const digitsOnly = (v) => v.replace(/[٠-٩]/g, (d) => d.charCodeAt(0) - 0x660).replace(/[۰-۹]/g, (d) => d.charCodeAt(0) - 0x6f0)
+  .replace(/٫/g, ".").replace(/[\s\u00a0\u202f٬]/g, "");
 document.addEventListener("input", (e) => {
   const el = e.target;
   if (!(el instanceof HTMLInputElement) || el.inputMode !== "decimal") return;
-  const v = el.value.replace(/[٠-٩]/g, (d) => d.charCodeAt(0) - 0x660).replace(/[۰-۹]/g, (d) => d.charCodeAt(0) - 0x6f0)
-    .replace(/[٫,]/g, ".").replace(/[\s  ٬]/g, "").replace(/[^\d.]/g, "");
+  const v = digitsOnly(el.value).replace(/[^\d.,-]/g, "").replace(/(?!^)-/g, "");
   if (v !== el.value) el.value = v;
+}, true);
+document.addEventListener("focusout", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || el.inputMode !== "decimal" || !/,/.test(el.value)) return;
+  el.value = String(parseAmount(el.value)); el.dispatchEvent(new Event("input", { bubbles: true }));
 }, true);
 
 let toastTimer;
@@ -3897,7 +3905,7 @@ const ReportsPage2 = {
           <div><span>المبيعات المفوترة</span><b class="money">{{ money(d.now.invoiced) }}</b><small>{{ cmp(d.now.invoiced, d.prev.invoiced) }}</small></div>
           <div><span>المحصّل</span><b class="money ok">{{ money(d.now.collected) }}</b><small>{{ d.now.invoiced ? pct(d.now.collected, d.now.invoiced) + '% من المفوتر' : '—' }}</small></div>
           <div><span>المصاريف</span><b class="money bad">{{ money(d.now.expenses) }}</b><small>{{ cmp(d.now.expenses, d.prev.expenses) }}</small></div>
-          <div><span>الربح</span><b class="money" :class="{bad: d.now.profit < 0}">{{ money(d.now.profit) }}</b><small>{{ d.now.income ? 'هامش ' + pct(d.now.profit, d.now.income) + '%' : '—' }}</small></div>
+          <div><span>الربح</span><b class="money" :class="{bad: d.now.profit < 0}">{{ money(d.now.profit) }}</b><small>{{ d.now.income ? 'هامش ' + pct(d.now.profit, d.now.income) + '%' : '—' }}<template v-if="Math.abs(d.now.income - d.now.invoiced) > 0.5"> · = إيرادات الحسابات {{ fig(d.now.income) }} − المصاريف{{ d.now.income - d.now.invoiced < 0 ? ' (منها تسويات تُنقص الدخل ' + fig(d.now.invoiced - d.now.income) + ')' : ' (منها دخل آخر ' + fig(d.now.income - d.now.invoiced) + ')' }}</template></small></div>
           <div><span>عدد الطلبات</span><b>{{ d.now.orders }}</b><small>{{ d.now.orders ? 'متوسط الطلب ' + fig(d.now.orders_total / d.now.orders) + ' دج' : '—' }}</small></div>
           <div><span>في الوقت</span><b>{{ d.now.delivered ? pct(d.now.delivered - d.now.late, d.now.delivered) + '%' : '—' }}</b><small>{{ d.now.delivered ? d.now.late + ' من ' + d.now.delivered + ' سُلّمت متأخرة' : 'لا تسليمات في الفترة' }}</small></div>
         </div>
@@ -4154,13 +4162,17 @@ const SupplierPaySheet = {
   props: ["opts"],
   setup(props) {
     const o = props.opts, left = +(+o.outstanding).toFixed(2), amount = ref(left), mode = ref((state.boot.modes || [])[0]?.value || "Cash"), busy = ref(false), err = ref(null);
-    const out = computed(() => Math.min(left, parseAmount(amount.value) || 0));
+    // never change the typed amount silently: zero, negative or more than owed is refused with a reason
+    const typed = computed(() => parseAmount(amount.value));
+    const problem = computed(() => (String(amount.value).trim() === "" ? "اكتب المبلغ" : !(typed.value > 0) ? "المبلغ يجب أن يكون أكبر من صفر"
+      : typed.value > left + 0.005 ? `المبلغ أكبر من الباقي للمورد (${money(left)})` : null));
+    const out = computed(() => (problem.value ? 0 : typed.value));
     const close = () => (state.sheet = null);
-    const save = async () => { if (!(out.value > 0)) return; busy.value = true; err.value = null;
+    const save = async () => { if (problem.value) return; busy.value = true; err.value = null;
       try { await call("pay_supplier", { invoice: o.invoice, mode_of_payment: mode.value, amount: out.value }, true);
         toast(left - out.value > 0.005 ? `سُجّل الدفع — يبقى للمورد ${money(left - out.value)}` : "سُجّل الدفع — خالص"); state.rev++; o.done?.(); close(); }
       catch (e) { err.value = e.message; } finally { busy.value = false; } };
-    return { o, left, amount, mode, out, busy, err, close, save, money, state, modeLabel: (v) => (state.boot.modes || []).find((m) => m.value === v)?.label || v };
+    return { o, left, amount, mode, out, problem, busy, err, close, save, money, state, modeLabel: (v) => (state.boot.modes || []).find((m) => m.value === v)?.label || v };
   },
   template: `
   <div class="overlay" @click.self="close"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>دفع للمورد</h2><span class="muted">{{ o.supplier_name }}<template v-if="o.ref"> — {{ o.ref }}</template></span></div></div>
@@ -4168,8 +4180,8 @@ const SupplierPaySheet = {
     <div class="stk-res"><div><span>الباقي عليك</span><b class="bad">{{ money(left) }}</b></div><div><span>تدفع الآن</span><b>{{ money(out) }}</b></div><div><span>يبقى بعدها</span><b :class="{warn: left - out > 0.005}">{{ money(left - out) }}</b></div></div>
     <div class="stk-pay"><div class="stk-g3"><div class="field"><label for="sp-a">المبلغ</label><div class="stk-suf"><input id="sp-a" class="input" inputmode="decimal" v-model="amount"><em>دج</em></div></div>
       <div class="field stk-span2"><label>الطريقة</label><div class="stk-modes"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="mode === m.value" @click="mode = m.value">{{ m.label }}</button></div></div></div>
-      <p class="stk-payres"><template v-if="out > 0">يخرج <b>{{ money(out) }}</b> ({{ modeLabel(mode) }})</template><template v-else>اكتب المبلغ</template></p></div>
-    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="busy || !(out > 0)">تسجيل الدفع</button></div>
+      <p class="stk-payres"><template v-if="!problem">يخرج <b>{{ money(out) }}</b> ({{ modeLabel(mode) }})</template><b v-else class="bad">{{ problem }}</b></p></div>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="busy || !!problem">تسجيل الدفع</button></div>
   </form></div>`,
 };
 // an amount typed by hand: spaces and thousands separators are ignored; a comma followed by 1–2 digits at the end is the decimal mark (100,50)
@@ -4902,7 +4914,7 @@ const App = {
         <Board v-if="['home', 'orders', 'order-new'].includes(route.name)" :key="route.name === 'order-new' ? state.path : 'board'" :start-new="route.name === 'order-new'"/>
         <Board v-else-if="route.name==='order'" :key="'order-' + route.id" :open-card="route.id"/>
         <SimpleCustomers v-else-if="route.name==='customers' || route.name==='customer'" :key="state.path + state.query" :open-id="route.id"/>
-        <div v-else-if="['money', 'reports', 'suppliers', 'supplier', 'calc'].includes(route.name) && !state.boot.can.finance" class="noaccess"><h1>هذه الصفحة للمدير</h1><p class="muted">لا تظهر بيانات المال والتقارير والموردين إلا للمدير.</p><button type="button" class="cl-btn primary" @click="go('/')">العودة إلى الطلبات</button></div>
+        <div v-else-if="['money', 'reports', 'suppliers', 'supplier', 'calc', 'prices'].includes(route.name) && !state.boot.can.finance" class="noaccess"><h1>هذه الصفحة للمدير</h1><p class="muted">لا تظهر بيانات المال والتقارير والموردين إلا للمدير.</p><button type="button" class="cl-btn primary" @click="go('/')">العودة إلى الطلبات</button></div>
         <SimpleMoney v-else-if="route.name==='money'"/>
         <BoxPage v-else-if="route.name==='box'"/>
         <SuppliersPage v-else-if="route.name==='suppliers' || route.name==='supplier'" :key="state.path" :open-id="route.id"/>

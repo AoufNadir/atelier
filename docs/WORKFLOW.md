@@ -95,3 +95,13 @@ bench --site nasaq.localhost restore <sql.gz> --with-public-files <files.tar> --
 ```
 
 الاستعادة تستبدل قاعدة الموقع الهدف. ويجب مطابقة `encryption_key` من `site_config.json` للمصدر، وإلا تعذر فك كلمات المرور المحفوظة. عامله كسر.
+
+## موقع اختبار منفصل
+
+أنشئه داخل نفس الـ bench، مع السماح لحساب قاعدته بالاتصال من أي عنوان حاوية (عنوان حاوية Frappe يتغير بعد إعادة التشغيل):
+
+```bash
+wsl -d Ubuntu-24.04 -- bash tools/dev/dc.sh "bench new-site test-tour.localhost --db-root-username root --mariadb-user-host-login-scope=% --install-app erpnext --install-app atelier"
+```
+
+إن ظهر `Access denied (1045)` لموقع أُنشئ دون هذا الخيار: نفّذ `bash tools/dev/fix_site_db_host.sh test-tour.localhost` من WSL. يربط حساب قاعدة ذلك الموقع بـ `%` بدل عنوان حاوية قديم، دون لمس البيانات أو كلمة المرور.

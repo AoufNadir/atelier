@@ -2651,11 +2651,12 @@ def create_supplier_invoice(supplier, description, amount, account=None, order=N
 	if purchase_order:
 		from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_invoice
 		pi = make_purchase_invoice(purchase_order)
+		pi.disable_rounded_total = 1  # owe exactly what the supplier billed (no rounding to the dinar)
 	else:
 		if flt(amount) <= 0 or not (description or "").strip():
 			frappe.throw(_("اكتب البيان والمبلغ"))
 		line = _external_line(description, amount, order, account)
-		pi = frappe.get_doc({"doctype": "Purchase Invoice", "supplier": supplier, "company": api._company(), "posting_date": nowdate(),
+		pi = frappe.get_doc({"doctype": "Purchase Invoice", "disable_rounded_total": 1, "supplier": supplier, "company": api._company(), "posting_date": nowdate(),
 			"project": line.get("project"), "items": [line]})
 	pi.bill_no = (bill_no or "").strip() or None
 	if due_date:
