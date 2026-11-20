@@ -1802,8 +1802,9 @@ const Board = {
     };
     const onPhoto = async (e) => { const f = e.target.files?.[0]; if (!f || !photoFor.value) return; try { await cardActions.photo(photoFor.value, f); await load(); } catch (x) { toast(x.message, "error"); } e.target.value = ""; };
     // archive list
-    const archive = ref(null);
-    const showArchive = async () => { archive.value = []; try { archive.value = await call("archived_cards"); } catch (e) { toast(e.message, "error"); } };
+    const archive = ref(null), archTab = ref("archived");
+    const showArchive = async (tab = "archived") => { archTab.value = tab; archive.value = [];
+      try { archive.value = await call("archived_cards", { cancelled: tab === "cancelled" ? 1 : 0 }); } catch (e) { toast(e.message, "error"); } };
     const restore = async (n) => { await cardActions.archive(n, 0); archive.value = archive.value.filter((x) => x.name !== n); await load(); };
     // notifications
     const notes = ref({ logs: [], due: [], unread: 0 }), bell = ref(false);
@@ -1850,7 +1851,7 @@ const Board = {
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
     return { setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
-      newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, showArchive, restore,
+      newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, archTab, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
   },
   template: `
@@ -2025,9 +2026,10 @@ const Board = {
       <div class="tm tb-archive" role="dialog" aria-modal="true" aria-label="الأرشيف">
         <div class="bd-ph" style="padding:20px 22px 0"><h2>الأرشيف</h2><button type="button" class="btn ghost icon-btn" aria-label="إغلاق" @click="archive = null"><Icon name="x"/></button></div>
         <div style="padding:16px 22px 22px;display:flex;flex-direction:column;gap:8px">
-          <div v-if="!archive.length" class="m">لا بطاقات مؤرشفة.</div>
+          <div class="seg" role="group" aria-label="نوع الأرشيف"><button type="button" :aria-pressed="archTab==='archived'" @click="showArchive('archived')">مؤرشفة</button><button type="button" :aria-pressed="archTab==='cancelled'" @click="showArchive('cancelled')">ملغاة</button></div>
+          <div v-if="!archive.length" class="m">{{ archTab==='cancelled' ? 'لا طلبات ملغاة.' : 'لا بطاقات مؤرشفة.' }}</div>
           <div v-for="a in archive" :key="a.name" class="bs-row"><span style="flex:1;min-width:0"><b>{{ a.title || a.name }}</b><span class="m">{{ a.customer_name }} · {{ ago(a.modified) }}</span></span>
-            <button type="button" class="btn sm" @click="open = a.name">فتح</button><button type="button" class="btn sm" @click="restore(a.name)">استرجاع</button></div>
+            <button type="button" class="btn sm" @click="open = a.name">فتح</button><button v-if="archTab!=='cancelled'" type="button" class="btn sm" @click="restore(a.name)">استرجاع</button><span v-else class="m">ملغى</span></div>
         </div>
       </div>
     </div>

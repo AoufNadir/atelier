@@ -912,9 +912,11 @@ def archive_paid(column):
 
 
 @frappe.whitelist()
-def archived_cards():
-	return frappe.get_list("Sales Order", filters={"atelier_archived": 1, "docstatus": ["<", 2]},
-		fields=["name", "atelier_subject as title", "customer_name", "modified"], order_by="modified desc", limit=200)
+def archived_cards(cancelled=0):
+	"""Archived cards, or with cancelled=1 the cancelled orders (kept for the record, never restored)."""
+	filters = {"docstatus": 2} if int(cancelled or 0) else {"atelier_archived": 1, "docstatus": ["<", 2]}
+	return frappe.get_list("Sales Order", filters=filters,
+		fields=["name", "atelier_subject as title", "customer_name", "modified", "grand_total"], order_by="modified desc", limit=200)
 
 
 @frappe.whitelist(methods=["POST"])
