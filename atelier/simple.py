@@ -1713,8 +1713,22 @@ def save_profile(profile):
 def _tva_template(rate):
 	company = api._company()
 	name = frappe.db.get_value("Sales Taxes and Charges Template", {"title": TVA_TEMPLATE, "company": company})
-	account = frappe.db.get_value("Account", {"company": company, "account_number": "4457", "is_group": 0}) or \
-		frappe.db.get_value("Account", {"company": company, "account_type": "Tax", "is_group": 0, "root_type": "Liability"})
+	# the account must say the rate charged: «TVA 19%» for 19% (the chart has several TVA accounts, e.g. 9%)
+	rate_txt = f"{flt(rate):g}%"
+	account = frappe.db.get_value("Account", {"company": company, "is_group": 0, "root_type": "Liability", "account_type": "Tax",
+		"account_name": ["like", f"%{rate_txt}%"]})
+	if not account:
+		base = frappe.db.get_value("Account", {"company": company, "account_number": "4457", "is_group": 0}) or \
+			frappe.db.get_value("Account", {"company": company, "account_type": "Tax", "is_group": 0, "root_type": "Liability"})
+		parent = frappe.db.get_value("Account", base, "parent_account") if base else None
+		if parent:
+			doc = frappe.get_doc({"doctype": "Account", "company": company, "account_name": f"TVA collectée {rate_txt}", "parent_account": parent,
+				"account_type": "Tax", "tax_rate": flt(rate), "is_group": 0, "root_type": "Liability"})
+			doc.flags.ignore_permissions = True
+			doc.insert()
+			account = doc.name
+		else:
+			account = base
 	if not account:
 		frappe.throw(_("لا يوجد حساب ضريبة TVA في دليل الحسابات"))
 	doc = frappe.get_doc("Sales Taxes and Charges Template", name) if name else frappe.new_doc("Sales Taxes and Charges Template")

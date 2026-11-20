@@ -1297,6 +1297,9 @@ const BoardPanel = {
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('devis')"><Icon name="file" :size="15"/>Devis — عرض سعر</button>
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('proforma')"><Icon name="file" :size="15"/>Pro forma</button>
               <a class="tm-pop-row" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', ed.name, 'الورشة — عربي')" @click="hdPop = null"><Icon name="printer" :size="15"/>بون الطلب</a>
+              <template v-if="state.boot.role === 'manager' && editing"><hr class="tm2-hr">
+                <button type="button" class="tm-pop-row" @click="hdPop = null; state.sheet = {type: 'return', order: ed.name, title: f.subject || ed.title}">إرجاع / فاتورة دائنة</button>
+                <button type="button" class="tm-pop-row tm3-danger" @click="hdPop = null; state.sheet = {type: 'cancel', order: ed.name, title: f.subject || ed.title}">إلغاء الطلب</button></template>
               <span v-if="unpriced > 0" class="m tm3-hint hint">سعّر كل البنود لإصدار Devis أو Pro forma.</span></div></span>
             <button v-if="ed.materials_pending" type="button" class="cl-btn sm" @click="materials">خصم مواد الطلب من المخزون</button></div></section>
 
@@ -4162,6 +4165,67 @@ const CollectSheet = {
     <div class="sh-foot"><button type="button" class="cl-btn" @click="close">لاحقًا</button><button type="submit" class="cl-btn primary" :disabled="busy">{{ got > 0 ? 'تسجيل التحصيل' : 'تسليم بلا دفع' }}</button></div>
   </form></div>`,
 };
+// cancelling an order / returning a delivered one (manager): never a deletion, always the reversing document
+const CancelSheet = {
+  props: ["opts"],
+  setup(props) {
+    const d = ref(null), err = ref(null), busy = ref(false), keep = ref(true), mode = ref((state.boot.modes || [])[0]?.value || "Cash"), reason = ref("");
+    onMounted(async () => { try { d.value = await call("cancel_info", { name: props.opts.order }); } catch (e) { err.value = e.message; } });
+    const close = () => (state.sheet = null);
+    const save = async () => { busy.value = true; err.value = null;
+      try { const r = await call("cancel_order", { name: props.opts.order, refund_mode: keep.value ? null : mode.value, reason: reason.value }, true);
+        toast(r.refund ? "أُلغي الطلب ورُدّ المبلغ" : r.credit > 0 ? `أُلغي الطلب — بقي ${money(r.credit)} رصيدًا للعميل` : "أُلغي الطلب"); state.rev++; close(); }
+      catch (e) { err.value = e.message; } finally { busy.value = false; } };
+    return { d, err, busy, keep, mode, reason, close, save, money, state };
+  },
+  template: `
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-collect" @submit.prevent="save"><div class="sh-head"><div><h2>إلغاء الطلب</h2><span class="muted">«{{ opts.title }}»<template v-if="d"> — {{ d.customer_name }}</template></span></div></div>
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <template v-if="d && !d.delivered && !d.billed">
+      <div class="stk-res"><div><span>مبلغ الطلب</span><b>{{ money(d.total) }}</b></div><div><span>دفع العميل</span><b>{{ money(d.paid) }}</b></div><div><span>بعد الإلغاء</span><b>لا دين</b></div></div>
+      <template v-if="d.paid > 0.005"><b class="rt-q">ماذا تفعل بالـ {{ money(d.paid) }} التي دفعها؟</b>
+        <label class="rt-opt" :class="{on: keep}"><input type="radio" :value="true" v-model="keep"><span><b>تبقى رصيدًا له عندنا</b><small>تُخصم تلقائيًا من فاتورته القادمة.</small></span></label>
+        <label class="rt-opt" :class="{on: !keep}"><input type="radio" :value="false" v-model="keep"><span><b>رددتها له</b><small>تخرج من الصندوق الآن.</small>
+          <span v-if="!keep" class="stk-modes"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="mode === m.value" @click="mode = m.value">{{ m.label }}</button></span></span></label></template>
+      <div class="field"><label for="cx-r">السبب (يظهر في سجل الطلب)</label><input id="cx-r" class="input" v-model="reason" placeholder="مثلًا: ألغى العميل"></div></template>
+    <p v-else-if="d" class="alert warn">سُلِّم أو فُوتر هذا الطلب: استعمل «إرجاع / فاتورة دائنة» بدل الإلغاء.</p>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">رجوع</button><button type="submit" class="cl-btn danger" :disabled="busy || !d || d.delivered || d.billed">إلغاء الطلب</button></div>
+  </form></div>`,
+};
+const ReturnSheet = {
+  props: ["opts"],
+  setup(props) {
+    const d = ref(null), err = ref(null), busy = ref(false), keep = ref(true), mode = ref((state.boot.modes || [])[0]?.value || "Cash"), reason = ref("");
+    onMounted(async () => { try { d.value = await call("return_info", { name: props.opts.order }); d.value.lines.forEach((l) => (l.back = l.left)); } catch (e) { err.value = e.message; } });
+    const amount = computed(() => (d.value?.lines || []).reduce((a, l) => a + Math.min(l.left, Math.max(0, parseAmount(l.back))) * l.rate, 0));
+    const after = computed(() => (d.value ? d.value.outstanding - amount.value : 0));
+    const bad = computed(() => (d.value?.lines || []).some((l) => parseAmount(l.back) > l.left + 1e-9 || parseAmount(l.back) < 0));
+    const close = () => (state.sheet = null);
+    const save = async () => { busy.value = true; err.value = null;
+      try { const qtys = Object.fromEntries(d.value.lines.filter((l) => parseAmount(l.back) > 0).map((l) => [l.row, parseAmount(l.back)]));
+        const r = await call("create_return", { name: props.opts.order, qtys: JSON.stringify(qtys), refund_mode: keep.value ? null : mode.value, reason: reason.value }, true);
+        toast(`سُجّل الإرجاع ${money(r.amount)}` + (r.refund ? " ورُدّ المبلغ" : r.credit > 0 ? ` — له ${money(r.credit)} رصيدًا` : "")); state.rev++; close(); }
+      catch (e) { err.value = e.message; } finally { busy.value = false; } };
+    return { d, err, busy, keep, mode, reason, amount, after, bad, close, save, money, num, state, parseAmount };
+  },
+  template: `
+  <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-bill" @submit.prevent="save"><div class="sh-head"><div><h2>إرجاع / فاتورة دائنة</h2><span class="muted">«{{ opts.title }}»<template v-if="d"> — {{ d.customer_name }} · فاتورة {{ d.invoice }}</template></span></div></div>
+    <div v-if="err" class="alert error">{{ err }}</div>
+    <template v-if="d">
+      <table class="stk-bl"><thead><tr><th>البند</th><th class="n">في الفاتورة</th><th class="n">يُرجَع</th><th class="n">المبلغ</th></tr></thead><tbody>
+        <tr v-for="l in d.lines" :key="l.row"><td>{{ l.item_name }}</td><td class="n">{{ num(l.left) }}<small v-if="l.left < l.qty" class="m"> من {{ num(l.qty) }}</small></td>
+          <td class="n"><input class="input rt-qty" inputmode="decimal" v-model="l.back" :aria-label="'كمية إرجاع ' + l.item_name"></td><td class="n">{{ money(Math.min(l.left, Math.max(0, parseAmount(l.back))) * l.rate) }}</td></tr></tbody></table>
+      <div class="stk-res"><div><span>كان عليه (هذه الفاتورة)</span><b>{{ money(d.outstanding) }}</b></div><div><span>يُنقص الإرجاع</span><b>{{ money(amount) }}</b></div>
+        <div><span>{{ after < 0 ? 'صار له' : 'يبقى عليه' }}</span><b :class="after < 0 ? 'ok' : ''">{{ money(Math.abs(after)) }}</b></div></div>
+      <template v-if="after < -0.005"><b class="rt-q">الـ {{ money(-after) }} الزائدة له:</b>
+        <label class="rt-opt" :class="{on: keep}"><input type="radio" :value="true" v-model="keep"><span><b>تبقى رصيدًا له عندنا</b><small>تُخصم من طلبه القادم.</small></span></label>
+        <label class="rt-opt" :class="{on: !keep}"><input type="radio" :value="false" v-model="keep"><span><b>رددتها له</b>
+          <span v-if="!keep" class="stk-modes"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="mode === m.value" @click="mode = m.value">{{ m.label }}</button></span></span></label></template>
+      <div class="field"><label for="rt-r">السبب</label><input id="rt-r" class="input" v-model="reason" placeholder="مثلًا: خطأ في الطباعة"></div>
+      <p class="stk-payres">الفاتورة الأصلية تبقى كما هي؛ يُنشأ مقابلها مستند دائن برقمه ويظهر في كشف حساب العميل. المواد المصروفة لا تعود للمخزون.</p></template>
+    <div class="sh-foot"><button type="button" class="cl-btn" @click="close">رجوع</button><button type="submit" class="cl-btn primary" :disabled="busy || !d || !(amount > 0) || bad">تسجيل الإرجاع</button></div>
+  </form></div>`,
+};
 // paying a supplier: the whole remainder by default, any part of it if typed
 const SupplierPaySheet = {
   props: ["opts"],
@@ -4860,7 +4924,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, SupplierPaySheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, SupplierPaySheet, CancelSheet, ReturnSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -4954,6 +5018,8 @@ const App = {
     <OutsourceSheet v-if="state.sheet && state.sheet.type==='outsource'" :opts="state.sheet"/>
     <CollectSheet v-if="state.sheet && state.sheet.type==='collect'" :key="state.sheet.order" :opts="state.sheet"/>
     <SupplierPaySheet v-if="state.sheet && state.sheet.type==='spay'" :key="state.sheet.invoice" :opts="state.sheet"/>
+    <CancelSheet v-if="state.sheet && state.sheet.type==='cancel'" :key="'cx' + state.sheet.order" :opts="state.sheet"/>
+    <ReturnSheet v-if="state.sheet && state.sheet.type==='return'" :key="'rt' + state.sheet.order" :opts="state.sheet"/>
     <div v-if="state.subsheet" class="subsheet-layer"><PaymentSheet v-if="state.subsheet.type === 'payment'" :opts="state.subsheet"/><ItemSheet v-else :opts="state.subsheet"/></div>
     <BoardPanel v-if="state.sheet && state.sheet.type==='order'" :key="state.sheet.edit || 'new'" mode="new" :edit="state.sheet.edit" :preset="state.sheet.customer" @close="state.sheet = null; route.name === 'order-new' && go('/')" @saved="state.sheet = null; state.rev++; route.name === 'order-new' && go('/')"/>
     <div v-if="state.toast" class="toast" role="status" aria-live="polite"><div class="alert" :class="state.toast.kind"><Icon :name="state.toast.kind==='error' ? 'alert' : 'check'" :size="16"/>{{ state.toast.message }}</div></div>

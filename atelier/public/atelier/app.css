@@ -3195,3 +3195,12 @@ th, td { position: relative; }
   .od button, .od a, .sheet button, .lp-ed, .od-fold, .cl-link, .tb-cm-sw button, .lp-sw button { min-height: 28px; min-width: 28px; }
   .od .cl-link, .od a { display: inline-flex; align-items: center; }
 }
+/* cancel / return sheets */
+.rt-q { display: block; margin: 10px 0 6px; }
+.rt-opt { display: flex; gap: 10px; align-items: flex-start; border: 1px solid #E4E7EC; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
+.rt-opt.on { border-color: #C4B8F3; background: #F7F5FF; }
+.rt-opt input { margin-top: 4px; }
+.rt-opt b { display: block; } .rt-opt small { display: block; color: #667085; font-size: 13px; }
+.rt-opt .stk-modes { margin-top: 8px; }
+.rt-qty { width: 80px; height: 32px; text-align: center; }
+.cl-btn.danger { background: #B42318; border-color: #B42318; color: #fff; font-weight: 700; }

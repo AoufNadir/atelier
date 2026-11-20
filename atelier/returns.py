@@ -1,0 +1,150 @@
+"""Cancelling an order and returning a delivered one: never by deleting a submitted document, always with the
+document that reverses it, so the books stay readable.
+
+- cancel_order: an order not delivered nor invoiced is cancelled; what the customer paid stays as his credit
+  (an unallocated advance, used by his next invoice) or is paid back to him from a fund.
+- create_return: a credit note on the order's invoice for the quantities chosen; when the customer then has money
+  with us, it stays as credit or is paid back. Materials used are not put back in stock (spoiled printing).
+"""
+
+import frappe
+from frappe import _
+from frappe.utils import flt, nowdate
+
+from atelier import api
+
+
+def _manager():
+	from atelier.simple import _manager_only
+
+	_manager_only()
+
+
+def _paid_on(so_name):
+	"""Payments received for this order: linked to it, or kept on the customer with its name (priced later)."""
+	linked = frappe.db.sql("""select sum(r.allocated_amount) from `tabPayment Entry Reference` r join `tabPayment Entry` pe on pe.name=r.parent
+		where pe.docstatus=1 and r.reference_doctype='Sales Order' and r.reference_name=%s""", so_name)[0][0]
+	tagged = frappe.db.sql("""select sum(paid_amount) from `tabPayment Entry` where docstatus=1 and payment_type='Receive' and atelier_order=%s""",
+		so_name)[0][0] if frappe.db.has_column("Payment Entry", "atelier_order") else 0
+	return max(flt(linked), flt(tagged))
+
+
+def _refund(customer, amount, mode, remark):
+	"""Money paid back to a customer: out of the fund of that payment method, against his account."""
+	from erpnext.accounts.party import get_party_account
+
+	company = api._company()
+	amount = flt(amount)
+	if amount <= 0:
+		return None
+	if mode not in [m[0] for m in api.all_modes()]:
+		frappe.throw(_("طريقة الدفع غير صالحة"))
+	pe = frappe.get_doc({"doctype": "Payment Entry", "payment_type": "Pay", "company": company, "posting_date": nowdate(),
+		"party_type": "Customer", "party": customer, "mode_of_payment": mode,
+		"paid_from": api._cash_account(mode, company), "paid_to": get_party_account("Customer", customer, company),
+		"paid_amount": amount, "received_amount": amount, "reference_no": "—", "reference_date": nowdate(),
+		"remarks": remark[:140]})
+	pe.insert(ignore_permissions=True)
+	pe.submit()
+	return pe.name
+
+
+@frappe.whitelist()
+def cancel_info(name):
+	_manager()
+	so = frappe.get_doc("Sales Order", name)
+	return {"name": so.name, "title": so.get("atelier_subject") or so.name, "customer": so.customer, "customer_name": so.customer_name,
+		"total": flt(so.grand_total), "paid": _paid_on(so.name), "delivered": flt(so.per_delivered) > 0, "billed": flt(so.per_billed) > 0,
+		"modes": [{"value": v, "label": l} for v, l in api.all_modes()]}
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_order(name, refund_mode=None, reason=""):
+	"""Cancel an order not delivered nor invoiced. refund_mode empty = what he paid stays his credit."""
+	_manager()
+	from atelier.simple import _log
+
+	so = frappe.get_doc("Sales Order", name)
+	if so.docstatus == 2:
+		frappe.throw(_("الطلب ملغى من قبل"))
+	if flt(so.per_delivered) > 0 or flt(so.per_billed) > 0:
+		frappe.throw(_("سُلِّم أو فُوتر هذا الطلب: استعمل «إرجاع / فاتورة دائنة» بدل الإلغاء"))
+	paid = _paid_on(so.name)
+	reason = (reason or "").strip()[:140]
+	if so.docstatus == 1:
+		# the advance stays on the customer (unallocated) instead of blocking the cancellation
+		frappe.db.set_single_value("Accounts Settings", "unlink_advance_payment_on_cancelation_of_order", 1)
+		so.flags.ignore_permissions = True
+		so.cancel()
+	else:
+		so.db_set("docstatus", 2, update_modified=True)  # a draft (priced later) is closed the same way, nothing posted
+	if frappe.db.has_column("Payment Entry", "atelier_order"):
+		frappe.db.sql("update `tabPayment Entry` set atelier_order=null where atelier_order=%s", so.name)
+	if so.project and frappe.db.exists("Project", so.project):
+		frappe.db.set_value("Project", so.project, "status", "Cancelled")
+	refund = _refund(so.customer, paid, refund_mode, _("استرداد إلغاء طلب {0}").format(so.name)) if refund_mode and paid > 0 else None
+	_log(so.name, _("ألغى الطلب") + (" — " + reason if reason else "") + (
+		_(" · رُدّ {0}").format(frappe.format_value(paid, {"fieldtype": "Currency"})) if refund else (_(" · بقي ما دفعه رصيدًا له") if paid > 0 else "")))
+	return {"cancelled": so.name, "refund": refund, "credit": 0 if refund else paid}
+
+
+@frappe.whitelist()
+def return_info(name):
+	"""The order's invoice lines that can still be returned."""
+	_manager()
+	inv = _invoice_of(name)
+	si = frappe.get_doc("Sales Invoice", inv)
+	returned = {}
+	for r in frappe.db.sql("""select sii.sales_invoice_item, -sum(sii.qty) from `tabSales Invoice Item` sii join `tabSales Invoice` si on si.name=sii.parent
+		where si.docstatus=1 and si.is_return=1 and si.return_against=%s group by sii.sales_invoice_item""", inv):
+		returned[r[0]] = flt(r[1])
+	lines = [{"row": i.name, "item_name": frappe.utils.strip_html(i.description or "") or i.item_name, "qty": flt(i.qty),
+		"left": flt(i.qty) - returned.get(i.name, 0), "rate": flt(i.rate)} for i in si.items]
+	return {"invoice": inv, "customer": si.customer, "customer_name": si.customer_name, "outstanding": flt(si.outstanding_amount),
+		"lines": lines, "modes": [{"value": v, "label": l} for v, l in api.all_modes()]}
+
+
+def _invoice_of(so_name):
+	inv = frappe.db.sql("""select distinct sii.parent from `tabSales Invoice Item` sii join `tabSales Invoice` si on si.name=sii.parent
+		where sii.sales_order=%s and si.docstatus=1 and si.is_return=0 order by si.posting_date desc limit 1""", so_name)
+	if not inv:
+		frappe.throw(_("لا فاتورة لهذا الطلب بعد. الطلب غير المسلَّم يُلغى بدل أن يُرجَع."))
+	return inv[0][0]
+
+
+@frappe.whitelist(methods=["POST"])
+def create_return(name, qtys, refund_mode=None, reason=""):
+	"""Credit note on the order's invoice for qtys = {invoice row: qty}. With refund_mode, what the customer then has
+	with us on that invoice is paid back; otherwise it stays his credit."""
+	_manager()
+	from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
+	from atelier.simple import _log
+
+	inv = _invoice_of(name)
+	qtys = {k: flt(v) for k, v in (frappe.parse_json(qtys) or {}).items() if flt(v) > 0}
+	if not qtys:
+		frappe.throw(_("اختر كمية بند واحد على الأقل"))
+	info = {l["row"]: l for l in return_info(name)["lines"]}
+	for row, q in qtys.items():
+		if row not in info or q > info[row]["left"] + 1e-9:
+			frappe.throw(_("كمية الإرجاع أكبر من الباقي في الفاتورة"))
+	cn = make_sales_return(inv)
+	cn.items = [i for i in cn.items if i.sales_invoice_item in qtys]
+	for i in cn.items:
+		i.qty = -qtys[i.sales_invoice_item]
+	cn.update_stock = 0  # spoiled printing does not go back on the shelf
+	if hasattr(cn, "update_outstanding_for_self"):
+		cn.update_outstanding_for_self = 0  # the return lowers what is owed on the original invoice
+	cn.disable_rounded_total = 1
+	cn.remarks = ((reason or "").strip() or _("إرجاع"))[:140]
+	cn.flags.ignore_permissions = True
+	cn.insert()
+	cn.submit()
+	si = frappe.get_doc("Sales Invoice", inv)
+	excess = -flt(si.outstanding_amount)  # the return made the invoice negative: the customer has that much with us
+	refund = None
+	if refund_mode and excess > 0.005:
+		refund = _refund(si.customer, excess, refund_mode, _("استرداد إرجاع {0}").format(cn.name))
+	_log(name, _("إرجاع {0} بقيمة {1}").format(cn.name, frappe.format_value(-flt(cn.grand_total), {"fieldtype": "Currency"}))
+		+ (" — " + reason.strip()[:80] if (reason or "").strip() else ""))
+	return {"credit_note": cn.name, "amount": -flt(cn.grand_total), "refund": refund, "credit": 0 if refund else max(0, excess)}
