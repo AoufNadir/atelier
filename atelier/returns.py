@@ -157,39 +157,44 @@ def cancel_order(name, refund_mode=None, reason=""):
 
 @frappe.whitelist()
 def return_info(name):
-	"""The order's invoice lines that can still be returned."""
+	"""Lines that can still be returned, from every invoice of the order (a partial delivery makes several)."""
 	_manager()
-	inv = _invoice_of(name)
-	si = frappe.get_doc("Sales Invoice", inv)
-	returned = {}
-	for r in frappe.db.sql("""select sii.sales_invoice_item, -sum(sii.qty) from `tabSales Invoice Item` sii join `tabSales Invoice` si on si.name=sii.parent
-		where si.docstatus=1 and si.is_return=1 and si.return_against=%s group by sii.sales_invoice_item""", inv):
-		returned[r[0]] = flt(r[1])
-	lines = [{"row": i.name, "item_name": frappe.utils.strip_html(i.description or "") or i.item_name, "qty": flt(i.qty),
-		"left": flt(i.qty) - returned.get(i.name, 0), "rate": flt(i.rate),
-		"whole": bool(frappe.db.get_value("UOM", i.uom, "must_be_whole_number"))} for i in si.items]
-	notes = flt(frappe.db.sql("""select sum(outstanding_amount) from `tabSales Invoice` where docstatus=1 and is_return=1 and return_against=%s""", inv)[0][0])
-	return {"invoice": inv, "customer": si.customer, "customer_name": si.customer_name, "outstanding": flt(si.outstanding_amount) + notes,
-		"lines": lines, "modes": [{"value": v, "label": l} for v, l in api.all_modes()]}
+	invoices = _invoices_of(name)
+	lines, outstanding, first = [], 0, None
+	for inv in invoices:
+		si = frappe.get_doc("Sales Invoice", inv)
+		first = first or si
+		returned = dict(frappe.db.sql("""select sii.sales_invoice_item, -sum(sii.qty) from `tabSales Invoice Item` sii join `tabSales Invoice` si on si.name=sii.parent
+			where si.docstatus=1 and si.is_return=1 and si.return_against=%s group by sii.sales_invoice_item""", inv))
+		lines += [{"row": i.name, "invoice": inv, "item_name": frappe.utils.strip_html(i.description or "") or i.item_name, "qty": flt(i.qty),
+			"left": flt(i.qty) - flt(returned.get(i.name)), "rate": flt(i.rate),
+			"whole": bool(frappe.db.get_value("UOM", i.uom, "must_be_whole_number"))} for i in si.items]
+		notes = flt(frappe.db.sql("""select sum(outstanding_amount) from `tabSales Invoice` where docstatus=1 and is_return=1 and return_against=%s""", inv)[0][0])
+		outstanding += flt(si.outstanding_amount) + notes
+	return {"invoice": ", ".join(invoices), "invoices": invoices, "customer": first.customer, "customer_name": first.customer_name,
+		"outstanding": outstanding, "lines": lines, "modes": [{"value": v, "label": l} for v, l in api.all_modes()]}
+
+
+def _invoices_of(so_name):
+	invs = [r[0] for r in frappe.db.sql("""select distinct sii.parent from `tabSales Invoice Item` sii join `tabSales Invoice` si on si.name=sii.parent
+		where sii.sales_order=%s and si.docstatus=1 and si.is_return=0 order by si.posting_date, si.creation""", so_name)]
+	if not invs:
+		frappe.throw(_("لا فاتورة لهذا الطلب بعد. الطلب غير المسلَّم يُلغى بدل أن يُرجَع."))
+	return invs
 
 
 def _invoice_of(so_name):
-	inv = frappe.db.sql("""select distinct sii.parent from `tabSales Invoice Item` sii join `tabSales Invoice` si on si.name=sii.parent
-		where sii.sales_order=%s and si.docstatus=1 and si.is_return=0 order by si.posting_date desc limit 1""", so_name)
-	if not inv:
-		frappe.throw(_("لا فاتورة لهذا الطلب بعد. الطلب غير المسلَّم يُلغى بدل أن يُرجَع."))
-	return inv[0][0]
+	return _invoices_of(so_name)[-1]
 
 
 @frappe.whitelist(methods=["POST"])
 def create_return(name, qtys, refund_mode=None, reason=""):
-	"""Credit note on the order's invoice for qtys = {invoice row: qty}. With refund_mode, what the customer then has
-	with us on that invoice is paid back; otherwise it stays his credit."""
+	"""Credit notes for qtys = {invoice row: qty}: one per invoice the rows belong to. Each is set against its
+	invoice; with refund_mode, what the customer then has with us is paid back, otherwise it stays his credit."""
 	_manager()
 	from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
 	from atelier.simple import _log
 
-	inv = _invoice_of(name)
 	qtys = {k: flt(v) for k, v in (frappe.parse_json(qtys) or {}).items() if flt(v) > 0}
 	if not qtys:
 		frappe.throw(_("اختر كمية بند واحد على الأقل"))
@@ -199,29 +204,39 @@ def create_return(name, qtys, refund_mode=None, reason=""):
 			frappe.throw(_("كمية الإرجاع أكبر من الباقي في الفاتورة"))
 		if info[row]["whole"] and q != int(q):
 			frappe.throw(_("وحدة «{0}» لا تقبل الكسور: اكتب عددًا صحيحًا").format(info[row]["item_name"]))
-	cn = make_sales_return(inv)
-	cn.items = [i for i in cn.items if i.sales_invoice_item in qtys]
-	for i in cn.items:
-		i.qty = -qtys[i.sales_invoice_item]
-	cn.update_stock = 0  # spoiled printing does not go back on the shelf
-	if cn.meta.has_field("update_outstanding_for_self"):
-		cn.set("update_outstanding_for_self", 0)  # the return lowers what is owed on the original invoice
-	cn.disable_rounded_total = 1
-	cn.remarks = ((reason or "").strip() or _("إرجاع"))[:140]
-	cn.flags.ignore_permissions = True
-	cn.insert()
-	cn.submit()
-	notes = frappe.get_all("Sales Invoice", filters={"docstatus": 1, "is_return": 1, "return_against": inv}, pluck="name", order_by="creation")
-	for n in notes:  # earlier returns too, so nothing is left open between them
-		_settle(inv, n)
-	# what the customer now has with us: the negative outstanding left on the invoice or on its credit notes
-	neg = [(n, -flt(o)) for n in [inv] + notes for o in [frappe.db.get_value("Sales Invoice", n, "outstanding_amount")] if flt(o) < -0.005]
-	si = frappe.get_doc("Sales Invoice", inv)
-	cn.reload()
+	by_invoice = {}
+	for row, q in qtys.items():
+		by_invoice.setdefault(info[row]["invoice"], {})[row] = q
+	made, total = [], 0
+	for inv, rows in by_invoice.items():
+		cn = make_sales_return(inv)
+		cn.items = [i for i in cn.items if i.sales_invoice_item in rows]
+		for i in cn.items:
+			i.qty = -rows[i.sales_invoice_item]
+		cn.update_stock = 0  # spoiled printing does not go back on the shelf
+		if cn.meta.has_field("update_outstanding_for_self"):
+			cn.set("update_outstanding_for_self", 0)  # the return lowers what is owed on the original invoice
+		cn.disable_rounded_total = 1
+		cn.remarks = ((reason or "").strip() or _("إرجاع"))[:140]
+		cn.flags.ignore_permissions = True
+		cn.insert()
+		cn.submit()
+		made.append(cn.name)
+		total += -flt(cn.grand_total)
+	# every credit note against its invoice (earlier returns too), so nothing is left open between them
+	docs = []
+	for inv in _invoices_of(name):
+		notes = frappe.get_all("Sales Invoice", filters={"docstatus": 1, "is_return": 1, "return_against": inv}, pluck="name", order_by="creation")
+		for n in notes:
+			_settle(inv, n)
+		docs += [inv] + notes
+	# what the customer now has with us: the negative outstanding left on an invoice or a credit note
+	neg = [(n, -flt(o)) for n in docs for o in [frappe.db.get_value("Sales Invoice", n, "outstanding_amount")] if flt(o) < -0.005]
 	excess = sum(a for _n, a in neg)
 	refund = None
+	label = ", ".join(made)
 	if refund_mode and excess > 0.005:
-		refund = ", ".join(_refund_against(n, a, refund_mode, _("استرداد إرجاع {0}").format(cn.name)) for n, a in neg)
-	_log(name, _("إرجاع {0} بقيمة {1}").format(cn.name, frappe.format_value(-flt(cn.grand_total), {"fieldtype": "Currency"}))
+		refund = ", ".join(_refund_against(n, a, refund_mode, _("استرداد إرجاع {0}").format(label)) for n, a in neg)
+	_log(name, _("إرجاع {0} بقيمة {1}").format(label, frappe.format_value(total, {"fieldtype": "Currency"}))
 		+ (" — " + reason.strip()[:80] if (reason or "").strip() else ""))
-	return {"credit_note": cn.name, "amount": -flt(cn.grand_total), "refund": refund, "credit": 0 if refund else max(0, excess)}
+	return {"credit_note": label, "amount": total, "refund": refund, "credit": 0 if refund else max(0, excess)}

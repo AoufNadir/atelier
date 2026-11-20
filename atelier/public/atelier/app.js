@@ -4231,7 +4231,7 @@ const PartialSheet = {
   <div class="overlay" @click.self="close" role="dialog" aria-modal="true"><form class="sheet stk-bill" @submit.prevent="save"><div class="sh-head"><div><h2>تسليم جزء من الطلب</h2><span class="muted">«{{ opts.title }}»<template v-if="d"> — {{ d.customer_name }}</template></span></div></div>
     <div v-if="err" class="alert error">{{ err }}</div>
     <template v-if="d">
-      <table class="stk-bl"><thead><tr><th>البند</th><th class="n">الكمية</th><th class="n">سُلّم</th><th class="n">الباقي</th><th class="n">يُسلَّم الآن</th><th class="n">المبلغ</th></tr></thead><tbody>
+      <table class="stk-bl pd-tbl"><thead><tr><th>البند</th><th class="n">الكمية</th><th class="n">سُلّم</th><th class="n">الباقي</th><th class="n">يُسلَّم الآن</th><th class="n">المبلغ</th></tr></thead><tbody>
         <tr v-for="l in d.lines" :key="l.row"><td>{{ l.item_name }}</td><td class="n">{{ num(l.qty) }}</td><td class="n">{{ num(l.delivered) }}</td><td class="n">{{ num(l.left) }}</td>
           <td class="n"><span v-if="done(l)" class="m">اكتمل</span><input v-else class="input rt-qty" inputmode="decimal" v-model="l.now" :aria-label="'كمية تسليم ' + l.item_name"></td>
           <td class="n">{{ money(Math.min(l.left, Math.max(0, parseAmount(l.now) || 0)) * l.rate) }}</td></tr></tbody></table>

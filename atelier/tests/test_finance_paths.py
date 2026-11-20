@@ -173,3 +173,16 @@ class TestFinancePaths(unittest.TestCase):
 		self.assertEqual(flt(frappe.db.get_value("Sales Order", so, "per_billed")), 100)
 		dn = frappe.db.get_value("Delivery Note Item", {"against_sales_order": so}, "parent")
 		self.assertEqual(frappe.db.get_value("Delivery Note", dn, "owner"), "seller-t@test.local")
+
+	def test_return_across_two_invoices_of_a_partial_delivery(self):
+		so = self._two_lines(advance=500)
+		simple.partial_deliver(so, json.dumps({frappe.get_doc("Sales Order", so).items[0].name: 1}))
+		simple.move(so, "done")
+		info = returns.return_info(so)
+		self.assertEqual(len(info["invoices"]), 2)
+		res = returns.create_return(so, json.dumps({l["row"]: l["left"] for l in info["lines"]}), refund_mode="Cash")
+		self.assertEqual(len(res["credit_note"].split(", ")), 2)
+		for inv in info["invoices"]:
+			self.assertAlmostEqual(flt(frappe.db.get_value("Sales Invoice", inv, "outstanding_amount")), 0, places=2)
+		paid = sum(flt(frappe.db.get_value("Journal Entry", n, "total_debit")) for n in (res["refund"] or "").split(", ") if n)
+		self.assertAlmostEqual(paid, 500, places=2)  # the 500 advance comes back; the rest was never paid
