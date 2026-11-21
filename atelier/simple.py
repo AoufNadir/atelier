@@ -1066,8 +1066,8 @@ def notify(member, name, text, kind="assign"):
 
 @frappe.whitelist()
 def notifications():
-	logs = frappe.get_all("Notification Log", filters={"for_user": frappe.session.user, "document_type": "Sales Order"},
-		fields=["name", "subject", "document_name", "from_user", "read", "creation"], order_by="creation desc", limit=20)
+	logs = frappe.get_all("Notification Log", filters={"for_user": frappe.session.user, "document_type": ["in", ["Sales Order", "Company"]]},
+		fields=["name", "subject", "document_type", "document_name", "from_user", "read", "creation"], order_by="creation desc", limit=20)
 	for l in logs:
 		l.by = frappe.utils.get_fullname(l.from_user)
 	due = []
@@ -1082,7 +1082,7 @@ def notifications():
 
 @frappe.whitelist(methods=["POST"])
 def mark_read():
-	frappe.db.sql("update `tabNotification Log` set `read`=1 where for_user=%s and document_type='Sales Order'", frappe.session.user)
+	frappe.db.sql("update `tabNotification Log` set `read`=1 where for_user=%s and document_type in ('Sales Order', 'Company')", frappe.session.user)
 	return True
 
 

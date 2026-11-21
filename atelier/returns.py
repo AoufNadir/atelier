@@ -217,6 +217,10 @@ def create_return(name, qtys, refund_mode=None, reason=""):
 		for i in cn.items:
 			i.qty = -rows[i.sales_invoice_item]
 		cn.update_stock = 0  # spoiled printing does not go back on the shelf
+		# credit notes have their own number series (ACC-SINV-RET-…), so invoice numbers stay consecutive
+		series = [x for x in (cn.meta.get_field("naming_series").options or "").split("\n") if "RET" in x]
+		if series:
+			cn.naming_series = series[0]
 		if cn.meta.has_field("update_outstanding_for_self"):
 			cn.set("update_outstanding_for_self", 0)  # the return lowers what is owed on the original invoice
 		cn.disable_rounded_total = 1

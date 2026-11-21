@@ -271,3 +271,9 @@ class TestFinancePaths(unittest.TestCase):
 		diff_acc = cashbox.cash_diff_account(api._company())
 		je = frappe.get_all("Journal Entry", filters={"user_remark": ["like", "%Seller H%"], "docstatus": 1}, pluck="name")
 		self.assertTrue(frappe.db.exists("GL Entry", {"voucher_no": je[0], "account": diff_acc, "debit": 50}))
+
+	def test_credit_note_has_its_own_series(self):
+		so = _order(1000)
+		inv = _deliver(so)
+		r = returns.create_return(so, json.dumps({frappe.get_doc("Sales Invoice", inv).items[0].name: 1}))
+		self.assertIn("RET", r["credit_note"])

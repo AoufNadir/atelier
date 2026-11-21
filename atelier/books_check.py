@@ -82,3 +82,25 @@ def run(rollback=True):
 	if rollback:
 		frappe.db.rollback()
 	return diffs
+
+
+def nightly():
+	"""Daily job: run the check quietly; on any difference, an in-app alert to each manager with the lines found."""
+	import contextlib
+	import io
+
+	out = io.StringIO()
+	with contextlib.redirect_stdout(out):
+		diffs = run(rollback=False)  # it only reads
+	frappe.db.set_default("atelier_books_check", frappe.as_json({"at": frappe.utils.now(), "differences": diffs}))
+	if not diffs:
+		return
+	lines = [l for l in out.getvalue().splitlines() if l.startswith("DIFF")][:5]
+	from atelier.simple import app_role
+
+	for user in frappe.get_all("User", filters={"enabled": 1, "user_type": "System User"}, pluck="name"):
+		if app_role(user) == "manager" and user != "Guest":
+			frappe.get_doc({"doctype": "Notification Log", "for_user": user, "type": "Alert", "document_type": "Company",
+				"document_name": frappe.defaults.get_global_default("company"),
+				"subject": f"فحص الدفاتر الليلي وجد {diffs} فرقًا — راجع: " + " | ".join(lines)[:120]}).insert(ignore_permissions=True)
+	frappe.db.commit()

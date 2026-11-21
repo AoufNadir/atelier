@@ -135,3 +135,11 @@ class TestTeamFlow(unittest.TestCase):
 			frappe.set_user("Administrator")
 		self.assertEqual(hits, [], "money reached a printer: " + ", ".join(hits[:10]))
 
+
+	def test_nightly_books_check_alerts_the_manager_only_on_differences(self):
+		from atelier import books_check
+
+		before = frappe.db.count("Notification Log", {"document_type": "Company"})
+		books_check.nightly()
+		self.assertEqual(frappe.db.count("Notification Log", {"document_type": "Company"}), before)  # clean books: no alert
+		self.assertIn("differences", frappe.db.get_default("atelier_books_check"))

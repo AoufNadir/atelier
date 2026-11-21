@@ -3216,3 +3216,7 @@ th, td { position: relative; }
   .pd-tbl td { overflow-wrap: anywhere; } .pd-tbl .rt-qty { width: 100%; min-width: 0; } .pd-tbl td:last-child { font-size: 13px; } .pd-tbl th:nth-child(2), .pd-tbl td:nth-child(2), .pd-tbl th:nth-child(3), .pd-tbl td:nth-child(3) { display: none; } }
 /* a table placed directly in a sheet keeps the sheet's side margins inside its width */
 .overlay .sheet > table.stk-bl { width: calc(100% - 40px); }
+/* card options on touch screens: no hover there, so the card's «⋯» is always shown */
+@media (hover: none), (pointer: coarse) {
+  .cb .tc2 .tc2-more { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; }
+}

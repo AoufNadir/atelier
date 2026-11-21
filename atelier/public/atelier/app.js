@@ -1884,7 +1884,7 @@ const Board = {
           <b>التنبيهات</b>
           <button v-for="d in notes.due" :key="'d' + d.name" type="button" class="tm-pop-row" @click="open = d.name; bell = false">
             <span class="tb-due-ic" :class="{late: d.late}"><Icon name="clock" :size="15"/></span><span style="flex:1">«{{ d.title }}» <span :class="d.late ? 'bd-late' : 'bd-warn'">{{ dueWord(d.due) }}<template v-if="d.due_time"> {{ d.due_time }}</template></span></span></button>
-          <button v-for="l in notes.logs" :key="l.name" type="button" class="tm-pop-row" :class="{unread: !l.read}" @click="open = l.document_name; bell = false">
+          <button v-for="l in notes.logs" :key="l.name" type="button" class="tm-pop-row" :class="{unread: !l.read}" @click="if (l.document_type !== 'Company') open = l.document_name; bell = false">
             <Avatar :name="l.by" :size="28"/><span style="flex:1;min-width:0"><span>{{ l.subject }}</span><span class="m">{{ ago(l.creation) }}</span></span></button>
           <span v-if="!notes.due.length && !notes.logs.length" class="m">لا تنبيهات.</span>
         </div></div>

@@ -188,6 +188,9 @@ doc_events = {
 # }
 
 # Scheduled Tasks
+# every night: the books checked against what the app shows; the manager is alerted on any difference
+scheduler_events = {"daily": ["atelier.books_check.nightly"]}
+
 # ---------------
 
 # scheduler_events = {
