@@ -143,3 +143,34 @@ class TestTeamFlow(unittest.TestCase):
 		books_check.nightly()
 		self.assertEqual(frappe.db.count("Notification Log", {"document_type": "Company"}), before)  # clean books: no alert
 		self.assertIn("differences", frappe.db.get_default("atelier_books_check"))
+
+	def test_morning_summary_for_the_manager_only(self):
+		from atelier import api
+
+		so = _order(1000)
+		simple.update_card(so, json.dumps({"due": add_days(nowdate(), -3)}, ensure_ascii=False))
+		today = _order(500)
+		simple.update_card(today, json.dumps({"due": nowdate()}, ensure_ascii=False))
+		m = simple.morning()
+		self.assertIn(so, [o["name"] for o in m["late"]])
+		self.assertEqual(next(o for o in m["late"] if o["name"] == so)["days"], -3)
+		self.assertIn(today, [o["name"] for o in m["due_today"]])
+		self.assertGreaterEqual(m["late_count"], 1)
+		frappe.set_user("member-t@test.local")
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				simple.morning()
+			with self.assertRaises(frappe.PermissionError):
+				api.search("Test")
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_unified_search_groups_kinds(self):
+		from atelier import api
+
+		so = _order(1000)
+		cust = frappe.db.get_value("Sales Order", so, "customer_name")
+		kinds = [r["type"] for r in api.search(cust[:6])]
+		self.assertIn("customer", kinds)
+		self.assertIn("order", kinds)
+		self.assertEqual(kinds, sorted(kinds, key=["customer", "order", "invoice", "supplier", "material"].index))  # grouped, in order

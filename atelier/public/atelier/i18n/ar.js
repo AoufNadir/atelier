@@ -7,8 +7,9 @@ export default {
   nav_machines: "الماكينات", nav_reports: "التقارير", nav_more: "المزيد", nav_erpnext: "النظام الكامل",
   nav_group_daily: "العمل اليومي", nav_group_erp: "في ERPNext", ext: "ERPNext",
   collapse: "طيّ القائمة", expand: "توسيع القائمة",
-  search_ph: "ابحث عن عميل أو طلب…", search_label: "بحث", search_none: "لا نتائج لـ «{0}»",
-  type_customer: "عميل", type_order: "طلب",
+  search_ph: "ابحث: عميل، طلب، فاتورة، مورد، مادة… (Ctrl+K)", search_label: "بحث", search_none: "لا نتائج لـ «{0}»",
+  type_customer: "عميل", type_order: "طلب", type_invoice: "فاتورة", type_supplier: "مورد", type_material: "مادة",
+  group_customer: "العملاء", group_order: "الطلبات", group_invoice: "الفواتير", group_supplier: "الموردون", group_material: "المواد",
 
   new_order: "طلب جديد", record_payment: "تسجيل دفعة", record_expense: "تسجيل مصروف",
   expense_hint: "يُفتح في ERPNext إلى أن تُبنى شاشته المبسطة",

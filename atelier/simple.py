@@ -2911,3 +2911,46 @@ def delete_customer_file(file):
 	frappe.get_doc("Customer", f.attached_to_name).check_permission("write")
 	f.delete(ignore_permissions=True)
 	return True
+
+
+# ---------------------------------------------------------------- morning summary for the manager
+@frappe.whitelist()
+def morning():
+	"""What the manager needs first thing: today's deliveries, what is late, money owed and in the boxes, and the
+	decisions waiting for them. Read only."""
+	_manager_only()
+	from atelier import cashbox
+
+	company = api._company()
+	today = frappe.utils.getdate(nowdate())
+	cfg = get_config()
+	names = {c["id"]: c["name"] for c in cfg["columns"]}
+	open_rows = [o for o in board2()["cards"] if flt(o.get("per_delivered")) < 100 and o.get("due")]
+	def row(o):
+		return {"name": o["name"], "title": o["title"], "customer": o.get("customer_name"), "column": names.get(o.get("column"), ""),
+			"due": str(o["due"]), "days": (frappe.utils.getdate(o["due"]) - today).days}
+	due_today = [row(o) for o in open_rows if frappe.utils.getdate(o["due"]) == today]
+	late = sorted((row(o) for o in open_rows if frappe.utils.getdate(o["due"]) < today), key=lambda r: r["days"])
+	owed = frappe.db.sql("""select coalesce(sum(outstanding_amount), 0), coalesce(sum(case when due_date < %s then outstanding_amount else 0 end), 0)
+		from `tabSales Invoice` where docstatus=1 and company=%s and outstanding_amount > 0.005""", (frappe.utils.add_days(today, -30), company))[0]
+	boxes = cashbox.boxes()
+	cash = [r[0] for r in frappe.db.sql("select name from `tabAccount` where company=%s and account_type in ('Cash','Bank') and is_group=0", company)] or [""]
+	in_funds = flt(frappe.db.sql("select sum(debit - credit) from `tabGL Entry` where is_cancelled=0 and account in %s", [cash])[0][0])
+	unpriced = frappe.db.sql("""select count(distinct so.name) from `tabSales Order` so join `tabSales Order Item` soi on soi.parent=so.name
+		where so.docstatus=0 and soi.atelier_price_pending=1 and so.creation < %s""", frappe.utils.add_days(today, -2))[0][0] \
+		if frappe.db.has_column("Sales Order Item", "atelier_price_pending") else 0
+	low = frappe.db.sql("""select i.item_name, coalesce(sum(b.actual_qty), 0) qty, i.safety_stock from `tabItem` i left join `tabBin` b on b.item_code=i.name
+		where i.is_stock_item=1 and i.disabled=0 and i.safety_stock > 0 group by i.name having qty < i.safety_stock order by i.item_name limit 5""", as_dict=True)
+	check = frappe.parse_json(frappe.db.get_default("atelier_books_check") or "{}") or {}
+	decisions = []
+	for h in boxes["pending"]:
+		decisions.append({"kind": "handover", "text": _("{0} سلّم صندوقه: {1} من {2}").format(h["name"],
+			frappe.format_value(flt(h["counted"]), {"fieldtype": "Currency"}), frappe.format_value(flt(h["recorded"]), {"fieldtype": "Currency"})), "go": "/money"})
+	if unpriced:
+		decisions.append({"kind": "unpriced", "text": _("{0} طلبات بلا سعر منذ أكثر من يومين").format(unpriced), "go": "/"})
+	for m in low:
+		decisions.append({"kind": "low", "text": _("«{0}» تحت الحد الأدنى ({1} من {2})").format(m.item_name, f"{flt(m.qty):g}", f"{flt(m.safety_stock):g}"), "go": "/stock"})
+	return {"date": str(today), "due_today": due_today, "late": late[:8], "late_count": len(late),
+		"owed": flt(owed[0]), "owed_old": flt(owed[1]), "in_funds": in_funds,
+		"boxes_pending": [{"name": h["name"], "amount": flt(h["recorded"])} for h in boxes["pending"]],
+		"decisions": decisions, "books": {"at": check.get("at"), "differences": check.get("differences")}}

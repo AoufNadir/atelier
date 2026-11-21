@@ -82,6 +82,7 @@ function useLoad(fn) {
 
 // ------------------------------------------------------------------ app state
 const state = reactive({
+  palette: false,
   path: location.pathname, query: new URLSearchParams(location.search),
   boot: null, toast: null, sheet: null, online: navigator.onLine, keyboard: false, editing: false,
   collapsed: !!store.get("atelier.sidebarCollapsed"), rev: 0,
@@ -256,7 +257,7 @@ const LoadState = {
 
 // ------------------------------------------------------------------ global search
 const SearchBox = {
-  components: { Icon }, setup() {
+  props: ["inPalette"], components: { Icon }, setup(props) {
     const q = ref(""), res = ref([]), open = ref(false), busy = ref(false), active = ref(-1);
     let timer;
     watch(q, (v) => {
@@ -268,32 +269,39 @@ const SearchBox = {
         busy.value = false;
       }, 220);
     });
-    const pick = (r) => { open.value = false; q.value = ""; go(r.route); };
+    const pick = (r) => { open.value = false; q.value = ""; state.palette = false; go(r.route); };
     const onKeyNav = (e) => {
       if (e.key === "ArrowDown") { active.value = Math.min(active.value + 1, res.value.length - 1); e.preventDefault(); }
       else if (e.key === "ArrowUp") { active.value = Math.max(active.value - 1, 0); e.preventDefault(); }
       else if (e.key === "Enter" && res.value[active.value]) { pick(res.value[active.value]); e.preventDefault(); }
-      else if (e.key === "Escape") { open.value = false; }
+      else if (e.key === "Escape") { open.value = false; state.palette = false; }
     };
-    const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); document.getElementById("global-search")?.focus(); } };
-    onMounted(() => window.addEventListener("keydown", onKey));
-    onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
-    return { q, res, open, busy, pick, active, onKeyNav, t, later: (f) => setTimeout(f, 150) };
+    // Ctrl+K from any page: the bar's box when it is on screen, else the same search in a window (pages with their own header)
+    const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault();
+      const el = document.getElementById("global-search"); if (el && el.offsetParent) el.focus(); else state.palette = true; } };
+    const inputId = props.inPalette ? "palette-search" : "global-search";
+    onMounted(() => { if (props.inPalette) setTimeout(() => document.getElementById(inputId)?.focus(), 30); else window.addEventListener("keydown", onKey); });
+    onBeforeUnmount(() => { if (!props.inPalette) window.removeEventListener("keydown", onKey); });
+    const ICONS = { customer: "users", order: "orders", invoice: "file", supplier: "factory", material: "box" };
+    return { q, res, open, busy, pick, active, onKeyNav, t, ICONS, inputId, later: (f) => setTimeout(f, 150) };
   },
   template: `
     <div class="search" @focusin="open=true" @focusout="later(()=>open=false)">
-      <label for="global-search" class="sr-only">{{ t('search_label') }}</label>
+      <label :for="inputId" class="sr-only">{{ t('search_label') }}</label>
       <Icon name="search" class="s-icon" :size="18"/>
-      <input id="global-search" class="input" type="search" v-model="q" :placeholder="t('search_ph')" autocomplete="off" enterkeyhint="search"
+      <input :id="inputId" class="input" type="search" v-model="q" :placeholder="t('search_ph')" autocomplete="off" enterkeyhint="search"
         role="combobox" :aria-expanded="open && q.trim().length>=2" aria-controls="search-pop" @keydown="onKeyNav">
       <div v-if="open && q.trim().length>=2" id="search-pop" class="pop" role="listbox">
         <div v-if="busy && !res.length" class="empty">{{ t('loading') }}</div>
         <div v-else-if="!res.length" class="empty">{{ t('search_none', q) }}</div>
-        <button v-for="(r,i) in res" :key="r.route" class="list-item" role="option" :aria-selected="i===active" :style="i===active ? 'background:var(--surface-2)' : ''" @mousedown.prevent="pick(r)">
-          <Icon :name="r.type==='customer' ? 'users' : 'orders'" :size="18"/>
-          <span class="main-col"><span class="ellipsis medium">{{ r.title }}</span><span class="cap ellipsis">{{ r.detail }}</span></span>
-          <span class="badge b-neutral">{{ t('type_'+r.type) }}</span>
-        </button>
+        <template v-for="(r,i) in res" :key="r.type + r.route + r.title">
+          <div v-if="i === 0 || res[i-1].type !== r.type" class="srch-grp" role="presentation">{{ t('group_' + r.type) }}</div>
+          <button class="list-item" role="option" :aria-selected="i===active" :style="i===active ? 'background:var(--surface-2)' : ''" @mousedown.prevent="pick(r)" @mouseenter="active = i">
+            <Icon :name="ICONS[r.type] || 'file'" :size="18"/>
+            <span class="main-col"><span class="ellipsis medium">{{ r.title }}</span><span class="cap ellipsis">{{ r.detail }}</span></span>
+          </button>
+        </template>
+        <div v-if="res.length" class="srch-ft" aria-hidden="true"><span><kbd>↑</kbd> <kbd>↓</kbd> تنقّل</span><span><kbd>Enter</kbd> فتح</span><span><kbd>Esc</kbd> إغلاق</span></div>
       </div>
     </div>`,
 };
@@ -1561,8 +1569,52 @@ const SizeControl = {
       <label class="sz-hints"><input type="checkbox" :checked="hintState.on" @change="setHints($event.target.checked)">إظهار الشروح<span class="m">للمستخدم الجديد: شرح تحت الحقول</span></label></div></div>`,
 };
 
+// the manager's first look of the day: today's deliveries, what is late, money owed and in the boxes, decisions waiting
+const MorningPanel = {
+  emits: ["open"], components: { Icon },
+  setup(props, { emit }) {
+    const d = ref(null), err = ref(null);
+    const key = () => "raqmi.morning.closed." + todayISO();
+    const closed = ref(false);
+    try { closed.value = localStorage.getItem(key()) === "1"; } catch { /* storage off: always shown */ }
+    const load = async () => { try { d.value = await call("morning"); } catch (e) { err.value = e.message; } };
+    onMounted(() => { if (!closed.value) load(); });
+    watch(() => state.rev, () => { if (!closed.value) load(); });
+    const toggle = () => { closed.value = !closed.value; try { localStorage.setItem(key(), closed.value ? "1" : "0"); } catch { /* fine */ } if (!closed.value && !d.value) load(); };
+    const dayName = computed(() => new Date().toLocaleDateString("ar-DZ-u-nu-latn", { weekday: "long", day: "numeric", month: "long" }));
+    const lateWord = (n) => (n === -1 ? "متأخر يومًا" : n === -2 ? "متأخر يومين" : `متأخر ${-n} أيام`);
+    return { d, err, closed, toggle, dayName, money, lateWord, emit, go };
+  },
+  template: `
+  <section class="mp" aria-label="ملخص الصباح">
+    <div class="mp-head"><h2>صباح الخير — {{ dayName }}</h2><button type="button" class="cl-link" @click="toggle">{{ closed ? 'إظهار ملخص اليوم' : 'طيّ الملخص' }}</button></div>
+    <template v-if="!closed">
+      <p v-if="err" class="alert error">{{ err }}</p>
+      <div v-else-if="!d" class="m">جارٍ التحميل…</div>
+      <template v-else>
+        <div class="mp-kpis">
+          <div class="mp-kpi"><span>يُسلَّم اليوم</span><b>{{ d.due_today.length }}</b></div>
+          <div class="mp-kpi" :class="{bad: d.late_count}"><span>متأخر</span><b>{{ d.late_count }}</b><em v-if="d.late.length">أقدمها {{ lateWord(d.late[0].days) }}</em></div>
+          <div class="mp-kpi"><span>ديون العملاء</span><b>{{ money(d.owed) }}</b><em v-if="d.owed_old > 0.005">منها {{ money(d.owed_old) }} متأخرة +30 يومًا</em></div>
+          <div class="mp-kpi ok"><span>في الصناديق</span><b>{{ money(d.in_funds) }}</b><em v-if="d.boxes_pending.length">{{ d.boxes_pending.length }} صندوق بانتظار تأكيدك</em></div>
+        </div>
+        <div class="mp-cols">
+          <div class="mp-box"><h3>اليوم والمتأخر</h3>
+            <button v-for="o in [...d.late, ...d.due_today]" :key="o.name" type="button" class="mp-li" @click="emit('open', o.name)">
+              <span class="ellipsis"><b>{{ o.title }}</b> · {{ o.customer }}</span>
+              <span class="mp-tag" :class="o.days < 0 ? 'bad' : 'ok'">{{ o.days < 0 ? lateWord(o.days) : (o.column || 'اليوم') }}</span></button>
+            <span v-if="!d.late.length && !d.due_today.length" class="m">لا تسليم اليوم ولا متأخر.</span></div>
+          <div class="mp-box"><h3>يحتاج قرارك</h3>
+            <button v-for="(x, i) in d.decisions" :key="i" type="button" class="mp-li" @click="go(x.go)"><span class="ellipsis">{{ x.text }}</span><Icon name="chev" :size="14"/></button>
+            <div class="mp-li"><span>فحص الدفاتر الليلي</span>
+              <span class="mp-tag" :class="d.books.differences ? 'bad' : 'ok'">{{ d.books.at == null ? 'لم يعمل بعد' : d.books.differences ? d.books.differences + ' فروق' : 'سليم' }}</span></div></div>
+        </div>
+      </template>
+    </template>
+  </section>`,
+};
 const Board = {
-  props: ["startNew", "openCard"], components: { Icon, BoardCard, BoardPanel, Avatar, TransitionGroup, StatusMenu, SizeControl },
+  props: ["startNew", "openCard"], components: { Icon, BoardCard, BoardPanel, Avatar, TransitionGroup, StatusMenu, SizeControl, MorningPanel },
   setup(props) {
     const { s, load } = useLoad(() => call("board2"));
     onMounted(load);
@@ -1895,6 +1947,7 @@ const Board = {
             <button v-for="hc in hiddenCols" :key="hc.id" type="button" @click="hideCol(false, hc.id)"><i class="st-sw" :style="{background: hc.color}"></i>إظهار «{{ hc.name }}»</button></template></div></div>
       <button v-if="state.boot.can.order" type="button" class="cl-btn primary" @click="state.sheet = {type: 'order'}"><Icon name="plus" :size="16"/>طلب جديد</button>
     </div>
+    <MorningPanel v-if="state.boot.role === 'manager'" @open="(n) => (open = n)"/>
     <div v-if="s.data" class="tb-filters" role="group" aria-label="تصفية البطاقات">
       <select class="input" :class="{on: fCust}" v-model="fCust" aria-label="العميل"><option value="">كل العملاء</option><option v-for="o in custOpts" :key="o[0]" :value="o[0]">{{ o[1] }}</option></select>
       <select v-if="memberOpts.length" class="input" :class="{on: fMember}" v-model="fMember" aria-label="العضو"><option value="">كل الأعضاء</option><option v-for="m in memberOpts" :key="m" :value="m">{{ m }}</option></select>
@@ -5110,6 +5163,7 @@ const App = {
     <SupplierPaySheet v-if="state.sheet && state.sheet.type==='spay'" :key="state.sheet.invoice" :opts="state.sheet"/>
     <CancelSheet v-if="state.sheet && state.sheet.type==='cancel'" :key="'cx' + state.sheet.order" :opts="state.sheet"/>
     <ReturnSheet v-if="state.sheet && state.sheet.type==='return'" :key="'rt' + state.sheet.order" :opts="state.sheet"/>
+    <div v-if="state.palette" class="overlay pal-ov" role="dialog" aria-modal="true" aria-label="بحث" @click.self="state.palette = false"><div class="pal-box"><SearchBox :in-palette="true"/></div></div>
     <PartialSheet v-if="state.sheet && state.sheet.type==='partial'" :key="'pd' + state.sheet.order" :opts="state.sheet"/>
     <OpeningSheet v-if="state.sheet && state.sheet.type==='opening'" :key="'op' + state.sheet.party" :opts="state.sheet"/>
     <div v-if="state.subsheet" class="subsheet-layer"><PaymentSheet v-if="state.subsheet.type === 'payment'" :opts="state.subsheet"/><ItemSheet v-else :opts="state.subsheet"/></div>

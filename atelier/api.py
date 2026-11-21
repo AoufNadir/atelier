@@ -330,17 +330,35 @@ def search(q):
 	if len(q) < 2:
 		return []
 	like = f"%{q}%"
-	out = [
-		{"type": "customer", "title": c.customer_name, "detail": c.mobile_no or "", "route": f"/customers/{c.name}"}
-		for c in frappe.get_list("Customer", or_filters={"customer_name": ["like", like], "mobile_no": ["like", like], "name": ["like", like]},
-			fields=["name", "customer_name", "mobile_no"], limit=6)
-	]
+	from erpnext.accounts.utils import get_balance_on
+
+	money = lambda v: f"{flt(v):,.2f} دج"  # noqa: E731  — written as everywhere else in the app
+	company = _company()
+	out = []
+	for c in frappe.get_list("Customer", or_filters={"customer_name": ["like", like], "mobile_no": ["like", like], "name": ["like", like]},
+			fields=["name", "customer_name", "mobile_no"], limit=6):
+		owes = flt(get_balance_on(party_type="Customer", party=c.name, company=company))
+		detail = " · ".join(x for x in (c.mobile_no, _("عليه {0}").format(money(owes)) if owes > 0.005 else None) if x)
+		out.append({"type": "customer", "title": c.customer_name, "detail": detail, "route": f"/customers/{c.name}"})
 	if _can("Sales Order"):
-		out += [
-			{"type": "order", "title": s.atelier_subject or s.name, "detail": f"{s.name} · {s.customer_name}", "route": f"/orders/{s.name}"}
-			for s in frappe.get_list("Sales Order", or_filters={"name": ["like", like], "atelier_subject": ["like", like], "customer_name": ["like", like]},
-				fields=["name", "atelier_subject", "customer_name"], limit=6)
-		]
+		for s in frappe.get_list("Sales Order", or_filters={"name": ["like", like], "atelier_subject": ["like", like], "customer_name": ["like", like]},
+				filters={"docstatus": ["<", 2]}, fields=["name", "atelier_subject", "customer_name", "per_delivered", "atelier_stage"], order_by="creation desc", limit=6):
+			state = _("سُلّم") if flt(s.per_delivered) >= 100 else (s.atelier_stage or _("جارٍ"))
+			out.append({"type": "order", "title": s.atelier_subject or s.name, "detail": f"{s.customer_name} · {s.name} · {state}", "route": f"/orders/{s.name}"})
+	if _can("Sales Invoice"):
+		for i in frappe.get_list("Sales Invoice", or_filters={"name": ["like", like], "customer_name": ["like", like]}, filters={"docstatus": 1},
+				fields=["name", "customer", "customer_name", "outstanding_amount", "is_return"], order_by="creation desc", limit=4):
+			so = frappe.db.get_value("Sales Invoice Item", {"parent": i.name}, "sales_order")
+			left = _("دائنة") if i.is_return else (_("باقٍ {0}").format(money(i.outstanding_amount)) if flt(i.outstanding_amount) > 0.005 else _("مدفوعة"))
+			out.append({"type": "invoice", "title": f"{i.name} — {i.customer_name}", "detail": left,
+				"route": f"/orders/{so}" if so else f"/customers/{i.customer}"})
+	if _can("Supplier") and _can("Purchase Invoice"):
+		out += [{"type": "supplier", "title": s.supplier_name, "detail": s.mobile_no or "", "route": f"/suppliers/{s.name}"}
+			for s in frappe.get_list("Supplier", or_filters={"supplier_name": ["like", like], "mobile_no": ["like", like]},
+				fields=["name", "supplier_name", "mobile_no"], limit=4)]
+	if _can("Bin"):
+		out += [{"type": "material", "title": m.item_name, "detail": m.stock_uom, "route": "/stock"}
+			for m in frappe.get_list("Item", filters={"is_stock_item": 1, "disabled": 0, "item_name": ["like", like]}, fields=["name", "item_name", "stock_uom"], limit=4)]
 	return out
 
 
@@ -1463,4 +1481,5 @@ from atelier.materials import services_overview  # noqa: E402, F401
 from atelier.printing import pdf  # noqa: E402, F401
 from atelier.returns import cancel_info, cancel_order, return_info, create_return
 from atelier.simple import partial_info, partial_deliver  # noqa: E402, F401
+from atelier.simple import morning  # noqa: E402, F401
 from atelier.opening import opening_info, add_opening, reverse_opening  # noqa: E402, F401  # noqa: E402, F401
