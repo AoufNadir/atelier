@@ -319,8 +319,9 @@ def money():
 		from `tabGL Entry` gle where gle.is_cancelled=0 and gle.account in %s
 		group by gle.voucher_type, gle.voucher_no, gle.posting_date order by gle.posting_date desc, max(gle.creation) desc limit 25""",
 		[cash], as_dict=True)
+	_transfer_amounts(moves, cash, frappe.get_all("Account", filters={"name": ["in", cash]}, fields=["name", "account_name"]))
 	for m in moves:
-		m.title = _title(m)
+		m.title = m.get("title") or _title(m)
 		m.by = frappe.utils.get_fullname(m.owner)
 		m.mode = frappe.db.get_value("Payment Entry", m.voucher_no, "mode_of_payment") if m.voucher_type == "Payment Entry" else None
 	debtors = frappe.db.sql(
@@ -335,6 +336,22 @@ def money():
 			and party_type='Customer' and posting_date between %s and %s""", start, end)),
 		"moves": moves, "debtors": debtors,
 	}
+
+
+def _transfer_amounts(moves, funds, accs):
+	"""Money moved from one fund to another adds up to zero over the funds: show what moved, and from where to where."""
+	names = {a.name: a.account_name for a in accs}
+	for m in moves:
+		if abs(flt(m.amount)) > 0.005:
+			continue
+		legs = frappe.db.sql("""select account, sum(debit) d, sum(credit) c from `tabGL Entry` where is_cancelled=0 and voucher_no=%s
+			and account in %s group by account""", (m.voucher_no, funds), as_dict=True)
+		moved = sum(flt(l.d) for l in legs)
+		if moved > 0.005:
+			src = next((names.get(l.account, l.account) for l in legs if flt(l.c) > 0.005), "")
+			dst = next((names.get(l.account, l.account) for l in legs if flt(l.d) > 0.005), "")
+			m.amount, m.transfer = moved, 1
+			m.title = _("تحويل من {0} إلى {1}").format(src, dst)
 
 
 def _title(m):
@@ -1296,8 +1313,9 @@ def money3(offset=0):
 		from `tabGL Entry` gle where gle.is_cancelled=0 and gle.account in %s and gle.posting_date between %s and %s
 		group by gle.voucher_type, gle.voucher_no, gle.posting_date order by gle.posting_date desc, max(gle.creation) desc limit 200""",
 		(cash, start, end), as_dict=True)
+	_transfer_amounts(moves, cash, accs)
 	for m in moves:
-		m.title = _title(m)
+		m.title = m.get("title") or _title(m)
 		# a seller's payment is saved by the system user but owned by the seller who took the money
 		who = frappe.db.get_value(m.voucher_type, m.voucher_no, "owner") if m.voucher_type in ("Payment Entry", "Journal Entry") else None
 		m.by = frappe.utils.get_fullname(who or m.owner)

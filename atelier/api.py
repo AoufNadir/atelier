@@ -948,8 +948,38 @@ def _record_payment(customer, amount, mode_of_payment, sales_order=None):
 				frappe.format_value(max(0, left), {"fieldtype": "Currency"})))
 		unpaid = [d for d in _order_docs(so) if d["doctype"] == "Sales Invoice" and flt(d["outstanding_amount"]) > 0]
 		if unpaid:
-			return _receive_invoice(unpaid[0]["name"], flt(amount), mode_of_payment)
+			# an order delivered in parts has one invoice per delivery: the payment settles them oldest first
+			return _receive_invoices([d["name"] for d in unpaid], flt(amount), mode_of_payment)
 	return _receive(customer, flt(amount), mode_of_payment, so if so and so.docstatus == 1 else None)
+
+
+def _receive_invoices(invoices, amount, mode):
+	"""One payment over several invoices of the same customer, oldest first; what is beyond them stays unallocated."""
+	if len(invoices) == 1:
+		return _receive_invoice(invoices[0], amount, mode)
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+	pe = get_payment_entry("Sales Invoice", invoices[0], party_amount=amount, bank_account=_in_account(mode, _company()))
+	pe.mode_of_payment = mode
+	pe.set("references", [])
+	left = flt(amount)
+	for inv in invoices:
+		out = flt(frappe.db.get_value("Sales Invoice", inv, "outstanding_amount"))
+		take = min(left, out)
+		if take <= 0.005:
+			break
+		pe.append("references", {"reference_doctype": "Sales Invoice", "reference_name": inv, "total_amount": flt(frappe.db.get_value("Sales Invoice", inv, "grand_total")),
+			"outstanding_amount": out, "allocated_amount": take})
+		left -= take
+	pe.paid_amount = pe.received_amount = flt(amount)
+	if hasattr(pe, "set_amounts"):
+		pe.set_amounts()
+	pe.posting_date = nowdate()
+	pe.reference_no = pe.reference_no or "—"
+	pe.reference_date = nowdate()
+	pe.insert()
+	pe.submit()
+	return pe.name
 
 
 def _receive_invoice(invoice, amount, mode):
