@@ -946,6 +946,8 @@ const BoardPanel = {
       if (miss.column || miss.status) { nextTick(() => document.querySelector(".od-miss")?.scrollIntoView({ block: "center", behavior: "smooth" }));
         return (error.value = miss.column && miss.status ? "اختر العمود والحالة قبل الحفظ" : miss.column ? "اختر العمود الذي يبدأ فيه الطلب" : "اختر حالة واحدة على الأقل"); }
       if (filled.value.some((l) => !(+l.qty > 0))) return (error.value = "الكمية غير صحيحة");
+      if (filled.value.some((l) => l.rate !== "" && l.rate !== null && l.rate !== undefined && +parseAmount(l.rate) < 0)) return (error.value = "السعر لا يكون سالبًا");
+      if (total.value !== null && +f.advance > gross.value + 0.005) return (error.value = `التسبيق أكبر من مبلغ الطلب (${money(gross.value)})`);
       const noSize = filled.value.find((l) => (calcOf(l) === "area" && !(+l.width > 0 && +l.height > 0)) || (calcOf(l) === "length" && !(+l.length > 0)));
       if (noSize) return (error.value = `اكتب ${calcOf(noSize) === "area" ? "العرض والارتفاع" : "الطول"} للبند «${noSize.text.trim()}»`);
       if (filled.value.some((l) => l.rate !== "" && !(+l.rate >= 0))) return (error.value = "السعر غير صحيح");

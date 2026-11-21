@@ -32,6 +32,19 @@ def _tva_rate_on():
 	return flt(d.get("tva_rate")) if cint(d.get("tva")) else 0
 
 
+def ensure_funds(account, amount):
+	"""Money cannot leave a cash box or bank account that does not hold it: the books would show a negative box."""
+	from erpnext.accounts.utils import get_balance_on
+
+	if not account or frappe.db.get_value("Account", account, "account_type") not in ("Cash", "Bank"):
+		return
+	have = flt(get_balance_on(account))
+	if flt(amount) > have + 0.005:
+		frappe.throw(_("الرصيد في «{0}» هو {1} فقط، أقل من {2}").format(
+			frappe.db.get_value("Account", account, "account_name"), frappe.format_value(have, {"fieldtype": "Currency"}),
+			frappe.format_value(flt(amount), {"fieldtype": "Currency"})))
+
+
 def _may_deliver():
 	"""Delivering makes the delivery note and the invoice. The manager can; a seller too (decision: he also takes
 	the payment into his own box). Designers and printers cannot."""
@@ -737,6 +750,9 @@ def create_order(data):
 		}).insert().name
 
 	payment = None
+	if so.docstatus == 1 and flt(advance.get("amount")) > flt(so.grand_total) + 0.005:
+		frappe.throw(_("التسبيق ({0}) أكبر من مبلغ الطلب ({1})").format(
+			frappe.format_value(flt(advance["amount"]), {"fieldtype": "Currency"}), frappe.format_value(flt(so.grand_total), {"fieldtype": "Currency"})))
 	if flt(advance.get("amount")) > 0:
 		payment = _as_cashier(lambda: _receive(customer, flt(advance["amount"]), advance["mode_of_payment"], so if so.docstatus == 1 else None, so.name))
 
@@ -1091,6 +1107,7 @@ def record_expense(account, amount, mode_of_payment, description, sales_order=No
 		so.check_permission("read")
 		project = so.project
 	paid_from = _cash_account(mode_of_payment, company)
+	ensure_funds(paid_from, amount)
 	is_bank = frappe.db.get_value("Account", paid_from, "account_type") == "Bank"
 	cost_center = frappe.db.get_value("Company", company, "cost_center")
 	date = posting_date or nowdate()

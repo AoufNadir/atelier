@@ -38,6 +38,7 @@ def _refund(customer, amount, mode, remark):
 		return None
 	if mode not in [m[0] for m in api.all_modes()]:
 		frappe.throw(_("طريقة الدفع غير صالحة"))
+	api.ensure_funds(api._cash_account(mode, company), amount)
 	pe = frappe.get_doc({"doctype": "Payment Entry", "payment_type": "Pay", "company": company, "posting_date": nowdate(),
 		"party_type": "Customer", "party": customer, "mode_of_payment": mode,
 		"paid_from": api._cash_account(mode, company), "paid_to": get_party_account("Customer", customer, company),
@@ -55,6 +56,7 @@ def _refund_against(invoice, amount, mode, remark):
 		frappe.throw(_("طريقة الدفع غير صالحة"))
 	si = frappe.get_doc("Sales Invoice", invoice)
 	amount = flt(amount)
+	api.ensure_funds(api._cash_account(mode, si.company), amount)
 	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Journal Entry", "company": si.company, "posting_date": nowdate(),
 		"mode_of_payment": mode, "cheque_no": "—", "cheque_date": nowdate(), "user_remark": remark[:140], "accounts": [
 			{"account": si.debit_to, "party_type": "Customer", "party": si.customer, "debit_in_account_currency": amount,

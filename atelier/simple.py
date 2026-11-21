@@ -1522,6 +1522,7 @@ def transfer_funds(from_account, to_account, amount, note=None):
 	for a in (from_account, to_account):
 		if frappe.db.get_value("Account", a, "account_type") not in ("Cash", "Bank"):
 			frappe.throw(_("حساب غير صالح"))
+	api.ensure_funds(from_account, amount)
 	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Contra Entry", "company": company, "posting_date": nowdate(),
 		"user_remark": (note or _("تحويل بين الصناديق"))[:140],
 		"accounts": [{"account": to_account, "debit_in_account_currency": amount}, {"account": from_account, "credit_in_account_currency": amount}]})
@@ -1550,6 +1551,7 @@ def pay_supplier(invoice, mode_of_payment="Cash", amount=None):
 			r.allocated_amount = min(flt(amount), flt(r.outstanding_amount))
 		if hasattr(pe, "set_amounts"):
 			pe.set_amounts()
+	api.ensure_funds(pe.paid_from, pe.paid_amount)
 	pe.posting_date = nowdate()
 	pe.reference_no = pe.reference_no or "—"
 	pe.reference_date = nowdate()
