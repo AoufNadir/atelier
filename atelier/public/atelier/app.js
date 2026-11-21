@@ -1085,10 +1085,14 @@ const BoardPanel = {
     const materials = () => offerMaterials(props.edit);
     const copyPath = async () => { try { await navigator.clipboard.writeText(ed.value.folder); toast("نُسخ مسار المجلد"); } catch { /* selectable */ } };
     watch(() => linesPayload(), () => { if (ready.value) later("lines", saveLinesNow, 900); });
-    watch(() => f.column, async (c, old) => { if (!(ready.value && c && old && c !== old)) return;
+    let colRevert = false;
+    watch(() => f.column, async (c, old) => { if (colRevert) { colRevert = false; return; } if (!(ready.value && c && old && c !== old)) return;
+      const target = boardCols.value.find((x) => x.id === c);
+      // delivering from the window (the way on a phone, where cards cannot be dragged): it issues the invoice, so ask first
+      if (target?.deliver && !confirm(`تسليم «${f.subject || ed.value?.title || ""}» للعميل؟ يُصدر بون التسليم والفاتورة، ولا يمكن إرجاعه إلى عمود سابق.`)) { colRevert = true; f.column = old; return; }
       await run(() => call("move_card", { name: props.edit, column: c }, true));
       const col = boardCols.value.find((x) => x.id === c), e = ed.value || {};
-      if (col && (col.supplier || col.materials || col.deliver)) toast(col.supplier ? "بعد إغلاق نافذة الطلب يُسأل عن تكلفة المورد" : col.deliver ? "بعد إغلاق نافذة الطلب يُسأل عن التحصيل" : "بعد إغلاق نافذة الطلب يُسأل عن المواد المستهلكة");
+      if (col && (col.supplier || col.materials || col.deliver)) toast(col.deliver ? "بعد إغلاق نافذة الطلب يُسأل عن التحصيل" : col.supplier ? "بعد إغلاق نافذة الطلب يُسأل عن تكلفة المورد" : "بعد إغلاق نافذة الطلب يُسأل عن المواد المستهلكة");
       afterColumnEnter({ name: props.edit, title: f.subject || e.title, customer: e.customer, customer_name: e.customer_name, grand_total: e.grand_total, paid: e.paid, price_pending: e.price_pending }, col, state.boot.role === "manager" || state.boot.can.cost, boardCols.value); });
     const flush = async () => { clearTimeout(timers.meta); clearTimeout(timers.lines); if (!ready.value) return; await saveMeta(); await saveLinesNow(); };
     const closeEdit = async () => { if (ready.value && sv.value !== "error") await flush(); emit("close"); };
@@ -1293,7 +1297,7 @@ const BoardPanel = {
             <div class="bd-chips"><button v-for="c in dueChips" :key="c[1]" type="button" class="bd-chip" :aria-pressed="f.due === isoIn(c[1])" @click="f.due = isoIn(c[1])">{{ c[0] }}</button><button type="button" class="bd-chip" :aria-pressed="!f.due" @click="f.due = ''; f.due_time = ''">بلا موعد</button></div>
             <div class="od-due"><input type="date" class="input" v-model="f.due" :min="editing ? null : isoIn(0)" aria-label="تاريخ التسليم"><input v-if="editing" type="time" class="input od-time" v-model="f.due_time" aria-label="الساعة"></div>
             <span v-if="editing && f.due && daysFromToday(f.due) < 0 && !(ed && ed.per_delivered >= 100)" class="od-late">متأخر {{ -daysFromToday(f.due) }} {{ -daysFromToday(f.due) <= 10 ? 'أيام' : 'يومًا' }}</span>
-            <label v-if="editing && ed" class="cl-fgroup"><span>العمود</span><select class="input" v-model="f.column" aria-label="العمود"><option v-for="c in boardCols" :key="c.id" :value="c.id" :disabled="c.deliver && c.id !== ed.column">{{ c.name }}</option></select></label>
+            <label v-if="editing && ed" class="cl-fgroup"><span>العمود</span><select class="input" v-model="f.column" aria-label="العمود"><option v-for="c in boardCols" :key="c.id" :value="c.id" :disabled="c.deliver && c.id !== ed.column && (!state.boot.can.deliver || ed.price_pending)">{{ c.name }}</option></select></label>
             <label v-if="startColumns.length > 1 && !editing" class="cl-fgroup" :class="{'od-miss': miss.column && !f.column}"><span>يبدأ في عمود <b class="od-req">*</b></span><select id="qo-column" class="input" v-model="f.column"><option :value="null" disabled>اختر العمود</option><option v-for="c in startColumns" :key="c.id" :value="c.id">{{ c.name }}</option></select>
               <em v-if="miss.column && !f.column" class="od-misstxt">اختر العمود الذي يبدأ فيه الطلب</em></label></div></section>
           <section v-if="editing && ed && !worker" class="od-card"><div class="od-ch"><Icon name="wallet" :size="18"/><b>المال</b><span class="m od-r">{{ ed.price_pending ? 'السعر غير محدد' : 'المجموع ' + money(ed.grand_total) }}</span></div><div class="od-pad">
