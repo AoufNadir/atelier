@@ -39,6 +39,30 @@ async function open(ctx, path) {
   await page.waitForTimeout(1500);  // the board re-renders once its settings arrive
   return { page, errs };
 }
+async function press(page, label, scope) {
+  const hit = await page.evaluate(([label, scope]) => {
+    const root = scope ? document.querySelector(scope) : document;
+    if (!root) return false;
+    const b = [...root.querySelectorAll("button, a[role=button], [role=tab], [role=menuitem]")].find((x) => x.offsetParent && !x.disabled
+      && (x.getAttribute("aria-label") || x.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60) === label);
+    if (!b) return false;
+    document.querySelectorAll("[data-crawl]").forEach((x) => x.removeAttribute("data-crawl"));
+    b.scrollIntoView({ block: "center", inline: "center" }); b.setAttribute("data-crawl", "1"); return true;
+  }, [label, scope || null]);
+  if (!hit) throw new Error("button gone after reload");
+  await page.locator("[data-crawl='1']").click({ timeout: 4000 }).catch(async () => page.evaluate(() => document.querySelector("[data-crawl='1']").click()));
+  await page.waitForTimeout(1200);
+}
+const WIN = ".overlay, [role=dialog], .cl-pop, .tm-pop, .od";
+const inner = (page) => page.evaluate((WIN) => {
+  const out = new Set();
+  for (const w of document.querySelectorAll(WIN)) for (const b of w.querySelectorAll("button, a[role=button], [role=tab], [role=menuitem]")) {
+    if (!b.offsetParent || b.disabled) continue;
+    const t = (b.getAttribute("aria-label") || b.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    if (t) out.add(t);
+  }
+  return [...out];
+}, WIN);
 const labels = (page) => page.evaluate(() => {
   const seen = new Map();
   for (const b of document.querySelectorAll("button, a[role=button], [role=tab]")) {
@@ -50,6 +74,36 @@ const labels = (page) => page.evaluate(() => {
   return [...seen.keys()];
 });
 
+async function measure(page, errs) {
+  const r = await page.evaluate(() => {
+    const txt = document.body.innerText;
+    const box = document.querySelector(".overlay .sheet, .overlay form, [role=dialog], .cl-pop, .tm-pop");
+    const small = [], off = [];
+    if (box) {
+      const rc = box.getBoundingClientRect();
+      if (rc.right > innerWidth + 1 || rc.left < -1 || rc.bottom > innerHeight + 400) off.push(`${Math.round(rc.left)},${Math.round(rc.right)}`);
+      for (const el of box.querySelectorAll("*")) {
+        if (!el.offsetParent || ![...el.childNodes].some((x) => x.nodeType === 3 && x.textContent.trim())) continue;
+        const fs = parseFloat(getComputedStyle(el).fontSize); if (fs < 12) small.push(`${el.textContent.trim().slice(0, 18)} ${fs}px`);
+      }
+    }
+    // technical or English error text shown to a person
+    const leak = (txt.match(/(Traceback|Error:|Exception|undefined|NaN|\[object Object\]|is not whitelisted|Not permitted|does not have|cannot be|must be|is mandatory)[^\n]{0,80}/) || [])[0];
+    return { small: small.slice(0, 3), off, leak };
+  });
+  if (r.leak) errs.push("shown: " + r.leak);
+  if (r.small.length) errs.push("text<12px: " + r.small.join("; "));
+  if (r.off.length) errs.push("window off-screen " + r.off.join(" "));
+}
+async function report(role, path, button, page, errs, n) {
+  const real = [...new Set(errs)].filter((e) => !/^click failed/.test(e) || !/not visible|detached|intercepts/.test(e));
+  if (!real.length) return;
+  const tag = `${role}-${(path || "home").replace(/\//g, "_")}-${n}`;
+  await page.screenshot({ path: `${OUT}${tag}.png` }).catch(() => {});
+  for (const e of real) { issues.push({ role, path, button, e, shot: tag }); console.log(`ISSUE ${role} /${path} [${button}] ${e}`); }
+}
+const DEEP = process.argv.includes("--deep");
+
 for (const role of Object.keys(PAGES)) {
   if (onlyRole && role !== onlyRole) continue;
   if (!existsSync(`${STATE}state-${role}.json`)) continue;
@@ -58,54 +112,36 @@ for (const role of Object.keys(PAGES)) {
   // each load starts like a first visit: views remembered in the browser (calendar, a tab, a zoom) would hide buttons
   await ctx.addInitScript(() => { try { if (!sessionStorage.getItem("crawl")) { localStorage.clear(); sessionStorage.setItem("crawl", "1"); } } catch { /* storage off */ } });
   for (const path of PAGES[role]) {
-    if (onlyPage !== undefined && path !== onlyPage) continue;
+    if (onlyPage !== undefined && onlyPage !== "--deep" && path !== onlyPage) continue;
     const first = await open(ctx, path);
     const list = (await labels(first.page)).filter((t) => !SKIP.test(t));
     for (const e of first.errs) issues.push({ role, path, button: "(load)", e });
     await first.page.close();
-    let n = 0;
+    let n = 0, deep = 0;
     for (const label of list) {
       const { page, errs } = await open(ctx, path);
+      let kids = [];
       try {
-        // the same button as listed (label + first visible match), clicked like a person would, after scrolling to it
-        const hit = await page.evaluate((label) => {
-          const b = [...document.querySelectorAll("button, a[role=button], [role=tab]")].find((x) => x.offsetParent && !x.disabled
-            && (x.getAttribute("aria-label") || x.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60) === label);
-          if (!b) return false;
-          b.scrollIntoView({ block: "center", inline: "center" }); b.setAttribute("data-crawl", "1"); return true;
-        }, label);
-        if (!hit) throw new Error("button gone after reload");
-        await page.locator("[data-crawl='1']").click({ timeout: 4000 }).catch(async () => page.evaluate(() => document.querySelector("[data-crawl='1']").click()));
-        await page.waitForTimeout(1200);
-        const r = await page.evaluate(() => {
-          const txt = document.body.innerText;
-          const box = document.querySelector(".overlay .sheet, .overlay form, [role=dialog], .cl-pop, .tm-pop");
-          const small = [], off = [];
-          if (box) {
-            const rc = box.getBoundingClientRect();
-            if (rc.right > innerWidth + 1 || rc.left < -1 || rc.bottom > innerHeight + 400) off.push(`${Math.round(rc.left)},${Math.round(rc.right)}`);
-            for (const el of box.querySelectorAll("*")) {
-              if (!el.offsetParent || ![...el.childNodes].some((x) => x.nodeType === 3 && x.textContent.trim())) continue;
-              const fs = parseFloat(getComputedStyle(el).fontSize); if (fs < 12) small.push(`${el.textContent.trim().slice(0, 18)} ${fs}px`);
-            }
-          }
-          // technical or English error text shown to a person
-          const leak = (txt.match(/(Traceback|Error:|Exception|undefined|NaN|\[object Object\]|is not whitelisted|Not permitted|does not have)[^\n]{0,80}/) || [])[0];
-          return { small: small.slice(0, 3), off, leak };
-        });
-        if (r.leak) errs.push("shown: " + r.leak);
-        if (r.small.length) errs.push("text<12px: " + r.small.join("; "));
-        if (r.off.length) errs.push("window off-screen " + r.off.join(" "));
+        await press(page, label);
+        await measure(page, errs);
+        if (DEEP) kids = (await inner(page)).filter((t) => !SKIP.test(t) && t !== label);
       } catch (e) { errs.push("click failed: " + e.message.split("\n")[0].slice(0, 120)); }
-      const real = [...new Set(errs)].filter((e) => !/^click failed/.test(e) || !/not visible|detached|intercepts/.test(e));
-      if (real.length) {
-        const tag = `${role}-${(path || "home").replace(/\//g, "_")}-${++n}`;
-        await page.screenshot({ path: `${OUT}${tag}.png` }).catch(() => {});
-        for (const e of real) { issues.push({ role, path, button: label, e, shot: tag }); console.log(`ISSUE ${role} /${path} [${label}] ${e}`); }
-      }
+      await report(role, path, label, page, errs, ++n);
       await page.close();
+      // level 2: every button inside the window or menu this one opened
+      for (const kid of kids) {
+        const w = await open(ctx, path);
+        try {
+          await press(w.page, label);
+          await press(w.page, kid, null);
+          await measure(w.page, w.errs);
+        } catch (e) { w.errs.push("click failed: " + e.message.split("\n")[0].slice(0, 120)); }
+        await report(role, path, `${label} › ${kid}`, w.page, w.errs, ++n);
+        await w.page.close();
+        deep++;
+      }
     }
-    console.log(`done  ${role} /${path}: ${list.length} buttons`);
+    console.log(`done  ${role} /${path}: ${list.length} buttons` + (DEEP ? `, ${deep} inside windows` : ""));
   }
   await ctx.close();
 }
