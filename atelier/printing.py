@@ -110,7 +110,7 @@ def print_context(doc):
 			"tax_id": customer.get("tax_id") if customer.get("customer_type") == "Company" else None,
 			**({"rc": customer.get("atelier_rc"), "nis": customer.get("atelier_nis"), "ai": customer.get("atelier_ai")} if customer.get("customer_type") == "Company" else {}),
 			"address": _address("Customer", party)},
-		"font_url": "https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap",
+		"font_url": get_url("/assets/atelier/atelier/fonts/cairo.css"),  # bundled: prints the same without internet
 	}
 
 
