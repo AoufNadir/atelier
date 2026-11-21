@@ -963,8 +963,8 @@ def archive_paid(column):
 def archived_cards(cancelled=0):
 	"""Archived cards, or with cancelled=1 the cancelled orders (kept for the record, never restored)."""
 	filters = {"docstatus": 2} if int(cancelled or 0) else {"atelier_archived": 1, "docstatus": ["<", 2]}
-	return frappe.get_list("Sales Order", filters=filters,
-		fields=["name", "atelier_subject as title", "customer_name", "modified", "grand_total"], order_by="modified desc", limit=200)
+	fields = ["name", "atelier_subject as title", "customer_name", "modified"] + ([] if is_worker() else ["grand_total"])
+	return frappe.get_list("Sales Order", filters=filters, fields=fields, order_by="modified desc", limit=200)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1629,7 +1629,11 @@ def save_customer2(data):
 
 @frappe.whitelist()
 def customer_credit(name):
-	"""For the new-order form: is this customer over their credit limit?"""
+	"""For the new-order form: is this customer over their credit limit? Designers and printers never see money."""
+	if is_worker():
+		c = frappe.db.get_value("Customer", name, ["customer_type", "mobile_no", "atelier_note"], as_dict=True) or {}
+		return {"limit": 0, "owes": 0, "over": False, "note": c.get("atelier_note"), "tva_exempt": 0,
+			"customer_type": c.get("customer_type"), "mobile_no": c.get("mobile_no")}
 	limit = flt(frappe.db.get_value("Customer", name, "atelier_credit_limit"))
 	# computed for everyone who takes orders (a seller has no invoice rights, the limit must still apply):
 	# the customer's account balance + what is still to be invoiced on his open orders

@@ -296,6 +296,11 @@ def _order_rows(filters, limit=8):
 		r.owner_name = names_cache.setdefault(r.owner, frappe.utils.get_fullname(r.owner))
 		r.price_pending = r.name in pending
 		r.paid = max(flt(r.advance_paid), flt(paid_on_invoices.get(r.name)), flt(tagged.get(r.name)))
+	from atelier.simple import is_worker
+
+	if is_worker():  # designers and printers never receive money, whatever endpoint asked
+		for r in rows:
+			r.grand_total = r.paid = r.advance_paid = None
 	return rows
 
 

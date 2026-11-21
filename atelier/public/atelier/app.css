@@ -443,8 +443,9 @@ table.t thead th { background: #FAF9FC; }
 @media (min-width: 1024px) {
   .sidebar { padding: var(--s6) var(--s4); gap: 4px; }
   .sidebar .brand { gap: 12px; padding: 0 var(--s2) var(--s6); }
-  .sidebar .brand .name { line-height: 1.1; }
-  .sidebar .brand-word { font-size: 34px; font-weight: 700; color: #fff; }
+  .sidebar .brand .name { line-height: 1.1; gap: 4px; }
+  /* «رقمي» ends with a descending ي: room under it so it never touches the tagline */
+  .sidebar .brand-word { font-size: 34px; font-weight: 700; color: #fff; line-height: 1.35; }
   .sidebar .brand small { margin-top: 4px; }
   .ws-org { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 14px; margin-bottom: var(--s5); border-radius: var(--r); border: 1px solid var(--nav-line);
     background: transparent; color: var(--nav-ink-strong); font: inherit; cursor: pointer; }
