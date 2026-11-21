@@ -849,6 +849,10 @@ def _delete_blockers(name):
 		out.append(_("فاتورة"))
 	if frappe.db.exists("Delivery Note Item", {"against_sales_order": name, "docstatus": ["<", 2]}):
 		out.append(_("بون تسليم"))
+	# materials issued or an expense charged to the job: their entries point to its project, which must stay
+	project = frappe.db.get_value("Sales Order", name, "project")
+	if project and frappe.db.exists("GL Entry", {"project": project, "is_cancelled": 0}):
+		out.append(_("مواد مصروفة أو مصروف"))
 	return out
 
 
@@ -1500,6 +1504,8 @@ def owner_move(kind, account, amount, note=None):
 		frappe.throw(_("اختر صندوقًا"))
 	owner = owner_account()
 	out = kind == "withdraw"
+	if out:
+		api.ensure_funds(account, amount)
 	label = _("سحب شخصي") if out else _("إيداع من المالك")
 	je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Journal Entry", "company": company, "posting_date": nowdate(),
 		"user_remark": label + (" — " + note.strip()[:120] if note and note.strip() else ""),

@@ -92,3 +92,16 @@ class TestIllogicalInputs(unittest.TestCase):
 		big = self._balance(self._cash()) + 5000
 		bill = materials.purchase_bill(supplier, json.dumps([{"item_code": item, "qty": 1, "rate": big}]), paid=0)
 		self.refused(simple.pay_supplier, bill["invoice"], "Cash")
+
+	def test_owner_withdraws_more_than_the_box_holds_refused(self):
+		self.refused(simple.owner_move, "withdraw", self._cash(), self._balance(self._cash()) + 1000)
+
+	def test_card_with_materials_issued_cannot_be_deleted(self):
+		from atelier import materials
+
+		so = simple.quick_order(json.dumps({"customer": _customer(), "subject": "حذف", "lines": [{"text": "x", "qty": 1, "rate": 100}]}, ensure_ascii=False))["sales_order"]
+		supplier = frappe.db.get_value("Supplier", {}, "name")
+		item = materials.add_material("ورق اختبار الحذف", "Nos")
+		materials.purchase_bill(supplier, json.dumps([{"item_code": item, "qty": 10, "rate": 1}]), paid=0)
+		materials.stock_issue(item, 2, so, "x")
+		self.refused(simple.delete_card, so)
