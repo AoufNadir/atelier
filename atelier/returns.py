@@ -123,6 +123,7 @@ def cancel_order(name, refund_mode=None, reason=""):
 	_manager()
 	from atelier.simple import _log
 
+	api.lock_order(name)
 	so = frappe.get_doc("Sales Order", name)
 	if so.docstatus == 2:
 		frappe.throw(_("الطلب ملغى من قبل"))
@@ -196,6 +197,7 @@ def create_return(name, qtys, refund_mode=None, reason=""):
 	from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
 	from atelier.simple import _log
 
+	api.lock_order(name)  # two returns at once must not both pass the «left to return» check
 	qtys = {k: flt(v) for k, v in (frappe.parse_json(qtys) or {}).items() if flt(v) > 0}
 	if not qtys:
 		frappe.throw(_("اختر كمية بند واحد على الأقل"))

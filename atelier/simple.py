@@ -214,6 +214,7 @@ def move(name, column):
 	"""Drag a card. «سُلّم» = delivery note + invoice (advances deducted), so nobody handles paperwork."""
 	if column not in COLUMNS:
 		frappe.throw(_("عمود غير معروف"))
+	api.lock_order(name)  # a double click or two people delivering at once: one delivery, one invoice
 	so = frappe.get_doc("Sales Order", name)
 	so.check_permission("write")
 	if column_of(so.atelier_stage, so.per_delivered) == "done":
@@ -249,6 +250,7 @@ def partial_info(name):
 def partial_deliver(name, qtys):
 	"""Deliver some lines now: a delivery note for them and an invoice for exactly what it delivered (the order's
 	advances deducted up to that invoice). The card stays on the board until the rest is delivered."""
+	api.lock_order(name)
 	so = frappe.get_doc("Sales Order", name)
 	so.check_permission("write")
 	no_worker()
@@ -608,6 +610,7 @@ def move_card(name, column):
 	col = next((c for c in cfg["columns"] if c["id"] == column), None)
 	if not col:
 		frappe.throw(_("عمود غير معروف"))
+	api.lock_order(name)  # the second of two simultaneous moves sees the first one's result and does nothing
 	so = frappe.get_doc("Sales Order", name)
 	so.check_permission("write")
 	current = _column_for(so, cfg)

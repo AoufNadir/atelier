@@ -902,11 +902,32 @@ def _with_ref(name, reference_no=None, reference_date=None):
 	return name
 
 
+def lock_order(name):
+	"""Two people (or a double click) acting on the same order at once: the second waits for the first, then sees
+	what it did. A row lock for the rest of the request."""
+	if not name:
+		return
+	if frappe.flags.in_test:  # tests share one transaction: a row lock is enough there
+		frappe.db.sql("select name from `tabSales Order` where name=%s for update", name)
+		return
+	# a named lock held by this connection until the request ends, then a fresh view of the data: without the
+	# commit, the second request would keep reading the order as it was before the first one finished
+	if not frappe.db.sql("select get_lock(%s, 20)", f"atelier-order-{name}")[0][0]:
+		frappe.throw(_("شخص آخر يعدّل هذا الطلب الآن. أعد المحاولة بعد لحظة."))
+	frappe.db.commit()
+
+
 def _record_payment(customer, amount, mode_of_payment, sales_order=None):
 	if flt(amount) <= 0:
 		frappe.throw(_("المبلغ يجب أن يكون أكبر من صفر"))
+	lock_order(sales_order)
 	so = frappe.get_doc("Sales Order", sales_order) if sales_order else None
 	if so and so.docstatus == 1:
+		row = _order_rows({"name": so.name}, limit=1)
+		left = flt(so.grand_total) - flt(row[0].paid if row else 0)
+		if flt(amount) > left + 0.005:
+			frappe.throw(_("المبلغ أكبر من الباقي على هذا الطلب ({0}). إن كان العميل يدفع مسبقًا لطلب آخر، سجّلها من ملفه دون ربطها بطلب.").format(
+				frappe.format_value(max(0, left), {"fieldtype": "Currency"})))
 		unpaid = [d for d in _order_docs(so) if d["doctype"] == "Sales Invoice" and flt(d["outstanding_amount"]) > 0]
 		if unpaid:
 			return _receive_invoice(unpaid[0]["name"], flt(amount), mode_of_payment)
