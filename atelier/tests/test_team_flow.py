@@ -134,3 +134,4 @@ class TestTeamFlow(unittest.TestCase):
 		finally:
 			frappe.set_user("Administrator")
 		self.assertEqual(hits, [], "money reached a printer: " + ", ".join(hits[:10]))
+

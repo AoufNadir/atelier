@@ -1773,6 +1773,7 @@ def save_profile(profile):
 	company = api._company()
 	frappe.db.set_value("Company", company, {"phone_no": clean["phone"] or None, "email": clean["email"] or None, "tax_id": clean["nif"] or None,
 		"company_logo": clean["logo"] or None})
+	_sync_mail_name()  # the sender name follows the shop's name
 	return workshop_profile()
 
 
@@ -2144,7 +2145,7 @@ def payment_order_field():
 
 
 # ---------------------------------------------------------------- outgoing email (password reset, new accounts)
-MAIL_ACCOUNT = "نسق — البريد الصادر"
+MAIL_ACCOUNT = "البريد الصادر"  # renamed to the shop name on save (_sync_mail_name)
 
 
 def email_settings():
@@ -2182,8 +2183,25 @@ def save_email(cfg):
 		a.password = c["password"]
 	a.awaiting_password = 0
 	a.flags.ignore_validate = False
-	a.save(ignore_permissions=True)
+	try:
+		a.save(ignore_permissions=True)
+	except frappe.ValidationError as e:
+		# ERPNext tests the mailbox on save and answers in English: say what to check, in Arabic
+		frappe.clear_messages()
+		frappe.throw(_("تعذّر الاتصال بخادم البريد. تحقّق من الخادم والمنفذ ونوع الحماية والبريد وكلمة السر.") + f" ({str(e)[:120]})")
+	_sync_mail_name(a.name)
 	return email_settings()
+
+
+def _sync_mail_name(name=None):
+	"""Customers see the account name as the sender: it is the shop's name, never the product's."""
+	name = name or frappe.db.get_value("Email Account", {"default_outgoing": 1})
+	if not name:
+		return
+	prof = workshop_profile()
+	want = f"{(prof.get('name_ar') or api._company()).strip()[:90]}"
+	if want and name != want and not frappe.db.exists("Email Account", want):
+		frappe.rename_doc("Email Account", name, want, force=True)
 
 
 @frappe.whitelist(methods=["POST"])
