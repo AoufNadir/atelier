@@ -3280,3 +3280,15 @@ th, td { position: relative; }
 .ip-tw{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:8px}
 .ip-tag{font-size:12px;padding:1px 8px;border-radius:10px;white-space:nowrap}.ip-tag.new{background:#E6F4EC;color:#1F7A4D}.ip-tag.exists{background:#FFF4E0;color:#8A5100}.ip-tag.error{background:#FDECEA;color:#B42318}
 @media(max-width:800px){.ip-kinds{grid-template-columns:1fr 1fr}.ip-sum{flex-direction:column}}
+
+.sw-top{display:flex;align-items:center;gap:12px;margin-bottom:12px}.sw-bar{flex:1;max-width:280px;height:8px;background:var(--line);border-radius:6px;overflow:hidden}.sw-bar i{display:block;height:100%;background:var(--primary,#4f3cc9)}
+.sw-top .cl-btn{margin-inline-start:auto}
+.sw-grid{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
+.sw-steps{padding:8px}.sw-st{display:flex;gap:10px;align-items:flex-start;width:100%;padding:9px 10px;border:0;background:none;border-radius:8px;text-align:start;font:inherit;color:inherit;cursor:pointer}
+.sw-st.on{background:rgba(79,60,201,.08)}.sw-st i{flex:none;width:24px;height:24px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:700;color:var(--muted)}
+.sw-st.done i{background:#1F7A4D;border-color:#1F7A4D;color:#fff}.sw-st.on i{border-color:var(--primary,#4f3cc9);color:var(--primary,#4f3cc9)}.sw-st.done.on i{color:#fff}
+.sw-st b{display:block;font-size:14px}.sw-st small{color:var(--muted);font-size:12px}.sw-st em{font-style:normal;font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:10px;padding:0 6px;margin-inline-start:6px;font-weight:400}
+.sw-main h2{font-size:17px;margin:0 0 6px;display:flex;gap:8px;align-items:center}
+.sw-f{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.sw-f label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}.sw-f .input{height:38px}
+.sw-nav{margin-top:18px}
+@media(max-width:800px){.sw-grid{grid-template-columns:1fr}.sw-f{grid-template-columns:1fr}}

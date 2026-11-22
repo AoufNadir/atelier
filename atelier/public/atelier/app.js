@@ -3456,7 +3456,7 @@ function useSettingsForm(id, read, reset, save, own) {
   return form;
 }
 const SETTINGS_GROUPS = [
-  ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"], ["import", "file", "استيراد من Excel"]]],
+  ["المطبعة", [["setup", "check", "معالج التجهيز"], ["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"], ["import", "file", "استيراد من Excel"]]],
   ["العمل", [["team", "users", "الفريق والحسابات"], ["columns", "grid", "أعمدة اللوحة"], ["statuses", "tag", "الحالات والوسوم"], ["calendar", "calendar", "التقويم"],
     ["prices", "tag", "الخدمات والأسعار"], ["lists", "grid", "القوائم"]]],
   ["المال", [["funds", "wallet", "الدفع والصناديق"], ["year", "calendar", "السنة المالية والإقفال"]]],
@@ -3633,8 +3633,61 @@ const ImportPanel = {
     </template>
   </div>`,
 };
+const SetupPanel = {
+  emits: ["open"],
+  setup(props, { emit }) {
+    const d = ref(null), cur = ref(null), busy = ref(false), svc = reactive({ item_name: "", uom: "قطعة", price_individual: "", price_company: "" }), added = ref(0);
+    const load = async () => { d.value = await call("setup_status"); if (!cur.value) cur.value = (d.value.steps.find((x) => !x.done && !x.skipped) || d.value.steps[0]).key; };
+    onMounted(load);
+    const step = computed(() => d.value?.steps.find((x) => x.key === cur.value));
+    const idx = computed(() => d.value?.steps.findIndex((x) => x.key === cur.value) ?? 0);
+    const moveBy = (n) => { const l = d.value.steps; cur.value = l[Math.min(l.length - 1, Math.max(0, idx.value + n))].key; };
+    const skip = async () => { d.value = await call("setup_skip", { step: cur.value, skip: 1 }, true); moveBy(1); };
+    const hide = async () => { d.value = await call("setup_hide", { hidden: d.value.hidden ? 0 : 1 }, true); state.boot.setup_pending = false; toast(d.value.hidden ? "أُخفي المعالج، ويبقى هنا في الإعدادات" : "سيظهر المعالج عند الدخول"); };
+    const addService = async () => { busy.value = true;
+      try { await call("create_item", { data: JSON.stringify({ ...svc, kind: "service", price_individual: svc.price_individual === "" ? null : parseAmount(svc.price_individual), price_company: svc.price_company === "" ? null : parseAmount(svc.price_company) }) }, true);
+        added.value++; toast("أُضيفت الخدمة"); Object.assign(svc, { item_name: "", price_individual: "", price_company: "" }); await load(); }
+      catch (e) { toast(e.message, "error"); } finally { busy.value = false; } };
+    const LABEL = { profile: "فتح بيانات المطبعة", docs: "فتح الوثائق والضريبة", funds: "فتح الدفع والصناديق", import: "فتح الاستيراد من Excel", team: "فتح الفريق والحسابات", columns: "فتح أعمدة اللوحة" };
+    const NOTE = { profile: "الاسم والهاتف والعنوان تظهر في رأس كل بون وفاتورة. الشعار اختياري.", docs: "RC وNIF ونص أسفل الوثائق. فعّل TVA إن كانت المطبعة خاضعة لها.",
+      funds: "سجّل ما في كل صندوق اليوم (رصيد افتتاحي) حتى تبدأ الحسابات من الرقم الصحيح.", materials: "اختياري: الورق والحبر وكمياتها الحالية، من Excel (نوع «المواد»).",
+      parties: "استورد العملاء والموردين من Excel، ثم ديونهم السابقة (نوع «الديون الافتتاحية»).", team: "حساب لكل عامل بدوره: البائع يرى المال، المصمم والطابع لا يريانه.",
+      columns: "اللوحة جاهزة بأعمدة افتراضية؛ غيّرها فقط إن كان سير العمل مختلفًا." };
+    return { d, cur, step, idx, moveBy, skip, hide, svc, added, busy, addService, LABEL, NOTE, emit, units: computed(() => state.boot.units || []) };
+  },
+  template: `
+  <div v-if="!d" class="st2-card m">جارٍ التحميل…</div>
+  <div v-else class="sw">
+    <div class="sw-top"><span class="m">{{ d.done }} من {{ d.steps.length }} خطوات</span><div class="sw-bar"><i :style="{width: (d.done / d.steps.length * 100) + '%'}"></i></div>
+      <button type="button" class="cl-btn sm" @click="hide">{{ d.hidden ? 'إظهار المعالج عند الدخول' : 'إخفاء المعالج' }}</button></div>
+    <div class="sw-grid">
+      <div class="st2-card sw-steps">
+        <button v-for="(s, i) in d.steps" :key="s.key" type="button" class="sw-st" :class="{done: s.done, on: s.key === cur}" @click="cur = s.key">
+          <i>{{ s.done ? '✓' : i + 1 }}</i><span><b>{{ s.title }}<em v-if="s.optional">اختياري</em><em v-else-if="s.skipped">مؤجّلة</em></b><small>{{ s.hint }}</small></span></button>
+      </div>
+      <div class="st2-card sw-main" v-if="step">
+        <h2>{{ idx + 1 }}. {{ step.title }} <span v-if="step.done" class="ip-tag new">مكتملة</span></h2>
+        <template v-if="step.key === 'services'">
+          <p class="m">ما تبيعه المطبعة وسعره للأفراد والمؤسسات. يكفي ما تبيعه كثيرًا؛ الباقي يُضاف لاحقًا من قائمة الأسعار.</p>
+          <div class="sw-f"><label>اسم الخدمة<input class="input" v-model="svc.item_name" placeholder="بطاقات زيارة"></label>
+            <label>الوحدة<select class="input" v-model="svc.uom"><option v-for="u in units" :key="u.name" :value="u.name">{{ u.name }}</option></select></label>
+            <label>سعر الأفراد<input class="input" dir="ltr" inputmode="decimal" v-model="svc.price_individual"></label>
+            <label>سعر المؤسسات<input class="input" dir="ltr" inputmode="decimal" v-model="svc.price_company"></label></div>
+          <div class="btn-row" style="margin-top:12px"><button type="button" class="cl-btn" :disabled="busy || !svc.item_name.trim()" @click="addService">إضافة الخدمة</button><span class="m">أضيف الآن: {{ added }}</span></div>
+          <p class="alert warn" style="margin-top:12px">عندك قائمة جاهزة؟ «استيراد من Excel» ينقلها دفعة واحدة مع الأسماء الفرنسية.</p>
+        </template>
+        <p v-else class="m">{{ NOTE[step.key] }}</p>
+        <div class="btn-row sw-nav"><button type="button" class="cl-btn primary" :disabled="idx === d.steps.length - 1" @click="moveBy(1)">التالي</button>
+          <button v-if="step.tab" type="button" class="cl-btn" @click="emit('open', step.tab)">{{ LABEL[step.tab] }}</button>
+          <button v-else type="button" class="cl-btn" @click="emit('open', 'import')">استيراد من Excel</button>
+          <button v-if="!step.done && !step.skipped" type="button" class="cl-btn" @click="skip">تخطٍّ الآن</button>
+          <span style="flex:1"></span><button type="button" class="cl-btn" :disabled="idx === 0" @click="moveBy(-1)">السابق</button></div>
+      </div>
+    </div>
+  </div>`,
+};
 const SettingsPage = {
-  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, ListEditor, OpeningGroup, YearPanel, ImportPanel },
+  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, ListEditor, OpeningGroup, YearPanel, ImportPanel, SetupPanel },
   setup(props) {
     const { s, load } = useLoad(() => call("settings"));
     onMounted(load);
@@ -3708,6 +3761,7 @@ const SettingsPage = {
       lists: ["القوائم", "وحدات البيع والأوسام ومواعيد التسليم وأنواع التكلفة والأدوار"], funds: ["الدفع والصناديق", "أسماء الصناديق وطرق الدفع"], alerts: ["التنبيهات", "ما يصل إلى جرس كل عضو", saveAlerts],
       mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], folders: ["المجلدات", "مجلد لكل عميل ولكل بطاقة على هذا الحاسوب", saveFolders], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"],
       year: ["السنة المالية والإقفال", "جدول النتائج والميزانية، وإقفال السنة بعد نهايتها"],
+      setup: ["تجهيز المطبعة", "الخطوات الأساسية لبدء العمل. كل خطوة تُكتشف تلقائيًا من بياناتك"],
       import: ["استيراد من Excel", "نقل العملاء والموردين والمواد والأسعار والديون السابقة دفعة واحدة"] };
     const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
     // own forms (profile, documents, alerts, mail, folders): clean once the settings load
@@ -3877,6 +3931,7 @@ const SettingsPage = {
 
         <YearPanel v-else-if="tab === 'year'"/>
         <ImportPanel v-else-if="tab === 'import'"/>
+        <SetupPanel v-else-if="tab === 'setup'" @open="tab = $event"/>
         <div v-else-if="tab === 'backup'" class="st2-card">
           <div class="st2-grp"><div class="st2-lbl"><b>النسخ الاحتياطي</b><span>نسخة كاملة من البيانات والملفات. احفظ نسخة خارج الجهاز من حين لآخر.</span></div>
             <div class="st2-fields"><button type="button" class="cl-btn primary" style="align-self:flex-start" :disabled="busy === 'backup'" @click="backup">{{ busy === 'backup' ? 'جارٍ إنشاء النسخة…' : 'إنشاء نسخة الآن' }}</button>
@@ -5213,7 +5268,10 @@ const App = {
     const bootErr = ref(null);
     const loadBoot = async () => {
       bootErr.value = null;
-      try { state.boot = await call("boot"); applyScale(state.boot.ui_scale); sizeState.zoom = zoomOf(); } catch (e) { bootErr.value = e.message; }
+      try { state.boot = await call("boot"); applyScale(state.boot.ui_scale); sizeState.zoom = zoomOf();
+        // a new shop: the manager lands on the setup wizard until the essential steps are done (once per session)
+        try { if (state.boot.setup_pending && route.value.name === "home" && !sessionStorage.getItem("raqmi_setup_seen")) { sessionStorage.setItem("raqmi_setup_seen", "1"); go("/settings?tab=setup"); } } catch (_e) { /* storage off */ }
+      } catch (e) { bootErr.value = e.message; }
       if (state.boot && !["designer", "printer"].includes(state.boot.role)) call("orders").then((l) => (state.openOrders = l.length)).catch(() => {});
     };
     onMounted(async () => {

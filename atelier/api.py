@@ -108,6 +108,15 @@ def _with_prices(items):
 	return items
 
 
+def _setup_pending():
+	from atelier.setup_wizard import pending
+
+	try:
+		return pending()
+	except Exception:
+		return False
+
+
 @frappe.whitelist()
 def boot():
 	from atelier.simple import WORKERS, app_role
@@ -133,6 +142,7 @@ def boot():
 		"items": [{k: v for k, v in i.items() if k not in ("standard_rate", "price_individual", "price_company")} for i in items] if worker else _with_prices(items),
 		"stages": STAGES,
 		"units": simple_units(),
+		"setup_pending": role == "manager" and _setup_pending(),
 		"lists": simple_lists(),
 		**production.boot_info(),
 		"modes": [{"value": v, "label": l} for v, l in all_modes() if frappe.db.exists("Mode of Payment", v)],
@@ -1518,3 +1528,4 @@ from atelier.opening import opening_info, add_opening, reverse_opening  # noqa: 
 
 from atelier.printing import set_item_name_fr  # noqa: E402,F401
 from atelier.importer import import_check, import_errors, import_run, import_template  # noqa: E402, F401
+from atelier.setup_wizard import setup_hide, setup_skip, setup_status  # noqa: E402, F401
