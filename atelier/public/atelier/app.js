@@ -2849,6 +2849,10 @@ const SimpleMoney = {
     const dayFmt = new Intl.DateTimeFormat("ar", { weekday: "long", day: "numeric", month: "long" });
     const dayLabel = (iso) => { const n = daysFromToday(iso); return (n === 0 ? "اليوم · " : n === -1 ? "أمس · " : "") + dayFmt.format(parseDate(iso)); };
     const KINDS = [["all", "الكل"], ["in", "دخل"], ["out", "مصاريف"], ["owner", "سحب شخصي / إيداع"], ["transfer", "تحويلات"], ["handover", "تسليم صناديق"]];
+    const cancelPay = async (m) => {
+      const reason = prompt(`إلغاء دفعة ${fig(Math.abs(m.amount))} دج (${m.title})؟\nتعود فواتيرها مفتوحة ويخرج المبلغ من الصندوق. اكتب السبب:`);
+      if (reason === null) return; if (!reason.trim()) return toast("اكتب سبب الإلغاء", "error");
+      try { await call("cancel_payment", { name: m.voucher_no, reason }, true); toast("أُلغيت الدفعة"); await load(); } catch (e) { toast(e.message, "error"); } };
     const exportMoves = () => {
       const rows = [["التاريخ", "البيان", "النوع", "الصندوق", "المبلغ", "سجّلها"], ...moves.value.map((m) => [m.posting_date, m.title, m.category, m.fund, m.amount.toFixed(2), m.by])];
       const text = "\ufeff" + rows.map((r) => r.map((v) => '"' + String(v ?? "").replace(/"/g, '""') + '"').join(",")).join("\n");
@@ -2913,7 +2917,7 @@ const SimpleMoney = {
     const supplierMode = ref("Cash");
     const prevName = computed(() => (d.value ? new Intl.DateTimeFormat("ar", { month: "long" }).format(new Date(parseDate(d.value.month).getFullYear(), parseDate(d.value.month).getMonth() - 1, 1)) : ""));
     const change = (now, prev) => { const p = pct(now, prev); return p === null ? `لا أرقام لشهر ${prevName.value}` : p === 0 ? `مثل ${prevName.value}` : `${p > 0 ? "أكثر" : "أقل"} بـ ${Math.abs(p)}% من ${prevName.value}`; };
-    return { fundSel, days, dayLabel, KINDS, exportMoves, fundNote, cashFunds, cl, clBusy, openClose, clExpected, clDiff, doClose, clearing, clearCheque, chequeTotal, ago,
+    return { cancelPay, fundSel, days, dayLabel, KINDS, exportMoves, fundNote, cashFunds, cl, clBusy, openClose, clExpected, clDiff, doClose, clearing, clearCheque, chequeTotal, ago,
       change, s, load, d, offset, month, pct, kind, q, moves, maxWeek, maxCat, catTotal, owed, owe, CAT_COLORS, fund, pay, remind, tr, trBusy, openTransfer, doTransfer, mvMenu, MOVE_KINDS, parseAmount,
       paying, paySupplier, supplierMode, waLink, money, fig, date, dueWord, daysFromToday, state, go, t };
   },
@@ -2987,6 +2991,7 @@ const SimpleMoney = {
                   <div style="min-width:0"><span class="cl-name">{{ m.title }}<Icon v-if="m.files" name="file" :size="13" class="mn-clip"/></span>
                     <span class="muted mn-sub">{{ m.category }}<template v-if="m.handover"> · استلم المدير {{ fig(m.handover.received) }} · أُغلق {{ fig(m.handover.closed) }}<template v-if="Math.abs(m.handover.diff) > 0.005"> · {{ m.handover.diff < 0 ? 'عجز' : 'زيادة' }} {{ fig(Math.abs(m.handover.diff)) }}</template></template><template v-if="m.ref"> · مرجع {{ m.ref }}</template><template v-if="m.order"> · <a :href="'/atelier/?card=' + m.order" @click.prevent="go('/?card=' + encodeURIComponent(m.order))">{{ m.order_title || m.order }}</a></template> · {{ [m.fund, m.by].filter(Boolean).join(' · ') }}</span></div>
                   <span class="mn-amt" :class="m.kind">{{ m.kind === 'transfer' || m.kind === 'handover' ? '' : m.amount >= 0 ? '+' : '−' }}{{ fig(m.handover ? m.handover.received : m.kind === 'transfer' && m.moved ? m.moved : Math.abs(m.amount)) }}</span>
+                  <button v-if="m.voucher_type === 'Payment Entry' && state.boot.role === 'manager'" type="button" class="mn-undo" title="إلغاء هذه الدفعة" @click="cancelPay(m)">إلغاء</button>
                 </div>
               </template>
             </section>

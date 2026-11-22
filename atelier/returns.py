@@ -9,7 +9,7 @@ document that reverses it, so the books stay readable.
 
 import frappe
 from frappe import _
-from frappe.utils import flt, nowdate
+from frappe.utils import flt, getdate, nowdate
 
 
 
@@ -257,3 +257,35 @@ def create_return(name, qtys, refund_mode=None, reason=""):
 
 # imported last: atelier.api imports this module at its end, so the import must not run before our functions exist
 from atelier import api  # noqa: E402
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_payment(name, reason=""):
+	"""Undo a payment recorded by mistake (wrong amount, wrong customer, wrong box). The entry is cancelled, never
+	deleted: the invoices it paid are open again and the box gives the money back. Manager only, with a reason."""
+	_manager()
+	from atelier.simple import _log
+
+	reason = (reason or "").strip()[:140]
+	if not reason:
+		frappe.throw(_("اكتب سبب الإلغاء"))
+	pe = frappe.get_doc("Payment Entry", name)
+	if pe.docstatus != 1:
+		frappe.throw(_("هذه الدفعة ملغاة من قبل"))
+	frozen = frappe.db.get_value("Company", pe.company, "accounts_frozen_till_date") if frappe.db.has_column("Company", "accounts_frozen_till_date") else None
+	if frozen and getdate(pe.posting_date) <= getdate(frozen):
+		frappe.throw(_("هذه الدفعة في سنة مقفلة: صحّحها بقيد في السنة الجارية"))
+	order = pe.get("atelier_order")
+	if order:
+		api.lock_order(order)
+	if pe.payment_type == "Receive":
+		api.ensure_funds(pe.paid_to, pe.paid_amount)  # the money goes back out of the box it entered
+	pe.flags.ignore_permissions = True
+	pe.cancel()
+	party = frappe.db.get_value(pe.party_type, pe.party, "customer_name" if pe.party_type == "Customer" else "supplier_name") if pe.party_type else ""
+	text = _("ألغى {0} دفعة {1} ({2}): {3}").format(frappe.utils.get_fullname(), frappe.format_value(pe.paid_amount, {"fieldtype": "Currency"}), pe.name, reason)
+	if pe.party_type and pe.party:
+		frappe.get_doc(pe.party_type, pe.party).add_comment("Comment", text)
+	if order:
+		_log(order, text)
+	return {"cancelled": pe.name, "party": party}
