@@ -3269,3 +3269,14 @@ th, td { position: relative; }
 .tm-pop-lang span{margin-inline-end:auto}
 .tm-pop-lang button{border:1px solid var(--line);background:none;border-radius:6px;padding:2px 8px;font:inherit;font-size:12px;cursor:pointer}
 .tm-pop-lang button.on{background:var(--ink,#1f2937);color:#fff;border-color:transparent}
+
+.ip-kinds{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.ip-k{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:none;text-align:start;font:inherit;cursor:pointer;color:inherit}
+.ip-k b{display:block;font-size:14px}.ip-k small{color:var(--muted);font-size:12px}
+.ip-k.on{border-color:var(--primary,#4f3cc9);box-shadow:0 0 0 2px rgba(79,60,201,.18)}
+.ip-drop{display:flex;justify-content:space-between;align-items:center;gap:12px;border:2px dashed var(--line);border-radius:10px;padding:18px;margin-top:12px;color:var(--muted);cursor:pointer}
+.ip-sum{display:flex;gap:10px;margin:12px 0}.ip-sum div{flex:1;border-radius:8px;padding:10px 12px;font-size:13px}.ip-sum b{display:block;font-size:20px}
+.ip-sum .s1{background:#E6F4EC;color:#1F7A4D}.ip-sum .s2{background:#FFF4E0;color:#8A5100}.ip-sum .s3{background:#FDECEA;color:#B42318}
+.ip-tw{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.ip-tag{font-size:12px;padding:1px 8px;border-radius:10px;white-space:nowrap}.ip-tag.new{background:#E6F4EC;color:#1F7A4D}.ip-tag.exists{background:#FFF4E0;color:#8A5100}.ip-tag.error{background:#FDECEA;color:#B42318}
+@media(max-width:800px){.ip-kinds{grid-template-columns:1fr 1fr}.ip-sum{flex-direction:column}}

@@ -3456,7 +3456,7 @@ function useSettingsForm(id, read, reset, save, own) {
   return form;
 }
 const SETTINGS_GROUPS = [
-  ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"]]],
+  ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"], ["import", "file", "استيراد من Excel"]]],
   ["العمل", [["team", "users", "الفريق والحسابات"], ["columns", "grid", "أعمدة اللوحة"], ["statuses", "tag", "الحالات والوسوم"], ["calendar", "calendar", "التقويم"],
     ["prices", "tag", "الخدمات والأسعار"], ["lists", "grid", "القوائم"]]],
   ["المال", [["funds", "wallet", "الدفع والصناديق"], ["year", "calendar", "السنة المالية والإقفال"]]],
@@ -3472,7 +3472,7 @@ const SETTINGS_INDEX = [
   ["التقويم الحد اليومي العطلة الجمعة السبت", "calendar", "التقويم"], ["خدمة سعر الأفراد المؤسسات قائمة الأسعار", "prices", "الخدمات والأسعار"],
   ["وحدات البيع م² سم² قطعة تصنيفات الأوسام مواعيد التسليم أنواع التكلفة الأدوار", "lists", "القوائم"],
   ["الصناديق طرق الدفع كاش بريدي موب CCP تحويل صك الرصيد الافتتاحي", "funds", "الدفع والصناديق"],
-  ["التنبيهات الجرس إسناد ذكر المواعيد", "alerts", "التنبيهات"], ["البريد SMTP رسالة تجريبية", "mail", "البريد"],
+  ["استيراد Excel نقل العملاء الموردين المواد الأسعار ديون سابقة", "import", "استيراد من Excel"], ["التنبيهات الجرس إسناد ذكر المواعيد", "alerts", "التنبيهات"], ["البريد SMTP رسالة تجريبية", "mail", "البريد"],
   ["المجلدات مجلد العميل البطاقة D:", "folders", "المجلدات"], ["النسخ الاحتياطي نسخة تحميل", "backup", "النسخ الاحتياطي"],
 ];
 const SETTINGS_TABS = [["profile", "🏢", "المطبعة"], ["docs", "📄", "الوثائق والضريبة"], ["team", "👥", "الفريق والحسابات"], ["board", "▦", "تخصيص اللوحة"],
@@ -3588,8 +3588,53 @@ const YearPanel = {
     </template>
   </div>`,
 };
+const IMPORT_KINDS = [["customers", "العملاء", "الاسم، الهاتف، النوع، NIF/RC، لغة المستندات"], ["suppliers", "الموردون", "الاسم، الهاتف، ماذا يورّد، العنوان"],
+  ["materials", "المواد", "الاسم، الوحدة، الكمية الافتتاحية، سعر الشراء"], ["services", "الخدمات والأسعار", "الاسم، الفرنسي، التصنيف، الوحدة، السعران"],
+  ["opening", "الديون الافتتاحية", "عميل أو مورد، المبلغ، التاريخ"]];
+const ImportPanel = {
+  setup() {
+    const kind = ref("customers"), file = ref(null), content = ref(null), res = ref(null), busy = ref(false), err = ref(null), done = ref(null);
+    const reset = () => { file.value = content.value = res.value = err.value = done.value = null; };
+    watch(kind, reset);
+    const pick = (e) => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; reset(); file.value = f.name;
+      const r = new FileReader(); r.onload = async () => { content.value = r.result; busy.value = true;
+        try { res.value = await call("import_check", { kind: kind.value, content: content.value }, true); } catch (x) { err.value = x.message; } finally { busy.value = false; } };
+      r.readAsDataURL(f); };
+    const shown = computed(() => (res.value?.columns || []).slice(0, 5));
+    const rows = computed(() => { const l = res.value?.rows || []; const order = { error: 0, exists: 1, new: 2 }; return [...l].sort((a, b) => order[a.status] - order[b.status]).slice(0, 300); });
+    const cell = (v) => (v === null || v === undefined || v === "" ? "—" : v);
+    const run = async () => { if (!confirm(`استيراد ${res.value.count.new} سطرًا؟`)) return; busy.value = true;
+      try { done.value = await call("import_run", { kind: kind.value, content: content.value }, true); toast(`استُورد ${done.value.imported} سطرًا`); res.value = null; }
+      catch (x) { toast(x.message, "error"); } finally { busy.value = false; } };
+    const errorsFile = async () => { try { const b64 = await call("import_errors", { kind: kind.value, content: content.value }, true);
+      const a = document.createElement("a"); a.href = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + b64; a.download = "أخطاء-" + (file.value || "import.xlsx"); a.click(); }
+      catch (x) { toast(x.message, "error"); } };
+    const template = computed(() => "/api/method/atelier.api.import_template?kind=" + kind.value);
+    return { IMPORT_KINDS, kind, file, res, busy, err, done, pick, shown, rows, cell, run, errorsFile, template, reset };
+  },
+  template: `
+  <div class="st2-card ip">
+    <div class="ip-kinds"><button v-for="k in IMPORT_KINDS" :key="k[0]" type="button" class="ip-k" :class="{on: kind === k[0]}" @click="kind = k[0]"><b>{{ k[1] }}</b><small>{{ k[2] }}</small></button></div>
+    <p v-if="kind === 'opening'" class="m" style="margin:10px 0 0">العملاء والموردون يُستوردون أولًا، ثم ديونهم السابقة.</p>
+    <label class="ip-drop"><input type="file" accept=".xlsx" hidden @change="pick">
+      <span v-if="busy">جارٍ الفحص…</span><span v-else-if="file">{{ file }} — اختر ملفًا آخر</span><span v-else>اختر ملف Excel (.xlsx) من القالب</span>
+      <a :href="template" @click.stop>تحميل القالب الفارغ</a></label>
+    <p v-if="err" class="alert error">{{ err }}</p>
+    <p v-if="done" class="alert success">استُورد {{ done.imported }} سطرًا بنجاح.</p>
+    <template v-if="res">
+      <div class="ip-sum"><div class="s1"><b>{{ res.count.new }}</b>جديد، سيُضاف</div><div class="s2"><b>{{ res.count.exists }}</b>موجود، سيُتخطّى (لا يُستبدل)</div><div class="s3"><b>{{ res.count.error }}</b>أخطاء، لن تُستورد حتى تُصحَّح</div></div>
+      <div class="ip-tw"><table class="cl-table"><thead><tr><th>السطر</th><th v-for="c in shown" :key="c[1]">{{ c[0] }}</th><th>الحالة</th></tr></thead><tbody>
+        <tr v-for="r in rows" :key="r.line"><td class="n">{{ r.line }}</td><td v-for="c in shown" :key="c[1]"><bdi>{{ cell(r[c[1]]) }}</bdi></td>
+          <td><span class="ip-tag" :class="r.status">{{ r.status === 'new' ? 'جديد' : r.status === 'exists' ? r.exists : r.error }}</span></td></tr></tbody></table></div>
+      <p v-if="res.rows.length > 300" class="m">يُعرض أول 300 سطر من {{ res.rows.length }}.</p>
+      <div class="btn-row" style="margin-top:14px"><button type="button" class="cl-btn primary" :disabled="busy || !res.count.new" @click="run">{{ busy ? 'جارٍ الاستيراد…' : 'استيراد ' + res.count.new + ' سطرًا' }}</button>
+        <button v-if="res.count.error" type="button" class="cl-btn" @click="errorsFile">تحميل الأخطاء (Excel)</button><button type="button" class="cl-btn" @click="reset">إلغاء</button></div>
+      <p class="m" style="margin-top:10px">لا يُكتب شيء قبل «استيراد». التنفيذ كله أو لا شيء.</p>
+    </template>
+  </div>`,
+};
 const SettingsPage = {
-  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, ListEditor, OpeningGroup, YearPanel },
+  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, ListEditor, OpeningGroup, YearPanel, ImportPanel },
   setup(props) {
     const { s, load } = useLoad(() => call("settings"));
     onMounted(load);
@@ -3662,7 +3707,8 @@ const SettingsPage = {
       team: ["الفريق والحسابات", "من يدخل إلى البرنامج وبأي صلاحية"], columns: ["أعمدة اللوحة", "مراحل الطلب كما يراها الفريق في اللوحة"], statuses: ["الحالات والوسوم", "حالات البطاقة ووسومها وألوانها"], calendar: ["التقويم", "الحد اليومي للطلبات وأيام العطلة"], prices: ["الخدمات والأسعار", "سعر الأفراد وسعر المؤسسات لكل خدمة"],
       lists: ["القوائم", "وحدات البيع والأوسام ومواعيد التسليم وأنواع التكلفة والأدوار"], funds: ["الدفع والصناديق", "أسماء الصناديق وطرق الدفع"], alerts: ["التنبيهات", "ما يصل إلى جرس كل عضو", saveAlerts],
       mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], folders: ["المجلدات", "مجلد لكل عميل ولكل بطاقة على هذا الحاسوب", saveFolders], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"],
-      year: ["السنة المالية والإقفال", "جدول النتائج والميزانية، وإقفال السنة بعد نهايتها"] };
+      year: ["السنة المالية والإقفال", "جدول النتائج والميزانية، وإقفال السنة بعد نهايتها"],
+      import: ["استيراد من Excel", "نقل العملاء والموردين والمواد والأسعار والديون السابقة دفعة واحدة"] };
     const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
     // own forms (profile, documents, alerts, mail, folders): clean once the settings load
     const loaded = (v) => JSON.parse(JSON.stringify(v));
@@ -3830,6 +3876,7 @@ const SettingsPage = {
         </div>
 
         <YearPanel v-else-if="tab === 'year'"/>
+        <ImportPanel v-else-if="tab === 'import'"/>
         <div v-else-if="tab === 'backup'" class="st2-card">
           <div class="st2-grp"><div class="st2-lbl"><b>النسخ الاحتياطي</b><span>نسخة كاملة من البيانات والملفات. احفظ نسخة خارج الجهاز من حين لآخر.</span></div>
             <div class="st2-fields"><button type="button" class="cl-btn primary" style="align-self:flex-start" :disabled="busy === 'backup'" @click="backup">{{ busy === 'backup' ? 'جارٍ إنشاء النسخة…' : 'إنشاء نسخة الآن' }}</button>
