@@ -2,6 +2,8 @@
 import { createApp, reactive, ref, computed, watch, onMounted, onBeforeUnmount, nextTick, h, TransitionGroup, provide, inject } from "./vendor/vue.esm-browser.prod.js";
 // Strings follow the app's cache-busting version (?v=…) so text updates are never stale.
 const { default: STR } = await import(`./i18n/ar.js${new URL(import.meta.url).search}`);
+let GUIDE = null; // the user guide loads only when opened
+const loadGuide = async () => (GUIDE ||= (await import(`./guide.js${new URL(import.meta.url).search}`)).default);
 
 const BASE = "/atelier";
 
@@ -153,7 +155,7 @@ const route = computed(() => {
   if (p === "/suppliers") return { name: "suppliers" };
   if ((m = p.match(/^\/suppliers\/(.+)$/))) return { name: "supplier", id: decodeURIComponent(m[1]) };
   if ((m = p.match(/^\/customers\/(.+)$/))) return { name: "customer", id: decodeURIComponent(m[1]) };
-  if (["/money", "/reports", "/prices", "/team", "/board-settings", "/settings", "/stock", "/calc", "/box"].includes(p)) return { name: p.slice(1) };
+  if (["/money", "/reports", "/prices", "/team", "/board-settings", "/settings", "/stock", "/calc", "/box", "/help"].includes(p)) return { name: p.slice(1) };
   return { name: "home" };
 });
 
@@ -180,6 +182,7 @@ const ICONS = {
   alert: "M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
   clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2",
   check: "M5 12l5 5L20 7",
+  help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.2-2.5 3.9M12 17h.01",
   tag: "M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8ZM7.5 7.5h.01",
   invoice: "M6 2h9l5 5v15H6zM14 2v6h6M9 13h6M9 17h6M9 9h2",
   truck: "M1 4h14v12H1zM15 9h4l4 4v3h-8M5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5M18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5",
@@ -3686,6 +3689,43 @@ const SetupPanel = {
     </div>
   </div>`,
 };
+const GuidePage = {
+  setup() {
+    const all = ref([]), q = ref(""), cur = ref(null);
+    const norm = (x) => String(x || "").toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[ًٌٍَُِّْ]/g, "");
+    const text = (s) => s.title + " " + s.body.map((b) => (Array.isArray(b[1]) ? b[1].flat().join(" ") : b[1])).join(" ");
+    onMounted(async () => { all.value = await loadGuide(); const want = state.query.get("s"), from = state.query.get("from");
+      cur.value = (all.value.find((s) => s.id === want) || all.value.find((s) => from && s.page.includes(from)) || all.value[0]).id; });
+    const hits = computed(() => { const t = norm(q.value.trim()); return t ? all.value.filter((s) => norm(text(s)).includes(t)) : all.value; });
+    const groups = computed(() => { const m = new Map(); for (const s of hits.value) { if (!m.has(s.group)) m.set(s.group, []); m.get(s.group).push(s); } return [...m.entries()]; });
+    const sec = computed(() => all.value.find((s) => s.id === cur.value));
+    watch(hits, (l) => { if (l.length && !l.some((s) => s.id === cur.value)) cur.value = l[0].id; });
+    const printAll = () => { document.body.classList.add("gd-printing"); setTimeout(() => { window.print(); document.body.classList.remove("gd-printing"); }, 50); };
+    return { all, q, cur, groups, sec, printAll, go };
+  },
+  template: `
+  <div class="page gd">
+    <div class="page-head"><div><h1>دليل المستخدم</h1><div class="sub">خطوات قصيرة مع أمثلة لكل ما في البرنامج</div></div>
+      <div class="btn-row"><input class="input gd-q" v-model="q" placeholder="ابحث: إرجاع، G50، دين سابق…" aria-label="بحث في الدليل"><button type="button" class="cl-btn" @click="printAll">طباعة / PDF</button></div></div>
+    <div class="gd-grid">
+      <nav class="st2-card gd-toc" aria-label="أقسام الدليل"><template v-for="g in groups" :key="g[0]"><small>{{ g[0] }}</small>
+        <a v-for="s in g[1]" :key="s.id" href="#" :class="{on: s.id === cur}" @click.prevent="cur = s.id">{{ s.title }}</a></template>
+        <p v-if="!groups.length" class="m" style="padding:8px">لا نتائج.</p></nav>
+      <div>
+        <article v-for="s in all" :key="s.id" class="st2-card gd-sec" :class="{shown: sec && s.id === sec.id}">
+          <h2>{{ s.title }} <span class="gd-who">{{ s.who }}</span></h2>
+          <template v-for="(b, i) in s.body" :key="i">
+            <p v-if="b[0] === 'p'">{{ b[1] }}</p><h3 v-else-if="b[0] === 'h'">{{ b[1] }}</h3>
+            <ol v-else-if="b[0] === 'ol'"><li v-for="x in b[1]" :key="x">{{ x }}</li></ol>
+            <div v-else-if="b[0] === 'tip'" class="gd-tip">{{ b[1] }}</div>
+            <div v-else-if="b[0] === 'err'" class="gd-err"><h3>أخطاء شائعة</h3><dl><template v-for="e in b[1]" :key="e[0]"><dt>{{ e[0] }}</dt><dd>{{ e[1] }}</dd></template></dl></div>
+          </template>
+          <a v-if="s.go" class="gd-go" :href="'/atelier' + s.go" @click.prevent="go(s.go)">افتح الشاشة ←</a>
+        </article>
+      </div>
+    </div>
+  </div>`,
+};
 const SettingsPage = {
   props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, ListEditor, OpeningGroup, YearPanel, ImportPanel, SetupPanel },
   setup(props) {
@@ -5263,7 +5303,7 @@ const StockPage = {
 };
 
 const App = {
-  components: { SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, SupplierPaySheet, CancelSheet, ReturnSheet, PartialSheet, OpeningSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { GuidePage, SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, SupplierPaySheet, CancelSheet, ReturnSheet, PartialSheet, OpeningSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
@@ -5309,6 +5349,7 @@ const App = {
       <a v-for="n in SECTION_NAV.filter(n => !['machines', 'team'].includes(n.key) && (!n.need || state.boot.can[n.need]))" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
+      <a class="nav" :class="{active: route.name==='help'}" href="/atelier/help" @click.prevent="go('/help?from=' + route.name)"><Icon name="help"/><span class="lbl">الدليل</span></a>
       <a v-if="state.boot.can.prices" class="nav" :class="{active: route.name==='settings'}" href="/atelier/settings" @click.prevent="go('/settings')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
       <div class="who-row"><span class="who-av">{{ initials(state.boot.full_name) }}</span><span class="who-txt"><span class="who-name">{{ state.boot.full_name }}</span><span class="who-role">{{ state.boot.can.prices ? t('role_manager') : 'موظف' }}</span></span>
         <button type="button" class="who-out" aria-label="تسجيل الخروج" title="تسجيل الخروج" @click="logout"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></button></div>
@@ -5341,6 +5382,7 @@ const App = {
         <SettingsPage v-else-if="route.name==='team'" key="team" start="team"/>
         <BoardSettings v-else-if="route.name==='board-settings'"/>
         <SettingsPage v-else-if="route.name==='settings'" :key="state.query.get('tab') || ''"/>
+        <GuidePage v-else-if="route.name==='help'" :key="state.query.get('s') || state.query.get('from') || ''"/>
       </main>
     </div>
 
