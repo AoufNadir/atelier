@@ -36,6 +36,9 @@ def setup():
 	quotes.custom_fields()
 	materials.custom_fields()
 	folders.custom_fields()
+	from atelier import printing
+
+	printing.custom_fields()
 	api.setup_print_formats(commit=False)
 	for key, value in {
 		"atelier_board": simple.DEFAULT_CONFIG,

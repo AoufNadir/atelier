@@ -1644,6 +1644,7 @@ def save_customer2(data):
 		"atelier_contacts": json.dumps(people, ensure_ascii=False),
 		"atelier_note": (d.get("note") or "").strip()[:1000] or None,
 		"atelier_tva_exempt": cint(d.get("tva_exempt")),
+		**({"atelier_doc_lang": d.get("doc_lang") if d.get("doc_lang") in ("ar", "fr") else "ar"} if frappe.db.has_column("Customer", "atelier_doc_lang") else {}),
 	})
 	return name
 
@@ -1717,7 +1718,8 @@ def customer_extras(name):
 		join `tabSales Order Item` soi on soi.parent=so.name where so.customer=%s and so.docstatus<2 group by what order by n desc limit 5""", name, as_dict=True)
 	return {"legal": {"nif": c.get("tax_id"), "rc": c.get("atelier_rc"), "nis": c.get("atelier_nis"), "ai": c.get("atelier_ai")},
 		"credit_limit": flt(c.get("atelier_credit_limit")), "tags": _jl(c.get("atelier_tags")), "contacts": _jl(c.get("atelier_contacts")),
-		"disabled": cint(c.get("disabled")), "tva_exempt": cint(frappe.db.get_value("Customer", name, "atelier_tva_exempt")), "folder": _folders().customer_folder(name), "log": log, "months": months, "top": top, "customer_tags": customer_tags()}
+		"disabled": cint(c.get("disabled")), "tva_exempt": cint(frappe.db.get_value("Customer", name, "atelier_tva_exempt")),
+		"doc_lang": (frappe.db.get_value("Customer", name, "atelier_doc_lang") if frappe.db.has_column("Customer", "atelier_doc_lang") else None) or "ar", "folder": _folders().customer_folder(name), "log": log, "months": months, "top": top, "customer_tags": customer_tags()}
 
 
 def demo_customers_2():

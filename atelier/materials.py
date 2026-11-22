@@ -958,6 +958,10 @@ def services_overview():
 	items = frappe.get_list("Item", filters={"disabled": 0, "is_sales_item": 1, "name": ["!=", "SRV-GENERAL"]},
 		fields=["item_code", "item_name", "stock_uom", "atelier_category", "is_stock_item", "atelier_recipe"], order_by="item_name asc", limit=1000)
 	_with_prices(items)
+	if frappe.db.has_column("Item", "atelier_name_fr"):
+		fr = dict(frappe.db.sql("select name, atelier_name_fr from `tabItem` where ifnull(atelier_name_fr, '') != ''"))
+		for i in items:
+			i["name_fr"] = fr.get(i.item_code) or ""
 	mats = {}
 	for r in frappe.db.sql("""select it.name, it.item_name, it.stock_uom, it.valuation_rate, sum(b.stock_value), sum(b.actual_qty)
 		from `tabItem` it left join `tabBin` b on b.item_code=it.name where it.is_stock_item=1 group by it.name""", as_list=True):

@@ -96,7 +96,7 @@ fixtures = [{"dt": "Custom Field", "filters": [["module", "=", "Atelier"]]}]
 # ----------
 
 # Helpers for the Arabic print formats (templates/print/atelier_doc.html)
-jinja = {"methods": ["atelier.printing.print_context", "atelier.printing.tafqit", "atelier.printing.dz_money", "atelier.printing.dz_qty"]}
+jinja = {"methods": ["atelier.printing.print_context", "atelier.printing.tafqit", "atelier.printing.dz_money", "atelier.printing.dz_qty", "atelier.printing.item_name"]}
 
 # add methods and filters to jinja environment
 # jinja = {

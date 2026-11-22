@@ -1,4 +1,4 @@
-{#- One Arabic layout for quotation, order, delivery note, invoice and payment receipt. -#}
+{#- One layout, Arabic or French (c.lang), for quotation, order, delivery note, invoice and payment receipt. -#}
 {%- set c = print_context(doc) -%}
 {%- set dt = doc.doctype -%}
 {%- set priced = dt in ("Quotation", "Sales Order", "Sales Invoice") -%}
@@ -9,10 +9,10 @@
   .atl .num { direction: ltr; unicode-bidi: isolate; display: inline-block; white-space: nowrap; }
   .atl .head td { vertical-align: top; }
   .atl .brand { font-size: 18px; font-weight: 600; color: #0F4C81; }
-  .atl .muted { color: #5F6872; font-size: 11px; }
+  .atl .muted { color: #5F6872; font-size: 12px; }
   .atl .title { font-size: 20px; font-weight: 600; text-align: left; }
   .atl .box { border: 1px solid #D5D9DE; border-radius: 6px; padding: 8px 10px; }
-  .atl .lines th { background: #F1F3F5; font-weight: 600; font-size: 11px; color: #48525C; padding: 6px 8px; border-bottom: 1px solid #D5D9DE; text-align: right; }
+  .atl .lines th { background: #F1F3F5; font-weight: 600; font-size: 12px; color: #48525C; padding: 6px 8px; border-bottom: 1px solid #D5D9DE; text-align: right; }
   .atl .lines td { padding: 7px 8px; border-bottom: 1px solid #E6E9EC; vertical-align: top; }
   .atl .lines .n { text-align: left; white-space: nowrap; }
   .atl .totals td { padding: 4px 8px; }
@@ -20,113 +20,120 @@
   .atl .pending { color: #8A5100; font-weight: 600; }
   .atl .band { margin: 10px 0 0; padding: 8px 12px; border-radius: 6px; color: #fff; font-weight: 700; font-size: 14px; background: #0F4C81; }
   .atl .band.proforma { background: #8A4B08; }
-  .atl .band small { display: block; font-weight: 400; font-size: 11px; }
+  .atl .band small { display: block; font-weight: 400; font-size: 12px; }
   .atl .valid { font-weight: 600; color: #17202A; }
-  .atl .demo { background: #FFF2D9; color: #8A5100; text-align: center; padding: 4px; margin-bottom: 10px; font-size: 11px; }
+  .atl .e { text-align: left; }
+  /* French: the same page mirrored (left to right), amounts on the right */
+  .atl.fr { direction: ltr; }
+  .atl.fr .title, .atl.fr .e, .atl.fr .lines .n { text-align: right; }
+  .atl.fr .lines th { text-align: left; }
+  .atl.fr .lines th.n { text-align: right; }
+  .atl .demo { background: #FFF2D9; color: #8A5100; text-align: center; padding: 4px; margin-bottom: 10px; font-size: 12px; }
   .atl .sign td { height: 70px; vertical-align: top; border: 1px dashed #C4C9CF; padding: 6px 8px; width: 50%; }
 </style>
-<div class="atl">
-  {%- if c.is_demo %}<div class="demo">وثيقة تجريبية — الأسماء والأرقام وهمية</div>{% endif %}
+<div class="atl{{ ' fr' if c.lang == 'fr' else '' }}" {{ 'dir="ltr"' if c.lang == 'fr' else '' }}>
+  {%- if c.is_demo %}<div class="demo">{{ c.t.demo }}</div>{% endif %}
   <table class="head"><tr>
     <td style="width:60%">
       {%- if c.company.logo %}<img src="{{ c.company.logo }}" style="max-height:60px;max-width:180px;margin-bottom:6px"><br>{% endif %}
       <div class="brand">{{ c.company.name }}</div>
       {%- if c.company.address %}<div class="muted">{{ c.company.address }}</div>{% endif %}
-      <div class="muted">{% if c.company.phone %}الهاتف: <bdi dir="ltr" class="num">{{ c.company.phone }}</bdi>{% endif %}{% if c.company.email %} · <bdi dir="ltr" class="num">{{ c.company.email }}</bdi>{% endif %}</div>
+      <div class="muted">{% if c.company.phone %}{{ c.t.phone }}: <bdi dir="ltr" class="num">{{ c.company.phone }}</bdi>{% endif %}{% if c.company.email %} · <bdi dir="ltr" class="num">{{ c.company.email }}</bdi>{% endif %}</div>
       {%- if c.company.name_fr %}<div class="muted"><bdi dir="ltr" class="num">{{ c.company.name_fr }}</bdi></div>{% endif %}
       {%- set ids = [("RC", c.company.rc), ("NIF", c.company.tax_id), ("NIS", c.company.nis), ("AI", c.company.ai)] | selectattr(1) | list %}
       {%- if ids %}<div class="muted">{% for k, v in ids %}<bdi dir="ltr" class="num">{{ k }}: {{ v }}</bdi>{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
     </td>
     <td>
       <div class="title">{{ c.title }}</div>
-      <div style="text-align:left;font-size:15px;font-weight:600">رقم <bdi dir="ltr" class="num">{{ c.number }}</bdi></div>
-      {%- if c.against %}<div class="muted" style="text-align:left">مقابل الفاتورة <bdi dir="ltr" class="num">{{ c.against }}</bdi></div>{% endif %}
-      <div style="text-align:left" class="muted"><bdi dir="ltr" class="num">{{ doc.name }}</bdi></div>
-      <div style="text-align:left" class="muted">التاريخ: <bdi dir="ltr" class="num">{{ c.date }}</bdi></div>
-      {%- if dt == "Sales Invoice" and doc.due_date %}<div style="text-align:left" class="muted">تاريخ الاستحقاق: <bdi dir="ltr" class="num">{{ frappe.utils.formatdate(doc.due_date, "dd/MM/yyyy") }}</bdi></div>{% endif %}
+      <div class="e" style="font-size:15px;font-weight:600">{{ c.t.no }} <bdi dir="ltr" class="num">{{ c.number }}</bdi></div>
+      {%- if c.against %}<div class="muted e">{{ c.t.against }} <bdi dir="ltr" class="num">{{ c.against }}</bdi></div>{% endif %}
+      <div class="muted e"><bdi dir="ltr" class="num">{{ doc.name }}</bdi></div>
+      <div class="muted e">{{ c.t.date }}: <bdi dir="ltr" class="num">{{ c.date }}</bdi></div>
+      {%- if dt == "Sales Invoice" and doc.due_date %}<div class="muted e">{{ c.t.due }}: <bdi dir="ltr" class="num">{{ frappe.utils.formatdate(doc.due_date, "dd/MM/yyyy") }}</bdi></div>{% endif %}
     </td>
   </tr></table>
   {%- if dt == "Quotation" %}
   {%- set proforma = doc.get("atelier_kind") == "proforma" %}
-  <div class="band{{ ' proforma' if proforma else '' }}">{{ "فاتورة شكلية — PRO FORMA" if proforma else "عرض سعر — DEVIS" }}
-    <small>{{ "وثيقة لتحضير الدفع فقط، ليست فاتورة نهائية ولا إثبات دفع" if proforma else "عرض مقترح للعميل، وليس فاتورة ولا إثبات دفع" }}</small></div>
+  <div class="band{{ ' proforma' if proforma else '' }}">{{ c.t.pf_band if proforma else c.t.devis_band }}
+    <small>{{ c.t.pf_note if proforma else c.t.devis_note }}</small></div>
   {%- endif %}
 
   <table style="margin:12px 0"><tr><td style="vertical-align:top">
   <div class="box" style="height:100%">
-    <div class="muted">{{ "استلمنا من" if dt == "Payment Entry" else "العميل" }}</div>
+    <div class="muted">{{ c.t.received_from if dt == "Payment Entry" else c.t.customer }}</div>
     <div style="font-weight:600;font-size:14px"><bdi>{{ c.customer.name }}</bdi></div>
     {%- if c.customer.address %}<div class="muted">{{ c.customer.address }}</div>{% endif %}
-    {%- if c.customer.phone %}<div class="muted">الهاتف: <bdi dir="ltr" class="num">{{ c.customer.phone }}</bdi></div>{% endif %}
+    {%- if c.customer.phone %}<div class="muted">{{ c.t.phone }}: <bdi dir="ltr" class="num">{{ c.customer.phone }}</bdi></div>{% endif %}
     {%- if c.customer.tax_id or c.customer.rc %}<div class="muted"><bdi dir="ltr" class="num">{% if c.customer.rc %}RC: {{ c.customer.rc }} · {% endif %}{% if c.customer.tax_id %}NIF: {{ c.customer.tax_id }}{% endif %}{% if c.customer.nis %} · NIS: {{ c.customer.nis }}{% endif %}{% if c.customer.ai %} · AI: {{ c.customer.ai }}{% endif %}</bdi></div>{% endif %}
-    {%- if doc.get("atelier_subject") %}<div style="margin-top:4px">الموضوع: {{ doc.atelier_subject }}</div>{% endif %}
+    {%- if doc.get("atelier_subject") %}<div style="margin-top:4px">{{ c.t.subject }}: {{ doc.atelier_subject }}</div>{% endif %}
     {%- if c.show_description and doc.get("atelier_description") %}<div class="muted" style="margin-top:4px;white-space:pre-line">{{ doc.atelier_description }}</div>{% endif %}
-    {%- if dt == "Quotation" and doc.get("valid_till") %}<div class="valid" style="margin-top:4px">صالح حتى: <bdi dir="ltr" class="num">{{ frappe.utils.formatdate(doc.valid_till, "dd/MM/yyyy") }}</bdi></div>{% endif %}
+    {%- if dt == "Quotation" and doc.get("valid_till") %}<div class="valid" style="margin-top:4px">{{ c.t.valid }}: <bdi dir="ltr" class="num">{{ frappe.utils.formatdate(doc.valid_till, "dd/MM/yyyy") }}</bdi></div>{% endif %}
   </div></td>
   {%- if dt == "Sales Order" %}
-  <td style="width:34%;vertical-align:top;padding-right:10px"><div class="box" style="height:100%">
-    <div class="muted">موعد الاستلام</div>
-    <div style="font-weight:600;font-size:14px">{% if doc.delivery_date %}<bdi dir="ltr" class="num">{{ frappe.utils.formatdate(doc.delivery_date, "dd/MM/yyyy") }}</bdi>{% if doc.get("atelier_due_time") %} <bdi dir="ltr" class="num">{{ doc.atelier_due_time }}</bdi>{% endif %}{% else %}يُحدَّد لاحقًا{% endif %}</div>
-    {%- if c.company.phone %}<div class="muted" style="margin-top:6px">للاستفسار: <bdi dir="ltr" class="num">{{ c.company.phone }}</bdi></div>{% endif %}
+  <td style="width:34%;vertical-align:top;padding-inline-start:10px"><div class="box" style="height:100%">
+    <div class="muted">{{ c.t.pickup }}</div>
+    <div style="font-weight:600;font-size:14px">{% if doc.delivery_date %}<bdi dir="ltr" class="num">{{ frappe.utils.formatdate(doc.delivery_date, "dd/MM/yyyy") }}</bdi>{% if doc.get("atelier_due_time") %} <bdi dir="ltr" class="num">{{ doc.atelier_due_time }}</bdi>{% endif %}{% else %}{{ c.t.later }}{% endif %}</div>
+    {%- if c.company.phone %}<div class="muted" style="margin-top:6px">{{ c.t.ask }}: <bdi dir="ltr" class="num">{{ c.company.phone }}</bdi></div>{% endif %}
   </div></td>
   {%- endif %}
   </tr></table>
 
   {%- if dt == "Payment Entry" %}
     <table class="totals">
-      <tr class="grand"><td>المبلغ المقبوض</td><td style="text-align:left">{{ dz_money(doc.paid_amount) }}</td></tr>
-      <tr><td>طريقة الدفع</td><td style="text-align:left">{{ {"Cash": "نقدًا", "Wire Transfer": "تحويل بنكي", "Cheque": "صك"}.get(doc.mode_of_payment, doc.mode_of_payment or "—") }}</td></tr>
-      {%- for r in doc.references %}<tr><td class="muted">عن {{ {"Sales Invoice": "الفاتورة", "Sales Order": "الطلب"}.get(r.reference_doctype, r.reference_doctype) }}</td><td class="muted" style="text-align:left"><bdi dir="ltr" class="num">{{ r.reference_name }}</bdi> — {{ dz_money(r.allocated_amount) }}</td></tr>{% endfor %}
-      {%- if doc.unallocated_amount %}<tr><td class="muted">تسبيق يبقى رصيدًا للعميل</td><td class="muted" style="text-align:left">{{ dz_money(doc.unallocated_amount) }}</td></tr>{% endif %}
+      <tr class="grand"><td>{{ c.t.received }}</td><td class="e">{{ dz_money(doc.paid_amount, c.lang) }}</td></tr>
+      <tr><td>{{ c.t.method }}</td><td class="e">{{ c.t.modes.get(doc.mode_of_payment, doc.mode_of_payment or "—") }}</td></tr>
+      {%- for r in doc.references %}<tr><td class="muted">{{ {"Sales Invoice": c.t.for_invoice, "Sales Order": c.t.for_order}.get(r.reference_doctype, r.reference_doctype) }}</td><td class="muted e"><bdi dir="ltr" class="num">{{ r.reference_name }}</bdi> — {{ dz_money(r.allocated_amount, c.lang) }}</td></tr>{% endfor %}
+      {%- if doc.unallocated_amount %}<tr><td class="muted">{{ c.t.advance_left }}</td><td class="muted e">{{ dz_money(doc.unallocated_amount, c.lang) }}</td></tr>{% endif %}
     </table>
-    <p style="margin-top:10px">المبلغ بالحروف: <b>{{ tafqit(doc.paid_amount) }}</b></p>
+    <p style="margin-top:10px">{{ c.t.in_words }} : <b>{{ tafqit(doc.paid_amount, c.lang) }}</b></p>
   {%- else %}
     <table class="lines">
-      <thead><tr><th style="width:24px">#</th><th>البيان</th><th class="n">الكمية</th><th>الوحدة</th>
-        {%- if priced %}<th class="n">سعر الوحدة</th><th class="n">المبلغ</th>{% endif %}</tr></thead>
+      <thead><tr><th style="width:24px">#</th><th>{{ c.t.desc }}</th><th class="n">{{ c.t.qty }}</th><th>{{ c.t.unit }}</th>
+        {%- if priced %}<th class="n">{{ c.t.rate }}</th><th class="n">{{ c.t.amount }}</th>{% endif %}</tr></thead>
       <tbody>
       {%- for i in doc.items %}
         {%- set pending = i.get("atelier_price_pending") %}
         <tr><td>{{ loop.index }}</td>
           {%- set d = frappe.utils.strip_html(i.description or "") %}{% set free = i.item_code == "SRV-GENERAL" and d %}
-          <td><b>{{ d if free else i.item_name }}</b>{% if i.get("atelier_size") %}<div class="muted">{{ i.atelier_size }}</div>{% endif %}{% if d and not free and d != i.item_name %}<div class="muted">{{ d }}</div>{% endif %}</td>
-          <td class="n">{{ dz_qty(i.qty) }}</td><td>{{ i.get("atelier_unit") or {"Nos": "قطعة", "Feuille": "ورقة"}.get(i.uom, i.uom) }}</td>
+          {%- set iname = item_name(i, c.lang) %}
+          <td><b>{{ d if free else iname }}</b>{% if i.get("atelier_size") %}<div class="muted">{{ i.atelier_size }}</div>{% endif %}{% if d and not free and d != i.item_name and d != iname %}<div class="muted">{{ d }}</div>{% endif %}</td>
+          <td class="n">{{ dz_qty(i.qty) }}</td>{%- set u = i.get("atelier_unit") or i.uom %}<td>{{ c.t.units.get(u, u) if c.lang == "fr" else (i.get("atelier_unit") or c.t.units.get(i.uom, i.uom)) }}</td>
           {%- if priced %}
-            {%- if pending %}<td class="n pending" colspan="2">بانتظار التسعير</td>
-            {%- else %}<td class="n">{{ dz_money(i.rate) }}</td><td class="n">{{ dz_money(i.amount) }}</td>{% endif %}
+            {%- if pending %}<td class="n pending" colspan="2">{{ c.t.waiting }}</td>
+            {%- else %}<td class="n">{{ dz_money(i.rate, c.lang) }}</td><td class="n">{{ dz_money(i.amount, c.lang) }}</td>{% endif %}
           {%- endif %}</tr>
       {%- endfor %}
       </tbody>
     </table>
     {%- if priced %}
       {%- set any_pending = doc.items | selectattr("atelier_price_pending") | list | length %}
-      <table class="totals" style="width:55%;margin-right:auto;margin-top:8px">
-        {%- if doc.discount_amount %}<tr><td>المجموع</td><td style="text-align:left">{{ dz_money(doc.total) }}</td></tr>
-          <tr><td>الخصم</td><td style="text-align:left">− {{ dz_money(doc.discount_amount) }}</td></tr>{% endif %}
-        {%- for tx in doc.taxes %}<tr><td>{{ tx.description }}</td><td style="text-align:left">{{ dz_money(tx.tax_amount) }}</td></tr>{% endfor %}
-        <tr class="grand"><td>{{ "إجمالي البنود المسعّرة" if any_pending else "الإجمالي" }}</td><td style="text-align:left">{{ dz_money(doc.grand_total) }}</td></tr>
+      <table class="totals" style="width:55%;margin-inline-start:auto;margin-top:8px">
+        {%- if doc.discount_amount %}<tr><td>{{ c.t.total }}</td><td class="e">{{ dz_money(doc.total, c.lang) }}</td></tr>
+          <tr><td>{{ c.t.discount }}</td><td class="e">− {{ dz_money(doc.discount_amount, c.lang) }}</td></tr>{% endif %}
+        {%- for tx in doc.taxes %}<tr><td>{{ tx.description }}</td><td class="e">{{ dz_money(tx.tax_amount, c.lang) }}</td></tr>{% endfor %}
+        <tr class="grand"><td>{{ c.t.grand_part if any_pending else c.t.grand }}</td><td class="e">{{ dz_money(doc.grand_total, c.lang) }}</td></tr>
         {%- if dt == "Sales Order" and not any_pending %}
-          <tr><td>المدفوع</td><td style="text-align:left">{{ dz_money(doc.advance_paid or 0) }}</td></tr>
-          <tr><td><b>الباقي</b></td><td style="text-align:left"><b>{{ dz_money((doc.grand_total or 0) - (doc.advance_paid or 0)) }}</b></td></tr>
+          <tr><td>{{ c.t.paid }}</td><td class="e">{{ dz_money(doc.advance_paid or 0, c.lang) }}</td></tr>
+          <tr><td><b>{{ c.t.left }}</b></td><td class="e"><b>{{ dz_money((doc.grand_total or 0) - (doc.advance_paid or 0), c.lang) }}</b></td></tr>
         {%- endif %}
         {%- if dt == "Sales Invoice" %}
-          {%- if doc.total_advance %}<tr><td>التسبيق المخصوم</td><td style="text-align:left">− {{ dz_money(doc.total_advance) }}</td></tr>{% endif %}
-          {%- if doc.is_return %}<tr><td><b>رصيد للعميل عندنا</b></td><td style="text-align:left"><b>{{ dz_money(-doc.outstanding_amount if doc.outstanding_amount < 0 else 0) }}</b></td></tr>
-          {%- else %}<tr><td><b>الباقي للدفع</b></td><td style="text-align:left"><b>{{ dz_money(doc.outstanding_amount) }}</b></td></tr>{% endif %}
+          {%- if doc.total_advance %}<tr><td>{{ c.t.advance }}</td><td class="e">− {{ dz_money(doc.total_advance, c.lang) }}</td></tr>{% endif %}
+          {%- if doc.is_return %}<tr><td><b>{{ c.t.credit }}</b></td><td class="e"><b>{{ dz_money(-doc.outstanding_amount if doc.outstanding_amount < 0 else 0, c.lang) }}</b></td></tr>
+          {%- else %}<tr><td><b>{{ c.t.to_pay }}</b></td><td class="e"><b>{{ dz_money(doc.outstanding_amount, c.lang) }}</b></td></tr>{% endif %}
         {%- endif %}
       </table>
-      {%- if any_pending %}<p class="pending">الإجمالي النهائي لم يكتمل: {{ any_pending }} بند بانتظار التسعير.</p>
-      {%- else %}<p style="margin-top:10px">{{ ("أُوقفت هذه الفاتورة الدائنة على مبلغ" if doc.is_return else "أُوقفت هذه الفاتورة على مبلغ") if dt == "Sales Invoice" else "المبلغ بالحروف" }}: <b>{{ tafqit(doc.grand_total) }}</b></p>{% endif %}
+      {%- if any_pending %}<p class="pending">{{ c.t.incomplete.format(any_pending) }}</p>
+      {%- else %}<p style="margin-top:10px">{{ (c.t.stop_credit if doc.is_return else c.t.stop_invoice) if dt == "Sales Invoice" else c.t.in_words }} : <b>{{ tafqit(doc.grand_total, c.lang) }}</b></p>{% endif %}
     {%- endif %}
   {%- endif %}
 
   {%- if dt == "Quotation" and doc.get("atelier_kind") == "proforma" and c.company.rib %}
-    <div class="box" style="margin-top:14px"><b>معلومات الدفع:</b> RIB <bdi dir="ltr" class="num">{{ c.company.rib }}</bdi></div>
+    <div class="box" style="margin-top:14px"><b>{{ c.t.pay_info }} :</b> RIB <bdi dir="ltr" class="num">{{ c.company.rib }}</bdi></div>
   {%- endif %}
   {%- if dt in ("Delivery Note", "Payment Entry", "Sales Order", "Quotation") %}
     <table class="sign" style="margin-top:24px"><tr>
-      <td>{{ "توقيع المستلم" if dt == "Delivery Note" else ("موافقة العميل وتوقيعه" if dt == "Quotation" else "توقيع العميل") }}</td><td>الختم والتوقيع</td></tr></table>
+      <td>{{ c.t.sign_receiver if dt == "Delivery Note" else (c.t.sign_quote if dt == "Quotation" else c.t.sign_customer) }}</td><td>{{ c.t.stamp }}</td></tr></table>
   {%- endif %}
-  {%- set foot = [c.footer, ("الهاتف: " ~ c.company.phone) if c.company.phone else None, c.company.address] | select | list %}
+  {%- set foot = [c.footer, (c.t.phone ~ " : " ~ c.company.phone) if c.company.phone else None, c.company.address] | select | list %}
   {%- if foot or c.company.rib %}<div class="muted" style="margin-top:14px;border-top:1px solid #D9DDE2;padding-top:6px;text-align:center">{{ foot | join(" · ") }}{% if c.company.rib %} · <bdi dir="ltr" class="num">RIB: {{ c.company.rib }}</bdi>{% endif %}</div>{% endif %}
 </div>

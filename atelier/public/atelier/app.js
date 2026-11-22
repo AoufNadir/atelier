@@ -408,7 +408,7 @@ const blankForm = () => ({
 // ------------------------------------------------------------------ order view
 const pdfUrl = (doctype, name, format) =>
   `/api/method/atelier.api.pdf?doctype=${encodeURIComponent(doctype)}&name=${encodeURIComponent(name)}` +
-  (format ? `&format=${encodeURIComponent(format + " — " + doctype)}&no_letterhead=1` : "");
+  (format ? `&format=${encodeURIComponent(format + " — " + doctype)}&no_letterhead=1` : "") + (state.pdfLang ? `&lang=${state.pdfLang}` : "");
 
 
 // ------------------------------------------------------------------ customer
@@ -591,13 +591,14 @@ const ServicesPage = {
         // new orders read prices from boot: keep it in step so the next order suggests the new price
         const b = (state.boot.items || []).find((x) => x.item_code === i.item_code); if (b) b[key] = i[key]; toast("حُفظ السعر"); await load(); }
       catch (e) { toast(e.message, "error"); } finally { busy.value = null; } };
+    const setNameFr = async (i, v) => { try { i.name_fr = await call("set_item_name_fr", { item_code: i.item_code, name: v }, true); toast("حُفظ الاسم بالفرنسية"); } catch (e) { toast(e.message, "error"); } };
     const saveTarget = async () => { try { await call("set_target_margin", { value: target.value }, true); toast("حُفظ الهامش المستهدف"); await load(); } catch (e) { toast(e.message, "error"); } };
     const monthName = (ym) => new Intl.DateTimeFormat("ar", { month: "long" }).format(new Date(ym + "-01T00:00:00"));
     const maxMonth = computed(() => Math.max(1, ...(cur.value?.months || [0])));
     const onKeys = (e) => { if (!["ArrowDown", "ArrowUp"].includes(e.key) || ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
       const l = groups.value.flatMap((g) => g[1]); const k = l.findIndex((i) => i.item_code === sel.value); const n = l[k + (e.key === "ArrowDown" ? 1 : -1)]; if (n) { sel.value = n.item_code; e.preventDefault(); } };
     onMounted(() => document.addEventListener("keydown", onKeys)); onBeforeUnmount(() => document.removeEventListener("keydown", onKeys));
-    return { s, load, q, chip, sel, busy, target, CHIPS, count, groups, cur, tone, mgText, setPrice, saveTarget, monthName, maxMonth, priceOf, money, num, uom, state, go };
+    return { s, load, q, chip, sel, busy, target, CHIPS, count, groups, cur, tone, mgText, setPrice, setNameFr, saveTarget, monthName, maxMonth, priceOf, money, num, uom, state, go };
   },
   template: `
   <div class="page sv">
@@ -622,6 +623,7 @@ const ServicesPage = {
           <tr v-if="!groups.length"><td colspan="6" class="muted" style="text-align:center;padding:24px">{{ s.data.items.length ? 'لا خدمات تطابق.' : 'لا خدمات بعد.' }}</td></tr></tbody></table></section>
         <aside v-if="cur" class="mn-card sv-side">
           <div class="sv-sh"><h2>{{ cur.item_name }}</h2><span class="m">{{ cur.atelier_category || 'بلا تصنيف' }} · يُباع بـ{{ uom(cur.stock_uom) }}</span></div>
+          <label class="sv-fr"><span>الاسم بالفرنسية (للمستندات الفرنسية)</span><input class="input" dir="ltr" :value="cur.name_fr" placeholder="ex. Carte de visite" @change="setNameFr(cur, $event.target.value)"></label>
           <div class="sv-facts"><div><span>سعر الأفراد</span><b>{{ cur.price_individual != null ? money(cur.price_individual) : '—' }}</b></div><div><span>سعر المؤسسات</span><b>{{ cur.price_company != null ? money(cur.price_company) : '—' }}</b></div>
             <div><span>التكلفة / {{ uom(cur.stock_uom) }}</span><b>{{ cur.cost !== null ? money(cur.cost) : '—' }}</b></div><div><span>الهامش {{ cur.price_company != null ? '(مؤسسات)' : '(أفراد)' }}</span><b class="sv-mgt" :class="tone(cur)">{{ cur.margin !== null ? Math.round(cur.margin) + '%' : '—' }}</b></div></div>
           <div class="sv-sec2"><h3>من أين تأتي التكلفة<a :href="'/atelier/settings?tab=prices&recipe=' + encodeURIComponent(cur.item_code)" @click.prevent="go('/settings?tab=prices&recipe=' + encodeURIComponent(cur.item_code))">{{ cur.parts.length ? 'تعديل الوصفة' : 'أضف وصفة' }}</a></h3>
@@ -1318,6 +1320,7 @@ const BoardPanel = {
             <div v-if="hdPop === 'docs'" class="tm-pop od-pop" @click.stop>
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('devis')"><Icon name="file" :size="15"/>Devis — عرض سعر</button>
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('proforma')"><Icon name="file" :size="15"/>Pro forma</button>
+              <div class="tm-pop-lang"><span>لغة المستند</span><button type="button" :class="{on: !state.pdfLang}" @click="state.pdfLang = ''">حسب العميل</button><button type="button" :class="{on: state.pdfLang === 'ar'}" @click="state.pdfLang = 'ar'">العربية</button><button type="button" :class="{on: state.pdfLang === 'fr'}" @click="state.pdfLang = 'fr'">Français</button></div>
               <a class="tm-pop-row" target="_blank" rel="noopener" :href="pdfUrl('Sales Order', ed.name, 'الورشة — عربي')" @click="hdPop = null"><Icon name="printer" :size="15"/>بون الطلب</a>
               <button v-if="editing && state.boot.can.deliver && !ed.price_pending && !(ed.per_delivered >= 100)" type="button" class="tm-pop-row" @click="hdPop = null; state.sheet = {type: 'partial', order: ed.name, title: f.subject || ed.title}">تسليم جزء من الطلب</button>
               <template v-if="state.boot.role === 'manager' && editing"><hr class="tm2-hr">
@@ -2664,7 +2667,7 @@ const CustomerSheet2 = {
   setup(props) {
     const editing = !!props.opts.name;
     const f = reactive({ name: props.opts.name || null, customer_name: "", customer_type: "Individual", mobile_no: "", email_id: "", address: "", city: "",
-      nif: "", rc: "", nis: "", ai: "", contacts: [], credit_limit: "", tags: [], note: "", tva_exempt: 0 });
+      nif: "", rc: "", nis: "", ai: "", contacts: [], credit_limit: "", tags: [], note: "", tva_exempt: 0, doc_lang: "ar" });
     const tags = ref([]), ready = ref(!editing), saving = ref(false), error = ref(null), attempted = ref(false);
     onMounted(async () => {
       try {
@@ -2672,7 +2675,7 @@ const CustomerSheet2 = {
           const d = await call("customer2", { name: f.name });
           Object.assign(f, { customer_name: d.customer_name, customer_type: d.customer_type, mobile_no: d.mobile_no || "", email_id: d.email_id || "",
             address: d.address || "", city: d.city || "", nif: d.legal.nif || "", rc: d.legal.rc || "", nis: d.legal.nis || "", ai: d.legal.ai || "",
-            contacts: d.contacts.map((c) => ({ ...c })), credit_limit: d.credit_limit || "", tags: [...d.tags], note: d.note || "", tva_exempt: d.tva_exempt || 0 });
+            contacts: d.contacts.map((c) => ({ ...c })), credit_limit: d.credit_limit || "", tags: [...d.tags], note: d.note || "", tva_exempt: d.tva_exempt || 0, doc_lang: d.doc_lang || "ar" });
           tags.value = d.customer_tags;
         } else tags.value = (await call("customers2")).customer_tags;
       } catch (e) { error.value = e.message; }
@@ -2747,6 +2750,7 @@ const CustomerSheet2 = {
                 <div class="lp-sw" role="group" aria-label="اللون"><button v-for="c in BOARD_COLORS" :key="c" type="button" :aria-pressed="tagEd.color === c" :aria-label="c" :style="{background: c}" @click="tagEd.color = c"></button></div>
                 <div class="btn-row lp-btns"><button v-if="tagEd.id" type="button" class="cl-btn sm lp-del" :disabled="tagBusy" @click="saveCTag(true)">حذف</button><span class="spacer"></span><button type="button" class="cl-btn sm" @click="tagEd = null">إلغاء</button><button type="button" class="cl-btn sm primary" :disabled="tagBusy || !tagEd.name.trim()" @click="saveCTag(false)">حفظ</button></div></div></div></div>
           <label class="cs2-f"><span class="m">ملاحظة ثابتة (تظهر في كل بطاقة جديدة له)</span><textarea class="input" v-model="f.note" rows="2"></textarea></label>
+          <div class="bs-deliver" style="gap:8px"><span>لغة الوثائق</span><div class="seg" role="group" aria-label="لغة وثائق العميل"><button type="button" :aria-pressed="f.doc_lang !== 'fr'" @click="f.doc_lang = 'ar'">العربية</button><button type="button" :aria-pressed="f.doc_lang === 'fr'" @click="f.doc_lang = 'fr'">Français</button></div></div>
           <label class="bs-deliver"><input type="checkbox" :checked="!!f.tva_exempt" @change="f.tva_exempt = $event.target.checked ? 1 : 0">معفى من TVA</label>
         </section>
         <div v-if="error" class="alert error" role="alert">{{ error }}</div>
