@@ -3965,8 +3965,47 @@ const ProfitReport = {
     </template>
   </div>`,
 };
+// the monthly TVA return (G50): collected − recoverable = to pay, then «سدّدتُ G50» books the payment
+const TvaReport = {
+  components: { Icon },
+  setup() {
+    const d = ref(null), err = ref(null), month = ref(""), paying = ref(false), mode = ref((state.boot.modes || [])[0]?.value || "Cash"), busy = ref(false);
+    const load = async () => { err.value = null; try { d.value = await call("g50", month.value ? { month: month.value } : {}); if (!month.value) month.value = d.value.month; } catch (e) { err.value = e.message; } };
+    onMounted(load); watch(month, (v, o) => { if (o) load(); });
+    const monthName = (m) => new Date(m + "-01").toLocaleDateString("ar-DZ-u-nu-latn", { month: "long", year: "numeric" });
+    const pay = async () => { busy.value = true; try { d.value = await call("pay_g50", { month: month.value, mode_of_payment: mode.value }, true); paying.value = false; toast("سُجّل تسديد TVA"); }
+      catch (e) { toast(e.message, "error"); } finally { busy.value = false; } };
+    const label = (l) => (l.kind === "return" ? `المرتجعات ${l.rate}%` : `المبيعات ${l.rate}%`);
+    const csv = () => { const rows = [["البند", "رقم الأعمال خارج الرسم", "TVA"], ...d.value.lines.map((l) => [label(l), l.net, l.tax]), ["مبيعات معفاة", d.value.exempt, 0],
+        ["المشتريات (قابلة للخصم)", d.value.purchases_net, -d.value.deductible], ["المبلغ للتصريح", "", d.value.due]];
+      const text = "\ufeff" + rows.map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" })); a.download = `G50-${month.value}.csv`; a.click(); };
+    return { d, err, month, monthName, paying, mode, busy, pay, label, csv, money, state };
+  },
+  template: `
+  <section class="st2-card tv">
+    <div class="yp-head"><h3 style="margin:0">TVA — {{ d ? monthName(d.month) : '' }}</h3>
+      <select v-if="d" class="input" style="width:auto" v-model="month" aria-label="الشهر"><option v-for="m in d.months" :key="m" :value="m">{{ monthName(m) }}</option></select></div>
+    <p v-if="err" class="alert error">{{ err }}</p>
+    <div v-else-if="!d" class="m">جارٍ التحميل…</div>
+    <template v-else>
+      <div class="mp-kpis" style="grid-template-columns:repeat(3,1fr)"><div class="mp-kpi"><span>TVA المحصّلة (مبيعات)</span><b>{{ money(d.collected) }}</b></div>
+        <div class="mp-kpi"><span>TVA القابلة للخصم (مشتريات)</span><b>{{ money(d.deductible) }}</b></div>
+        <div class="mp-kpi" :class="d.due > 0 ? 'bad' : 'ok'"><span>{{ d.due > 0.005 ? 'الواجب دفعه' : d.due < -0.005 ? 'رصيد لصالحك (يُرحَّل)' : 'لا شيء للدفع' }}</span><b>{{ money(Math.abs(d.due)) }}</b></div></div>
+      <table class="cl-table yp-t" style="margin-top:12px"><thead><tr><th>البند</th><th class="n">رقم الأعمال خارج الرسم</th><th class="n">TVA</th></tr></thead><tbody>
+        <tr v-for="l in d.lines" :key="l.kind + l.rate"><td>{{ label(l) }} <span class="m">({{ l.count }})</span></td><td class="n">{{ money(l.net) }}</td><td class="n">{{ money(l.tax) }}</td></tr>
+        <tr><td>مبيعات معفاة</td><td class="n">{{ money(d.exempt) }}</td><td class="n">—</td></tr>
+        <tr><td>المشتريات والخدمات (قابلة للخصم) <span class="m">({{ d.purchases }})</span></td><td class="n">{{ money(d.purchases_net) }}</td><td class="n">{{ money(-d.deductible) }}</td></tr>
+        <tr class="yp-tot"><td>المبلغ للتصريح</td><td></td><td class="n">{{ money(d.due) }}</td></tr></tbody></table>
+      <p v-if="d.paid" class="alert info" style="margin-top:10px">صُرّح بهذا الشهر وسُدّد — {{ d.paid }}</p>
+      <div v-else-if="paying" class="tv-pay"><span>يخرج {{ money(d.due) }} من:</span><div class="seg" role="group" aria-label="الطريقة"><button v-for="m in state.boot.modes" :key="m.value" type="button" :aria-pressed="mode === m.value" @click="mode = m.value">{{ m.label }}</button></div>
+        <div class="btn-row"><button type="button" class="cl-btn" @click="paying = false">رجوع</button><button type="button" class="cl-btn primary" :disabled="busy" @click="pay">تسجيل التسديد</button></div></div>
+      <div class="btn-row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="cl-btn" @click="csv">Excel</button><button v-if="!d.paid && d.due > 0.005 && !paying" type="button" class="cl-btn primary" @click="paying = true">سدّدتُ G50…</button></div>
+    </template>
+  </section>`,
+};
 const ReportsPage2 = {
-  components: { Icon, MaterialsReport, ProfitReport },
+  components: { Icon, MaterialsReport, ProfitReport, TvaReport },
   setup() {
     const period = ref("month"), from = ref(""), to = ref(""), custom = ref(false);
     const { s, load } = useLoad(() => call("reports2", period.value === "custom" ? { period: "custom", start: from.value, end: to.value } : { period: period.value }));
@@ -4007,7 +4046,7 @@ const ReportsPage2 = {
     const sumOf = (l) => (l || []).reduce((x, y) => x + (+y.total || 0), 0);
     const isCur = (iso) => d.value && String(iso).slice(0, 7) === String(d.value.period.to).slice(0, 7);
     const rtab = ref("general");
-    return { rtab, figN, ageOpen, kfig, sumOf, isCur, uom, s, load, d, period, from, to, custom, setPeriod, applyCustom, PERIODS, title, cmp, pct, maxM, mlabel, ageTotal, AGES, maxTop, exportCsv, printIt, marginTone, money, fig, date, go };
+    return { rtab, figN, ageOpen, kfig, sumOf, isCur, uom, s, load, d, period, from, to, custom, setPeriod, applyCustom, PERIODS, title, cmp, pct, maxM, mlabel, ageTotal, AGES, maxTop, exportCsv, printIt, marginTone, money, fig, date, go, state };
   },
   template: `
   <div class="cl rp">
@@ -4018,11 +4057,12 @@ const ReportsPage2 = {
           <button v-for="p in PERIODS" :key="p[0]" type="button" :aria-pressed="(p[0] === 'custom' ? custom || period === 'custom' : !custom && period === p[0])" @click="setPeriod(p[0])">{{ p[1] }}</button></div>
         <button type="button" class="cl-btn" :disabled="!d" @click="exportCsv"><Icon name="file" :size="16"/>تصدير Excel</button>
         <button type="button" class="cl-btn" :disabled="!d" @click="printIt"><Icon name="printer" :size="16"/>طباعة</button></div>
-        <nav class="mr-tabs" role="tablist"><button type="button" role="tab" :aria-selected="rtab === 'general'" @click="rtab = 'general'">المال والمبيعات</button><button type="button" role="tab" :aria-selected="rtab === 'profit'" @click="rtab = 'profit'">الربح</button><button type="button" role="tab" :aria-selected="rtab === 'materials'" @click="rtab = 'materials'">المواد</button></nav>
+        <nav class="mr-tabs" role="tablist"><button type="button" role="tab" :aria-selected="rtab === 'general'" @click="rtab = 'general'">المال والمبيعات</button><button type="button" role="tab" :aria-selected="rtab === 'profit'" @click="rtab = 'profit'">الربح</button><button type="button" role="tab" :aria-selected="rtab === 'materials'" @click="rtab = 'materials'">المواد</button><button v-if="state.boot.role === 'manager'" type="button" role="tab" :aria-selected="rtab === 'tva'" @click="rtab = 'tva'">TVA</button></nav>
         <form v-if="custom" class="cl-head-row rp-custom" @submit.prevent="applyCustom"><label class="cl-fgroup"><span>من</span><input type="date" class="input" v-model="from"></label>
           <label class="cl-fgroup"><span>إلى</span><input type="date" class="input" v-model="to"></label><button type="submit" class="cl-btn primary" style="align-self:flex-end" :disabled="!from || !to">عرض</button></form>
       </header>
-      <MaterialsReport v-if="rtab === 'materials'" :period="period" :from="from" :to="to"/>
+      <TvaReport v-if="rtab === 'tva'"/>
+      <MaterialsReport v-else-if="rtab === 'materials'" :period="period" :from="from" :to="to"/>
       <ProfitReport v-else-if="rtab === 'profit'" :period="period" :from="from" :to="to"/>
       <div v-else-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
       <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
@@ -4823,11 +4863,14 @@ const StockPage = {
     const bill = ref(null);
     const packOf = (i) => { const c = i?.cfg || {}, w = wayOf(i); return (w === "roll" || w === "count") && c.pack_qty > 0 ? { name: w === "roll" ? "لفّة" : c.pack || "رزمة", qty: c.pack_qty } : null; };
     const newBill = (item) => { rowMenu.value = null; loadSuppliers();
-      bill.value = { supplier: "", bill_no: "", date: todayISO(), mode: (state.boot.modes || [])[0]?.value || "Cash", paid: "", paidTouched: false, due: "", busy: false, err: null,
+      bill.value = { supplier: "", bill_no: "", date: todayISO(), mode: (state.boot.modes || [])[0]?.value || "Cash", paid: "", paidTouched: false, due: "", busy: false, err: null, tva: 0,
         lines: [{ item_code: item?.item_code || "", n: "", price: "" }] }; };
     const billItem = (l) => (s.data?.items || []).find((i) => i.item_code === l.item_code);
     const billUnit = (l) => { const i = billItem(l); return i ? (packOf(i)?.name || uom(i.uom)) : ""; };
-    const billTotal = computed(() => (bill.value?.lines || []).reduce((a, l) => a + (+String(l.n).replace(",", ".") || 0) * (parseAmount(l.price) || 0), 0));
+    // the supplier's invoice: prices before tax, then its TVA (recoverable, booked apart from the material's cost)
+    const billNet = computed(() => (bill.value?.lines || []).reduce((a, l) => a + (+String(l.n).replace(",", ".") || 0) * (parseAmount(l.price) || 0), 0));
+    const billTax = computed(() => Math.round(billNet.value * (+bill.value?.tva || 0)) / 100);
+    const billTotal = computed(() => billNet.value + billTax.value);
     watch(billTotal, (t) => { if (bill.value && !bill.value.paidTouched) bill.value.paid = t ? +t.toFixed(2) : ""; });
     const billPaid = computed(() => Math.min(billTotal.value, parseAmount(bill.value?.paid ?? "") || 0));
     const modeLabel = (v) => (state.boot.modes || []).find((m) => m.value === v)?.label || v;
@@ -4835,7 +4878,7 @@ const StockPage = {
       try { const lines = b.lines.filter((l) => l.item_code && +l.n > 0).map((l) => { const i = billItem(l), p = packOf(i);
           return { item_code: l.item_code, qty: +String(l.n).replace(",", "."), rate: parseAmount(l.price), uom: p ? p.name : null }; });
         if (!b.supplier) throw new Error("اختر المورد"); if (!lines.length) throw new Error("أضف مادة واحدة على الأقل");
-        const r = await call("purchase_bill", { supplier: b.supplier, lines: JSON.stringify(lines), bill_no: b.bill_no, posting_date: b.date, paid: billPaid.value, mode: b.mode, due_date: r0(b) }, true);
+        const r = await call("purchase_bill", { supplier: b.supplier, lines: JSON.stringify(lines), bill_no: b.bill_no, posting_date: b.date, paid: billPaid.value, mode: b.mode, due_date: r0(b), tva_rate: +b.tva || 0 }, true);
         toast(r.owed > 0.005 ? `سُجّل الشراء — يبقى دين ${money(r.owed)}` : "سُجّل الشراء ودُفع"); bill.value = null; await load(); if (selItem.value) pick(selItem.value); }
       catch (e) { b.err = e.message; } finally { if (bill.value) bill.value.busy = false; } };
     const r0 = (b) => (billTotal.value - billPaid.value > 0.005 && b.due ? b.due : null);
@@ -4966,7 +5009,7 @@ const StockPage = {
       try { await call("remove_material", { item_code: i.item_code }, true); toast("حُذفت المادة"); await load(); } catch (e) { toast(e.message, "error"); }
     };
     const MOVE = { "Purchase Invoice": "شراء", "Stock Entry": "صرف", "Stock Reconciliation": "جرد" };
-    return { parseAmount, countUnits, packNames, sColor, sections, secOf, secValue, groups, folded, tabWay, state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
+    return { parseAmount, countUnits, packNames, sColor, sections, secOf, secValue, groups, folded, tabWay, state, tone, bill, packOf, newBill, billItem, billUnit, billTotal, billNet, billTax, billPaid, modeLabel, saveBill, quickSupplierBill, closedOf, staleClosed, openLeft, openPct, closing, cycleCalc, confirmClose, packWord, canOpen, openPack, qn, lasts, quickSupplier, unitName, INK_COLORS, kinds, sizes, toast, opening, conv, per, buyWord, rollArea, pack, plural, unitWord, counted, STOCK_WAYS, COUNT_UNITS, wayOf, way, wayCount, sel, ledger, pick, selItem, subOf, qtySub, fitBottle, s, load, busy, err, q, sheet, orders, items, low, units, suppliers, open, TITLES, submit, remove, MOVE, money, date, uom, onlyLow, rowMenu, totalValue, level, shortBy, MOVE_TAG, num, go };
   },
   template: `
   <div class="page tb cb">
@@ -5036,7 +5079,9 @@ const StockPage = {
           <td class="n"><b>{{ money((+l.n || 0) * (parseAmount(l.price) || 0)) }}</b></td>
           <td><button v-if="bill.lines.length > 1" type="button" class="cl-btn icon sm" aria-label="حذف السطر" @click="bill.lines.splice(k, 1)">×</button></td></tr></tbody></table>
       <button type="button" class="cl-link" style="align-self:flex-start" @click="bill.lines.push({item_code: '', n: '', price: ''})">+ مادة أخرى</button>
-      <div class="stk-bltot"><span>المجموع</span><b>{{ money(billTotal) }}</b></div>
+      <div class="stk-bltax"><span>TVA على الفاتورة</span><div class="seg" role="group" aria-label="TVA على فاتورة المورد"><button v-for="t in [0, 9, 19]" :key="t" type="button" :aria-pressed="+bill.tva === t" @click="bill.tva = t">{{ t ? t + '%' : 'بلا' }}</button></div></div>
+      <template v-if="+bill.tva"><div class="stk-bltot sub"><span>خارج الرسم</span><b>{{ money(billNet) }}</b></div><div class="stk-bltot sub"><span>TVA {{ bill.tva }}% (قابلة للخصم)</span><b>{{ money(billTax) }}</b></div></template>
+      <div class="stk-bltot"><span>{{ +bill.tva ? 'المجموع مع الرسم' : 'المجموع' }}</span><b>{{ money(billTotal) }}</b></div>
       <div class="stk-pay"><div class="stk-g3"><div class="field"><label for="bl-p">دفعت الآن</label><div class="stk-suf"><input id="bl-p" class="input" inputmode="decimal" v-model="bill.paid" @input="bill.paidTouched = true"><em>دج</em></div></div>
           <div class="field stk-span2"><label>الطريقة</label><div class="stk-modes"><button type="button" :aria-pressed="!(billPaid > 0)" @click="bill.paid = 0; bill.paidTouched = true">آجل</button><button v-for="m in state.boot.modes.filter((x) => x.value !== 'Cheque')" :key="m.value" type="button" :aria-pressed="billPaid > 0 && bill.mode === m.value" @click="bill.mode = m.value; if (!(billPaid > 0)) { bill.paid = +billTotal.toFixed(2); bill.paidTouched = false; }">{{ m.label }}</button></div></div></div>
         <p class="stk-payres"><template v-if="billPaid > 0">يخرج <b>{{ money(billPaid) }}</b> ({{ modeLabel(bill.mode) }})</template><template v-else>لا يخرج شيء الآن</template>

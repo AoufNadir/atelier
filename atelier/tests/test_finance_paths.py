@@ -277,3 +277,18 @@ class TestFinancePaths(unittest.TestCase):
 		inv = _deliver(so)
 		r = returns.create_return(so, json.dumps({frappe.get_doc("Sales Invoice", inv).items[0].name: 1}))
 		self.assertIn("RET", r["credit_note"])
+
+	def test_purchase_tva_is_recoverable_not_stock_cost(self):
+		from erpnext.stock.utils import get_stock_balance
+
+		from atelier import materials
+
+		supplier = frappe.db.get_value("Supplier", {}, "name")
+		item = materials.add_material("ورق TVA اختبار", "Nos")
+		bill = materials.purchase_bill(supplier, json.dumps([{"item_code": item, "qty": 10, "rate": 800}]), paid=0, tva_rate=19)
+		self.assertAlmostEqual(bill["total"], 9520, places=2)
+		acc = materials.deductible_tva_account(api._company())
+		self.assertAlmostEqual(flt(frappe.db.get_value("GL Entry", {"voucher_no": bill["invoice"], "account": acc, "is_cancelled": 0}, "debit")), 1520, places=2)
+		store = materials.store_for(api._company())
+		value = flt(frappe.db.get_value("Bin", {"item_code": item, "warehouse": store}, "stock_value"))
+		self.assertAlmostEqual(value, 8000, places=2)  # the material is worth its price before tax

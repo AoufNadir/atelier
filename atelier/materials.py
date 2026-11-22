@@ -882,7 +882,13 @@ def profit_report(period="month", start=None, end=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def purchase_bill(supplier, lines, bill_no=None, posting_date=None, paid=None, mode="Cash", due_date=None):
+def deductible_tva_account(company):
+	"""TVA paid on purchases, recoverable on the G50: 44566 in the Algerian chart, else any asset tax account."""
+	return frappe.db.get_value("Account", {"company": company, "account_number": "44566", "is_group": 0}) or \
+		frappe.db.get_value("Account", {"company": company, "account_type": "Tax", "root_type": "Asset", "is_group": 0})
+
+
+def purchase_bill(supplier, lines, bill_no=None, posting_date=None, paid=None, mode="Cash", due_date=None, tva_rate=0):
 	"""One supplier invoice with several materials, each in its roll / ream / unit; «دفعت الآن» pays it in full,
 	in part or not at all (the rest stays owed to the supplier)."""
 	_need("Purchase Invoice")
@@ -916,6 +922,16 @@ def purchase_bill(supplier, lines, bill_no=None, posting_date=None, paid=None, m
 	inv = frappe.get_doc({"doctype": "Purchase Invoice", "disable_rounded_total": 1, "supplier": supplier, "company": company,
 		"posting_date": posting_date or nowdate(), "set_posting_time": 1 if posting_date else 0,
 		"due_date": due_date or None, "update_stock": 1, "set_warehouse": store, "bill_no": (bill_no or "").strip() or None, "items": rows})
+	rate = flt(tva_rate)
+	if rate < 0 or rate > 100:
+		frappe.throw(_("نسبة TVA غير صحيحة"))
+	if rate > 0:
+		# the tax is recoverable: it goes to its own account (G50), never into the material's stock cost
+		acc = deductible_tva_account(company)
+		if not acc:
+			frappe.throw(_("لا يوجد حساب «TVA قابلة للاسترجاع» (44566) في دليل الحسابات"))
+		inv.append("taxes", {"category": "Total", "add_deduct_tax": "Add", "charge_type": "On Net Total", "account_head": acc,
+			"rate": rate, "description": f"TVA {rate:g}%", "cost_center": frappe.db.get_value("Company", company, "cost_center")})
 	inv.insert()
 	inv.submit()
 	for code, n in packs:
