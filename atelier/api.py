@@ -1512,4 +1512,5 @@ from atelier.printing import pdf  # noqa: E402, F401
 from atelier.returns import cancel_info, cancel_order, return_info, create_return
 from atelier.simple import partial_info, partial_deliver  # noqa: E402, F401
 from atelier.simple import morning  # noqa: E402, F401
+from atelier.yearend import year_status, close_year  # noqa: E402, F401
 from atelier.opening import opening_info, add_opening, reverse_opening  # noqa: E402, F401  # noqa: E402, F401

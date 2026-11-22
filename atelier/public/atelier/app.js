@@ -3455,7 +3455,7 @@ const SETTINGS_GROUPS = [
   ["المطبعة", [["profile", "printer", "بيانات المطبعة"], ["docs", "invoice", "الوثائق والضريبة"]]],
   ["العمل", [["team", "users", "الفريق والحسابات"], ["columns", "grid", "أعمدة اللوحة"], ["statuses", "tag", "الحالات والوسوم"], ["calendar", "calendar", "التقويم"],
     ["prices", "tag", "الخدمات والأسعار"], ["lists", "grid", "القوائم"]]],
-  ["المال", [["funds", "wallet", "الدفع والصناديق"]]],
+  ["المال", [["funds", "wallet", "الدفع والصناديق"], ["year", "calendar", "السنة المالية والإقفال"]]],
   ["النظام", [["alerts", "bell", "التنبيهات"], ["mail", "invoice", "البريد"], ["folders", "file", "المجلدات"], ["backup", "box", "النسخ الاحتياطي"]]],
 ];
 // settings search: what people type, and where it lives
@@ -3541,8 +3541,51 @@ const ListEditor = {
       <div class="row" style="gap:8px"><button type="button" class="cl-btn sm" @click="add">+ إضافة</button><button v-if="!inSettings" type="button" class="cl-btn primary sm" :disabled="busy" @click="save">حفظ</button></div></div></div>`,
 };
 
+// the financial year: checks before closing, the results and the balance sheet, and the closing itself (manager)
+const YearPanel = {
+  components: { Icon },
+  setup() {
+    const d = ref(null), err = ref(null), busy = ref(false), year = ref(new Date().getFullYear()), view = ref("results");
+    const load = async () => { err.value = null; d.value = null; try { d.value = await call("year_status", { year: year.value }); } catch (e) { err.value = e.message; } };
+    onMounted(() => { year.value = new Date().getMonth() === 0 ? year.value - 1 : year.value; load(); });
+    const close = async () => {
+      if (!confirm(`إقفال سنة ${year.value} نهائيًا؟ لا يمكن بعده إضافة أو تعديل أي قيد بتاريخ ${year.value}.`)) return;
+      busy.value = true; try { d.value = await call("close_year", { year: year.value }, true); toast(`أُقفلت سنة ${year.value}`); } catch (e) { toast(e.message, "error"); } finally { busy.value = false; } };
+    const csv = () => { const rows = view.value === "results" ? d.value.results.lines.map((l) => [l.code + " — " + l.label, l.amount]).concat([["النتيجة الصافية", d.value.results.result]])
+        : d.value.balance.lines.map((l) => [l.label, l.amount]);
+      const text = "\ufeff" + rows.map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" })); a.download = `${view.value === "results" ? "النتائج" : "الميزانية"}-${year.value}.csv`; a.click(); };
+    watch(year, load);
+    return { d, err, busy, year, view, close, csv, money };
+  },
+  template: `
+  <div class="st2-card yp">
+    <div class="yp-head"><div class="seg" role="group" aria-label="السنة"><button v-for="y in (d && d.years) || [year]" :key="y" type="button" :aria-pressed="y === year" @click="year = y">{{ y }}</button></div>
+      <span v-if="d && d.closed" class="mp-tag">مقفلة — {{ d.closed }}</span><span v-else-if="d && !d.ended" class="mp-tag bad" style="background:#FFFAEB;color:#B54708">جارية حتى {{ d.to }}</span></div>
+    <p v-if="err" class="alert error">{{ err }}</p>
+    <div v-else-if="!d" class="m">جارٍ التحميل…</div>
+    <template v-else>
+      <div v-if="!d.closed" class="yp-checks">
+        <div v-for="c in d.checks" :key="c.title" class="yp-check" :class="{no: !c.ok}"><i>{{ c.ok ? '✓' : '!' }}</i><span><b>{{ c.title }}</b><small>{{ c.detail }}</small></span></div></div>
+      <div class="mp-kpis" style="grid-template-columns:repeat(3,1fr)"><div class="mp-kpi"><span>الإيرادات</span><b>{{ money(d.results.income) }}</b></div>
+        <div class="mp-kpi"><span>المصاريف</span><b>{{ money(d.results.expense) }}</b></div>
+        <div class="mp-kpi" :class="d.results.result >= 0 ? 'ok' : 'bad'"><span>{{ d.results.result >= 0 ? 'النتيجة (ربح)' : 'النتيجة (خسارة)' }}</span><b>{{ money(d.results.result) }}</b></div></div>
+      <div class="yp-head" style="margin-top:12px"><div class="seg" role="group" aria-label="الجدول"><button type="button" :aria-pressed="view === 'results'" @click="view = 'results'">جدول النتائج</button><button type="button" :aria-pressed="view === 'balance'" @click="view = 'balance'">الميزانية</button></div>
+        <button type="button" class="cl-btn sm" @click="csv">Excel</button></div>
+      <table class="cl-table yp-t"><tbody>
+        <template v-if="view === 'results'"><tr v-for="l in d.results.lines" :key="l.code"><td>{{ l.code }} — {{ l.label }}</td><td class="n">{{ money(l.amount) }}</td></tr>
+          <tr class="yp-tot"><td>النتيجة الصافية</td><td class="n">{{ money(d.results.result) }}</td></tr></template>
+        <template v-else><tr v-for="l in d.balance.lines" :key="l.label"><td>{{ l.root === 'Asset' ? 'أصول' : l.root === 'Liability' ? 'خصوم' : 'أموال خاصة' }} — {{ l.label }}</td><td class="n">{{ money(l.amount) }}</td></tr>
+          <tr class="yp-tot"><td>مجموع الأصول</td><td class="n">{{ money(d.balance.assets) }}</td></tr><tr class="yp-tot"><td>مجموع الخصوم والأموال الخاصة</td><td class="n">{{ money(d.balance.liabilities_equity) }}</td></tr></template>
+      </tbody></table>
+      <template v-if="!d.closed">
+        <p class="alert warn" style="margin-top:12px">الإقفال نهائي: ينقل نتيجة السنة إلى حساب «12 — نتيجة السنة»، ولا يمكن بعده إضافة أو تعديل أي قيد بتاريخ {{ year }}. التصحيح بعدها يكون بقيد في السنة التالية.</p>
+        <div class="btn-row" style="justify-content:flex-end"><button type="button" class="cl-btn danger" :disabled="busy || !d.ended" :title="d.ended ? null : 'تُقفل السنة بعد نهايتها'" @click="close">{{ busy ? 'جارٍ الإقفال…' : 'إقفال سنة ' + year }}</button></div></template>
+    </template>
+  </div>`,
+};
 const SettingsPage = {
-  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, ListEditor, OpeningGroup },
+  props: ["start"], components: { Icon, Avatar, BoardSettings, PricesPage, TeamPage, ListEditor, OpeningGroup, YearPanel },
   setup(props) {
     const { s, load } = useLoad(() => call("settings"));
     onMounted(load);
@@ -3614,7 +3657,8 @@ const SettingsPage = {
     const META = { profile: ["بيانات المطبعة", "تظهر في رأس كل بون وفاتورة وكشف حساب", saveProfile], docs: ["الوثائق والضريبة", "الضريبة ونص أسفل الوثائق ومهلة الدفع", saveDocs],
       team: ["الفريق والحسابات", "من يدخل إلى البرنامج وبأي صلاحية"], columns: ["أعمدة اللوحة", "مراحل الطلب كما يراها الفريق في اللوحة"], statuses: ["الحالات والوسوم", "حالات البطاقة ووسومها وألوانها"], calendar: ["التقويم", "الحد اليومي للطلبات وأيام العطلة"], prices: ["الخدمات والأسعار", "سعر الأفراد وسعر المؤسسات لكل خدمة"],
       lists: ["القوائم", "وحدات البيع والأوسام ومواعيد التسليم وأنواع التكلفة والأدوار"], funds: ["الدفع والصناديق", "أسماء الصناديق وطرق الدفع"], alerts: ["التنبيهات", "ما يصل إلى جرس كل عضو", saveAlerts],
-      mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], folders: ["المجلدات", "مجلد لكل عميل ولكل بطاقة على هذا الحاسوب", saveFolders], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"] };
+      mail: ["البريد", "لإرسال رابط كلمة السر ورسائل الحسابات الجديدة", saveMail], folders: ["المجلدات", "مجلد لكل عميل ولكل بطاقة على هذا الحاسوب", saveFolders], backup: ["النسخ الاحتياطي", "نسخة كاملة من البيانات والملفات"],
+      year: ["السنة المالية والإقفال", "جدول النتائج والميزانية، وإقفال السنة بعد نهايتها"] };
     const meta = computed(() => { const m = META[tab.value] || META.profile; return { title: m[0], desc: m[1], save: m[2] }; });
     // own forms (profile, documents, alerts, mail, folders): clean once the settings load
     const loaded = (v) => JSON.parse(JSON.stringify(v));
@@ -3781,6 +3825,7 @@ const SettingsPage = {
               <span v-if="foldDone" class="muted">تمّ: {{ foldDone.customers }} عميل، {{ foldDone.cards }} بطاقة، {{ foldDone.files }} ملف منسوخ.</span></div></div>
         </div>
 
+        <YearPanel v-else-if="tab === 'year'"/>
         <div v-else-if="tab === 'backup'" class="st2-card">
           <div class="st2-grp"><div class="st2-lbl"><b>النسخ الاحتياطي</b><span>نسخة كاملة من البيانات والملفات. احفظ نسخة خارج الجهاز من حين لآخر.</span></div>
             <div class="st2-fields"><button type="button" class="cl-btn primary" style="align-self:flex-start" :disabled="busy === 'backup'" @click="backup">{{ busy === 'backup' ? 'جارٍ إنشاء النسخة…' : 'إنشاء نسخة الآن' }}</button>
