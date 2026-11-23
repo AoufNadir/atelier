@@ -1442,30 +1442,25 @@ const BoardCard = {
       setTimeout(() => { ghost.remove(); el.classList.add("is-dragging"); }, 0);
       emit("drag", props.c);
     };
-    return { dragStart, sts, inkOn, labelStyle, dueWord, daysFromToday, money };
+    const late = computed(() => !!props.c.due && props.c.per_delivered < 100 && daysFromToday(props.c.due) < 0);
+    const lateDays = computed(() => { const n = -daysFromToday(props.c.due); return n === 1 ? "يومًا" : n === 2 ? "يومين" : n <= 10 ? n + " أيام" : n + " يومًا"; });
+    return { dragStart, sts, inkOn, labelStyle, dueWord, daysFromToday, money, late, lateDays };
   },
   template: `
-  <article class="tc tc2" :class="{busy, 'drop-before': dropBefore}" draggable="true" tabindex="0" @dragstart="dragStart($event)" @dragend="$el.classList.remove('is-dragging')" @click="$emit('open', c)" @keydown.enter="$emit('open', c)"
+  <article class="tc tc2" :class="{busy, 'drop-before': dropBefore, 'is-late': late}" draggable="true" tabindex="0" @dragstart="dragStart($event)" @dragend="$el.classList.remove('is-dragging')" @click="$emit('open', c)" @keydown.enter="$emit('open', c)"
      @contextmenu.prevent.stop="$emit('menu', c, $event)" @mouseenter="$emit('hover', c)" @mouseleave="$emit('hover', null)" @focus="$emit('hover', c)"
     @dragover.prevent.stop="$emit('dropon', c, false)" @drop.prevent.stop="$emit('dropon', c, true)" :aria-label="c.title + ' — ' + c.customer_name">
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
     <div v-else-if="c.cover_color" class="tc2-band" :style="{background: c.cover_color}"></div>
     <div class="tc-body">
-      <div class="tc3-top" :class="{'has-sts': sts.length}"><div class="tc-title">{{ c.title }}</div>
-        <button type="button" class="tc2-sts" :class="{empty: !sts.length}" :aria-label="'الحالات: ' + (sts.length ? sts.map(x => x.name).join('، ') : 'بلا حالة') + ' — تغيير'" @click.stop="$emit('status', c, $event)">
-          <span v-for="x in sts" :key="x.id" class="st-pill" :style="{background: x.color, color: inkOn(x.color)}">{{ x.name }}</span>
-          <span v-if="!sts.length" class="st-pill none">+ حالة</span></button>
+      <div class="tc3-top"><div class="tc-title">{{ c.title }}</div>
         <button type="button" class="tc2-more" aria-label="خيارات البطاقة" @click.stop="$emit('menu', c, $event)"><Icon name="more" :size="14"/></button></div>
       <div class="tc-cust">{{ c.customer_name }}<template v-if="c.price_pending"> · <span class="bd-warn">بلا سعر</span></template><template v-else-if="c.grand_total > 0"> · {{ money(c.grand_total) }}</template></div>
-      <div v-if="c.labels.some(id => labels[id])" class="tc2-tags"><span v-for="id in c.labels.filter(id => labels[id])" :key="id" class="tc2-tag"><i :style="{background: labels[id].color}"></i>{{ labels[id].name }}</span></div>
       <div class="tc-foot">
-        <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: daysFromToday(c.due) < 0, soon: daysFromToday(c.due) >= 0 && daysFromToday(c.due) <= 1}"><Icon name="clock" :size="13"/>{{ dueWord(c.due) }}<template v-if="c.due_time"> {{ c.due_time }}</template></span>
-        <span v-if="c.per_delivered > 0 && c.per_delivered < 100" class="tc-part" title="سُلّم جزء من البنود وفُوتر؛ الباقي يُسلَّم لاحقًا">سُلّم جزئيًا</span>
-        <span v-if="c.comments" class="tc-m" title="تعليقات"><Icon name="msg" :size="13"/>{{ c.comments }}</span>
-        <span v-if="c.files" class="tc-m" title="مرفقات"><Icon name="file" :size="13"/>{{ c.files }}</span>
-        <span v-if="c.check[1]" class="tc-check" :class="{full: c.check[0] === c.check[1]}" title="قائمة المهام"><Icon name="check" :size="13"/>{{ c.check[0] }}/{{ c.check[1] }}</span>
+        <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: late, soon: !late && daysFromToday(c.due) <= 1}">{{ late ? 'متأخر ' + lateDays : dueWord(c.due) }}<template v-if="c.due_time && !late"> {{ c.due_time }}</template></span>
+        <button v-if="sts.length" type="button" class="tc-sdot" :aria-label="'الحالة: ' + sts.map(x => x.name).join('، ') + ' — تغيير'" @click.stop="$emit('status', c, $event)"><i :style="{background: sts[0].color}"></i>{{ sts[0].name }}</button>
+        <i v-for="id in c.labels.filter(id => labels[id]).slice(0, 3)" :key="id" class="tc-ldot" :style="{background: labels[id].color}" :title="labels[id].name"></i>
         <span class="spacer"></span>
-        <span v-if="c.grand_total > 0" class="tc-pay" :class="c.paid >= c.grand_total - 0.005 ? 'ok' : c.paid > 0.005 ? 'part' : 'none'">{{ c.paid >= c.grand_total - 0.005 ? 'مدفوع' : c.paid > 0.005 ? 'دُفع جزء' : 'غير مدفوع' }}</span>
         <span class="tc-members"><Avatar v-for="m in c.members.slice(0, 3)" :key="m" :name="m"/></span>
       </div>
     </div>
@@ -1659,6 +1654,17 @@ const Board = {
       return when.value === "late" ? d < 0 : when.value === "today" ? d === 0 : d >= 0 && d <= 6; };
     const filtersOn = computed(() => !!(label.value || mine.value || fCust.value || fMember.value || when.value || q.value));
     const clearFilters = () => { label.value = ""; mine.value = false; fCust.value = ""; fMember.value = ""; when.value = ""; q.value = ""; };
+    const colTip = (c) => [c.deliver ? (c.owed > 0.005 ? "لم يُحصَّل " + money(c.owed) : "محصّل بالكامل") : "قيمة الأعمال " + money(c.sum),
+      c.paid > 0.005 && !c.deliver ? "مُسبَّق " + money(c.paid) : "", c.unpriced ? c.unpriced + " بلا سعر" : "", c.late ? c.late + " متأخرة" : ""].filter(Boolean).join(" · ");
+    const WHEN = [["late", "متأخرة"], ["today", "اليوم"], ["week", "هذا الأسبوع"]];
+    const activeFilters = computed(() => { const out = [], all = [...(cfg.value?.statuses || []), ...(cfg.value?.labels || [])];
+      if (when.value) out.push({ k: "w", t: WHEN.find((w) => w[0] === when.value)?.[1], off: () => (when.value = "") });
+      if (fCust.value) out.push({ k: "c", t: (custOpts.value.find((o) => o[0] === fCust.value) || [, fCust.value])[1], off: () => (fCust.value = "") });
+      if (fMember.value) out.push({ k: "m", t: fMember.value, off: () => (fMember.value = "") });
+      if (label.value) out.push({ k: "l", t: all.find((l) => l.id === label.value)?.name || label.value, off: () => (label.value = "") });
+      if (mine.value) out.push({ k: "me", t: "بطاقاتي", off: () => (mine.value = false) });
+      return out; });
+    const nFilters = computed(() => activeFilters.value.length);
     const rows = computed(() => (s.data?.cards || []).filter((c) => (!mine.value || c.members.includes(me.value)) && (!label.value || c.labels.includes(label.value) || (c.status || []).includes(label.value))
       && (!fCust.value || c.customer === fCust.value) && (!fMember.value || c.members.includes(fMember.value)) && inWhen(c)
       && (!needle.value || [c.title, c.customer_name, c.name].some((v) => String(v || "").toLowerCase().includes(needle.value)))));
@@ -1944,7 +1950,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { WHEN, activeFilters, nFilters, colTip, SCALES, sizeState, setScale, setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, archTab, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -1957,7 +1963,15 @@ const Board = {
       <div class="mn-month cb-views" role="group" aria-label="طريقة العرض"><button type="button" :aria-pressed="view === 'board'" @click="view = 'board'"><Icon name="grid" :size="15"/>لوحة</button><button type="button" :aria-pressed="view === 'calendar'" @click="view = 'calendar'"><Icon name="calendar" :size="15"/>تقويم</button></div>
       <span class="spacer"></span>
       <label class="cl-search"><Icon name="search" :size="16"/><span class="sr-only">بحث في البطاقات</span><input type="search" v-model="q" placeholder="ابحث: عميل، عنوان، رقم"></label>
-      <SizeControl/>
+      <div v-if="s.data" class="cl-pop-host"><button type="button" class="cl-btn" :class="{on: nFilters}" :aria-expanded="fopen" @click.stop="fopen = !fopen; more = false; bell = false">تصفية<b v-if="nFilters" class="tb-fn">{{ nFilters }}</b> ▾</button>
+        <div v-if="fopen" class="cl-pop tb-fpop" role="group" aria-label="تصفية البطاقات" @click.stop>
+          <label class="cl-fgroup"><span>العميل</span><select class="input" v-model="fCust"><option value="">كل العملاء</option><option v-for="o in custOpts" :key="o[0]" :value="o[0]">{{ o[1] }}</option></select></label>
+          <label v-if="memberOpts.length" class="cl-fgroup"><span>من يعمل عليه</span><select class="input" v-model="fMember"><option value="">الجميع</option><option v-for="m in memberOpts" :key="m" :value="m">{{ m }}</option></select></label>
+          <label class="cl-fgroup"><span>الحالة أو الوسم</span><select class="input" v-model="label"><option value="">الكل</option><optgroup label="الحالة"><option v-for="l in cfg.statuses" :key="l.id" :value="l.id">{{ l.name }}</option></optgroup><optgroup v-if="cfg.labels.length" label="الوسوم"><option v-for="l in cfg.labels" :key="l.id" :value="l.id">{{ l.name }}</option></optgroup></select></label>
+          <div v-if="view !== 'calendar'" class="cl-fgroup"><span>الموعد</span><div class="tb-fwhen"><button v-for="w in WHEN" :key="w[0]" type="button" class="tb-fchip" :class="w[0]" :aria-pressed="when === w[0]" @click="when = when === w[0] ? '' : w[0]">{{ w[1] }}</button></div></div>
+          <label v-if="memberOpts.includes(me)" class="st2-check"><input type="checkbox" v-model="mine"><span>بطاقاتي فقط</span></label>
+          <div class="btn-row"><button type="button" class="cl-btn primary sm" @click="fopen = false">تم</button><button v-if="filtersOn" type="button" class="cl-btn sm" @click="clearFilters">مسح الكل</button></div>
+        </div></div>
       <div class="tb-bell-host"><button type="button" class="cl-btn icon cb-bell" :aria-label="'التنبيهات' + (notes.unread ? ' — ' + notes.unread + ' جديدة' : '')" :aria-expanded="bell" @click.stop="fopen = false; more = false; toggleBell()"><Icon name="bell" :size="18"/><span v-if="notes.unread" class="cb-dot"></span></button>
         <div v-if="bell" class="tm-pop tb-bell-pop" @click.stop>
           <b>التنبيهات</b>
@@ -1967,21 +1981,18 @@ const Board = {
             <Avatar :name="l.by" :size="28"/><span style="flex:1;min-width:0"><span>{{ l.subject }}</span><span class="m">{{ ago(l.creation) }}</span></span></button>
           <span v-if="!notes.due.length && !notes.logs.length" class="m">لا تنبيهات.</span>
         </div></div>
-      <div class="cl-pop-host"><button type="button" class="cl-btn icon" aria-label="المزيد" :aria-expanded="more" @click.stop="more = !more; fopen = false; bell = false"><Icon name="more" :size="18"/></button>
+      <div class="cl-pop-host"><button type="button" class="cl-btn" :aria-expanded="more" @click.stop="more = !more; fopen = false; bell = false">المزيد ▾</button>
         <div v-if="more" class="cl-pop cl-menu" @click.stop><button type="button" @click="more = false; showArchive()"><Icon name="box" :size="16"/>الأرشيف</button>
           <button v-if="s.data && s.data.manager" type="button" @click="go('/settings?tab=board')"><Icon name="gear" :size="16"/>تخصيص اللوحة</button>
           <template v-if="hiddenCols.length && s.data && s.data.manager"><span class="m tb-more-h">أعمدة مخفية</span>
-            <button v-for="hc in hiddenCols" :key="hc.id" type="button" @click="hideCol(false, hc.id)"><i class="st-sw" :style="{background: hc.color}"></i>إظهار «{{ hc.name }}»</button></template></div></div>
+            <button v-for="hc in hiddenCols" :key="hc.id" type="button" @click="hideCol(false, hc.id)"><i class="st-sw" :style="{background: hc.color}"></i>إظهار «{{ hc.name }}»</button></template>
+          <div class="tb-more-size"><span>حجم الخط</span><div class="who-seg"><button v-for="x in SCALES" :key="x[0]" type="button" dir="ltr" :aria-pressed="sizeState.zoom === x[0]" @click="setScale(x[0])">{{ x[1] }}</button></div></div></div></div>
       <button v-if="state.boot.can.order" type="button" class="cl-btn primary" data-tour="new-order" @click="state.sheet = {type: 'order'}"><Icon name="plus" :size="16"/>طلب جديد</button>
     </div>
     <MorningPanel v-if="state.boot.role === 'manager'" :when="when" @open="(n) => (open = n)" @when="(w) => (when = when === w ? '' : w)"/>
-    <div v-if="s.data" class="tb-filters" role="group" aria-label="تصفية البطاقات">
-      <select class="input" :class="{on: fCust}" v-model="fCust" aria-label="العميل"><option value="">كل العملاء</option><option v-for="o in custOpts" :key="o[0]" :value="o[0]">{{ o[1] }}</option></select>
-      <select v-if="memberOpts.length" class="input" :class="{on: fMember}" v-model="fMember" aria-label="العضو"><option value="">كل الأعضاء</option><option v-for="m in memberOpts" :key="m" :value="m">{{ m }}</option></select>
-      <select class="input" :class="{on: label}" v-model="label" aria-label="الحالة أو الوسم"><option value="">كل الحالات والوسوم</option><optgroup label="الحالة"><option v-for="l in cfg.statuses" :key="l.id" :value="l.id">{{ l.name }}</option></optgroup><optgroup v-if="cfg.labels.length" label="الوسوم"><option v-for="l in cfg.labels" :key="l.id" :value="l.id">{{ l.name }}</option></optgroup></select>
-      <template v-if="view !== 'calendar'"><span class="tb-fsep"></span><button v-for="w in [['late','متأخرة'],['today','اليوم'],['week','هذا الأسبوع']]" :key="w[0]" type="button" class="tb-fchip" :class="w[0]" :aria-pressed="when === w[0]" @click="when = when === w[0] ? '' : w[0]">{{ w[1] }}</button></template>
-      <button v-if="memberOpts.includes(me)" type="button" class="tb-fchip" :aria-pressed="mine" @click="mine = !mine">بطاقاتي</button>
-      <button v-if="filtersOn" type="button" class="cl-link" @click="clearFilters">مسح التصفية</button>
+    <div v-if="s.data && (activeFilters.length || view === 'calendar')" class="tb-filters" role="group" aria-label="التصفية المفعّلة">
+      <span v-for="x in activeFilters" :key="x.k" class="tb-af">{{ x.t }}<button type="button" :aria-label="'إزالة ' + x.t" @click="x.off()">×</button></span>
+      <button v-if="activeFilters.length > 1" type="button" class="cl-link" @click="clearFilters">مسح الكل</button>
       <template v-if="view === 'calendar'"><span class="spacer"></span>
         <b class="cal2-range">{{ calMode === 'week' ? date(days[0].iso) + ' — ' + date(days[6].iso, true) : monthTitle }}</b>
         <div class="cal2-seg" role="group" aria-label="العرض"><button type="button" :aria-pressed="calMode === 'week'" @click="calMode = 'week'">أسبوع</button><button type="button" :aria-pressed="calMode === 'month'" @click="calMode = 'month'">شهر</button></div>
@@ -2026,11 +2037,8 @@ const Board = {
         <h2 class="tb-ch" :class="{'col-grab': s.data.manager}" :title="s.data.manager ? 'اسحب العنوان لتغيير ترتيب العمود' : null" @pointerdown="colPointer(c, $event)"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
           <span class="bd-n" :class="{over: c.limit && c.items.length > c.limit}">{{ c.items.length }}<template v-if="c.limit"> / {{ c.limit }}<template v-if="c.items.length > c.limit"> !</template></template></span>
           <button type="button" class="tb-cdots" :aria-label="'خيارات العمود ' + c.name" :aria-expanded="colMenu && colMenu.col.id === c.id" @click.stop="openColMenu(c, $event)"><Icon name="more" :size="16"/></button></h2>
-        <div v-if="(c.sum && !s.data.worker) || c.late || c.unpriced || colSort[c.id]" class="tb-cstat">
-          <template v-if="!s.data.worker && c.items.length"><template v-if="c.deliver"><span v-if="c.owed > 0.005" class="tb-owed" title="ما سُلّم ولم يُدفع: دين على العملاء">لم يُحصَّل <b class="num">{{ money(c.owed) }}</b></span><span v-else-if="c.sum" class="tb-ok">✓ محصّل بالكامل</span></template>
-            <template v-else-if="c.sum"><span class="num" title="قيمة الأعمال الجارية في هذا العمود"><b>{{ money(c.sum) }}</b></span><span v-if="c.paid > 0.005" class="m" title="ما دفعه العملاء مقدمًا">مُسبَّق {{ money(c.paid) }}</span></template></template>
-          <button v-if="c.unpriced && !s.data.worker" type="button" class="tb-cchip warn" title="طلبات بلا سعر: اضغط لإبرازها" @click="flashCards(c.id, 'unpriced')">{{ c.unpriced }} بلا سعر</button>
-          <button v-if="c.late" type="button" class="tb-cchip late" title="اضغط لإبراز المتأخرة" @click="flashCards(c.id, 'late')"><Icon name="clock" :size="12"/>{{ c.late }} متأخرة</button>
+        <div v-if="(c.sum && !s.data.worker) || colSort[c.id]" class="tb-cstat" :title="colTip(c)">
+          <template v-if="!s.data.worker && c.items.length"><span v-if="c.deliver && c.owed > 0.005" class="tb-owed">لم يُحصَّل <b class="num">{{ money(c.owed) }}</b></span><span v-else-if="c.sum" class="num">{{ money(c.sum) }}</span></template>
           <span v-if="colSort[c.id]" class="m">مرتّبة {{ {due: 'بالموعد', created: 'بالأحدث', amount: 'بالمبلغ'}[colSort[c.id]] }}</span></div>
         <TransitionGroup name="tcm" tag="div" class="tb-list">
           <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :statuses="cfg.statuses" :busy="busy === card.name" :drop-before="before === card.name"
