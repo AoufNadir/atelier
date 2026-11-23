@@ -3697,50 +3697,60 @@ const SetupPanel = {
 const GuidePage = {
   setup() {
     const all = ref([]), q = ref(""), cur = ref(null);
-    const myRole = state.boot.role === "manager" ? "manager" : state.boot.role === "sales" ? "sales" : "worker";
-    const ROLES = [["all", "الكل"], ["manager", "المدير"], ["sales", "البائع"], ["worker", "المصمم والطابع"]];
-    const role = ref(myRole === "manager" ? "all" : myRole);
     const norm = (x) => String(x || "").toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[ًٌٍَُِّْ]/g, "");
-    const text = (s) => s.title + " " + s.body.map((b) => (Array.isArray(b[1]) ? b[1].flat().join(" ") : b[1])).join(" ");
+    const text = (s) => s.task + " " + s.title + " " + s.desc + " " + s.body.map((b) => (Array.isArray(b[1]) ? b[1].flat().join(" ") : b[1])).join(" ");
+    const myRole = state.boot.role === "manager" ? "manager" : state.boot.role === "sales" ? "sales" : "worker";
+    const ROLES = [["all", "الكل"], ["manager", "أنا المدير"], ["sales", "أنا البائع"], ["worker", "أنا المصمم أو الطابع"]];
+    const role = ref(myRole);
     onMounted(async () => { all.value = await loadGuide(); const want = state.query.get("s"), from = state.query.get("from");
-      cur.value = (all.value.find((s) => s.id === want) || all.value.find((s) => from && s.page.includes(from)) || all.value[0]).id; });
+      const hit = all.value.find((s) => s.id === want) || (from && from !== "home" && all.value.find((s) => s.page.includes(from)));
+      cur.value = hit ? hit.id : null; });
     const hits = computed(() => { const t = norm(q.value.trim());
-      return all.value.filter((s) => (role.value === "all" || (s.roles || []).includes(role.value)) && (!t || norm(text(s)).includes(t))); });
-    const order = computed(() => hits.value.map((s) => s.id));
-    const step = (n) => { const i = order.value.indexOf(cur.value), x = order.value[i + n]; if (x) { cur.value = x; window.scrollTo(0, 0); } };
-    const near = computed(() => { const i = order.value.indexOf(cur.value), f = (k) => all.value.find((s) => s.id === order.value[k]);
-      return { prev: i > 0 ? f(i - 1) : null, next: i >= 0 && i < order.value.length - 1 ? f(i + 1) : null }; });
+      return all.value.filter((s) => (t ? norm(text(s)).includes(t) : role.value === "all" || (s.roles || []).includes(role.value))); });
     const groups = computed(() => { const m = new Map(); for (const s of hits.value) { if (!m.has(s.group)) m.set(s.group, []); m.get(s.group).push(s); } return [...m.entries()]; });
     const sec = computed(() => all.value.find((s) => s.id === cur.value));
-    watch(hits, (l) => { if (l.length && !l.some((s) => s.id === cur.value)) cur.value = l[0].id; });
+    const open = (id) => { cur.value = id; window.scrollTo(0, 0); };
+    const near = computed(() => { const l = hits.value.some((s) => s.id === cur.value) ? hits.value : all.value, i = l.findIndex((s) => s.id === cur.value);
+      return { prev: i > 0 ? l[i - 1] : null, next: i >= 0 && i < l.length - 1 ? l[i + 1] : null }; });
+    const forWho = (s) => (s.roles || []).length === 3 ? "لمن: الجميع" : "لمن: " + (s.who || "");
+    // a step = bold head (before «:») + detail; «names» shown as keys; numbers in examples stand out
+    const stepOf = (x) => { const i = x.indexOf(": "); return i > 0 && i < 60 ? [x.slice(0, i), x.slice(i + 2)] : [x, ""]; };
+    const parts = (t, nums) => String(t).split(nums ? /(«[^»]+»|\d[\d\s.,]*(?:\s?دج|%)?)/ : /(«[^»]+»)/).filter(Boolean)
+      .map((x) => (x.startsWith("«") ? { k: x.slice(1, -1) } : nums && /^\d/.test(x) ? { n: x } : { t: x }));
     const printAll = () => { document.body.classList.add("gd-printing"); setTimeout(() => { window.print(); document.body.classList.remove("gd-printing"); }, 50); };
-    return { all, q, cur, groups, sec, printAll, go, ROLES, role, step, near };
+    return { all, q, cur, groups, sec, open, near, ROLES, role, forWho, stepOf, parts, printAll, go };
   },
   template: `
   <div class="page gd">
-    <div class="page-head"><div><h1>دليل المستخدم</h1><div class="sub">خطوات قصيرة مع أمثلة لكل ما في البرنامج</div></div>
-      <div class="btn-row"><input class="input gd-q" v-model="q" placeholder="ابحث: إرجاع، G50، كلمة السر…" aria-label="بحث في الدليل"><button type="button" class="cl-btn" @click="printAll">طباعة / PDF</button></div></div>
-    <div class="seg gd-roles" role="group" aria-label="الدليل لـ"><span class="m">الدليل لـ</span><button v-for="r in ROLES" :key="r[0]" type="button" :aria-pressed="role === r[0]" @click="role = r[0]">{{ r[1] }}</button></div>
-    <div class="gd-grid">
-      <nav class="st2-card gd-toc" aria-label="أقسام الدليل"><template v-for="g in groups" :key="g[0]"><small>{{ g[0] }}</small>
-        <a v-for="s in g[1]" :key="s.id" href="#" :class="{on: s.id === cur}" @click.prevent="cur = s.id">{{ s.title }}</a></template>
-        <p v-if="!groups.length" class="m" style="padding:8px">لا نتائج.</p></nav>
-      <div>
-        <article v-for="s in all" :key="s.id" class="st2-card gd-sec" :class="{shown: sec && s.id === sec.id}">
-          <h2>{{ s.title }} <span class="gd-who">{{ s.who }}</span></h2>
-          <template v-for="(b, i) in s.body" :key="i">
-            <p v-if="b[0] === 'p'">{{ b[1] }}</p><h3 v-else-if="b[0] === 'h'">{{ b[1] }}</h3>
-            <ol v-else-if="b[0] === 'ol'"><li v-for="x in b[1]" :key="x">{{ x }}</li></ol>
-            <div v-else-if="b[0] === 'tip'" class="gd-tip">{{ b[1] }}</div>
-            <div v-else-if="b[0] === 'warn'" class="gd-warn">{{ b[1] }}</div>
-            <dl v-else-if="b[0] === 'dl'" class="gd-dl"><template v-for="e in b[1]" :key="e[0]"><dt>{{ e[0] }}</dt><dd>{{ e[1] }}</dd></template></dl>
-            <div v-else-if="b[0] === 'err'" class="gd-err"><h3>أخطاء شائعة</h3><dl><template v-for="e in b[1]" :key="e[0]"><dt>{{ e[0] }}</dt><dd>{{ e[1] }}</dd></template></dl></div>
-          </template>
-          <a v-if="s.go" class="gd-go" :href="'/atelier' + s.go" @click.prevent="go(s.go)">افتح الشاشة ←</a>
-          <div v-if="sec && s.id === sec.id" class="gd-nav"><button v-if="near.prev" type="button" class="cl-btn" @click="step(-1)">→ {{ near.prev.title }}</button><span style="flex:1"></span><button v-if="near.next" type="button" class="cl-btn" @click="step(1)">{{ near.next.title }} ←</button></div>
-        </article>
+    <template v-if="!sec">
+      <div class="gd-hero">
+        <div><h1>ماذا تريد أن تفعل؟</h1><div class="sub">اختر مهمة، أو ابحث بكلمة.</div>
+          <div class="gd-who" role="group" aria-label="الدليل لـ"><button v-for="r in ROLES" :key="r[0]" type="button" :class="{on: role === r[0] && !q}" @click="role = r[0]; q = ''">{{ r[1] }}</button></div></div>
+        <div class="gd-hero-side"><input class="input gd-q" v-model="q" placeholder="ابحث: إرجاع، G50، كلمة السر…" aria-label="بحث في الدليل">
+          <button type="button" class="cl-btn" @click="printAll">طباعة الدليل كاملًا</button></div>
       </div>
-    </div>
+      <template v-for="g in groups" :key="g[0]"><h2 class="gd-grp">{{ g[0] }}</h2>
+        <div class="gd-cards"><button v-for="s in g[1]" :key="s.id" type="button" class="gd-card" @click="open(s.id)"><b>{{ s.task }}</b><span>{{ s.desc }}</span></button></div></template>
+      <p v-if="!groups.length" class="m gd-none">لا نتائج لـ «{{ q }}». جرّب كلمة أخرى.</p>
+    </template>
+    <article v-for="s in all" :key="s.id" class="gd-sec" :class="{shown: sec && s.id === sec.id}">
+      <div class="gd-crumb"><a href="#" @click.prevent="cur = null">الدليل</a> ← {{ s.group }}</div>
+      <h2>{{ s.task }}</h2><span class="gd-for">{{ forWho(s) }}</span>
+      <template v-for="(b, i) in s.body" :key="i">
+        <div v-if="b[0] === 'ex'" class="gd-ex"><small>مثال</small><template v-for="(x, j) in parts(b[1], true)" :key="j"><b v-if="x.n">{{ x.n }}</b><span v-else-if="x.k" class="gd-k">{{ x.k }}</span><template v-else>{{ x.t }}</template></template></div>
+        <p v-else-if="b[0] === 'p'"><template v-for="(x, j) in parts(b[1])" :key="j"><span v-if="x.k" class="gd-k">{{ x.k }}</span><template v-else>{{ x.t }}</template></template></p>
+        <h3 v-else-if="b[0] === 'h'">{{ b[1] }}</h3>
+        <ol v-else-if="b[0] === 'ol'" class="gd-steps"><li v-for="x in b[1]" :key="x"><b><template v-for="(y, j) in parts(stepOf(x)[0])" :key="j"><span v-if="y.k" class="gd-k">{{ y.k }}</span><template v-else>{{ y.t }}</template></template></b>
+          <span v-if="stepOf(x)[1]"><template v-for="(y, j) in parts(stepOf(x)[1])" :key="j"><span v-if="y.k" class="gd-k">{{ y.k }}</span><template v-else>{{ y.t }}</template></template></span></li></ol>
+        <div v-else-if="b[0] === 'tip'" class="gd-note tip"><b>نصيحة</b>{{ b[1] }}</div>
+        <div v-else-if="b[0] === 'warn'" class="gd-note warn"><b>انتبه</b>{{ b[1] }}</div>
+        <div v-else-if="b[0] === 'err'" class="gd-err"><h3>إذا ظهرت مشكلة</h3><div v-for="e in b[1]" :key="e[0]" class="gd-qa"><b>{{ e[0] }}</b><span>{{ e[1] }}</span></div></div>
+        <dl v-else-if="b[0] === 'dl'" class="gd-dl"><template v-for="e in b[1]" :key="e[0]"><dt>{{ e[0] }}</dt><dd>{{ e[1] }}</dd></template></dl>
+      </template>
+      <div class="btn-row gd-acts"><button v-if="s.go" type="button" class="cl-btn primary" @click="go(s.go)">افتح الشاشة</button><button type="button" class="cl-btn" @click="cur = null">كل المهام</button></div>
+      <nav v-if="sec && s.id === sec.id" class="gd-nav" aria-label="التنقل"><a v-if="near.prev" href="#" @click.prevent="open(near.prev.id)">السابق<b>→ {{ near.prev.task }}</b></a><span v-else></span>
+        <a v-if="near.next" href="#" class="nx" @click.prevent="open(near.next.id)">التالي<b>{{ near.next.task }} ←</b></a></nav>
+    </article>
   </div>`,
 };
 const SettingsPage = {
