@@ -108,6 +108,15 @@ def _with_prices(items):
 	return items
 
 
+def _remember_public_url():
+	try:
+		from atelier.simple import remember_public_url
+
+		remember_public_url()
+	except Exception:
+		pass
+
+
 def _setup_pending():
 	from atelier.setup_wizard import pending
 
@@ -123,6 +132,7 @@ def boot():
 
 	company = _company()
 	role = app_role()
+	_remember_public_url()
 	worker = role in WORKERS
 	items = frappe.get_list(
 		"Item",
@@ -1529,3 +1539,4 @@ from atelier.opening import opening_info, add_opening, reverse_opening  # noqa: 
 from atelier.printing import set_item_name_fr  # noqa: E402,F401
 from atelier.importer import import_check, import_errors, import_run, import_template  # noqa: E402, F401
 from atelier.setup_wizard import setup_hide, setup_skip, setup_status  # noqa: E402, F401
+from atelier.simple import set_user_password  # noqa: E402, F401

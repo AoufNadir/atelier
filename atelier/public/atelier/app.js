@@ -3697,21 +3697,30 @@ const SetupPanel = {
 const GuidePage = {
   setup() {
     const all = ref([]), q = ref(""), cur = ref(null);
+    const myRole = state.boot.role === "manager" ? "manager" : state.boot.role === "sales" ? "sales" : "worker";
+    const ROLES = [["all", "الكل"], ["manager", "المدير"], ["sales", "البائع"], ["worker", "المصمم والطابع"]];
+    const role = ref(myRole === "manager" ? "all" : myRole);
     const norm = (x) => String(x || "").toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[ًٌٍَُِّْ]/g, "");
     const text = (s) => s.title + " " + s.body.map((b) => (Array.isArray(b[1]) ? b[1].flat().join(" ") : b[1])).join(" ");
     onMounted(async () => { all.value = await loadGuide(); const want = state.query.get("s"), from = state.query.get("from");
       cur.value = (all.value.find((s) => s.id === want) || all.value.find((s) => from && s.page.includes(from)) || all.value[0]).id; });
-    const hits = computed(() => { const t = norm(q.value.trim()); return t ? all.value.filter((s) => norm(text(s)).includes(t)) : all.value; });
+    const hits = computed(() => { const t = norm(q.value.trim());
+      return all.value.filter((s) => (role.value === "all" || (s.roles || []).includes(role.value)) && (!t || norm(text(s)).includes(t))); });
+    const order = computed(() => hits.value.map((s) => s.id));
+    const step = (n) => { const i = order.value.indexOf(cur.value), x = order.value[i + n]; if (x) { cur.value = x; window.scrollTo(0, 0); } };
+    const near = computed(() => { const i = order.value.indexOf(cur.value), f = (k) => all.value.find((s) => s.id === order.value[k]);
+      return { prev: i > 0 ? f(i - 1) : null, next: i >= 0 && i < order.value.length - 1 ? f(i + 1) : null }; });
     const groups = computed(() => { const m = new Map(); for (const s of hits.value) { if (!m.has(s.group)) m.set(s.group, []); m.get(s.group).push(s); } return [...m.entries()]; });
     const sec = computed(() => all.value.find((s) => s.id === cur.value));
     watch(hits, (l) => { if (l.length && !l.some((s) => s.id === cur.value)) cur.value = l[0].id; });
     const printAll = () => { document.body.classList.add("gd-printing"); setTimeout(() => { window.print(); document.body.classList.remove("gd-printing"); }, 50); };
-    return { all, q, cur, groups, sec, printAll, go };
+    return { all, q, cur, groups, sec, printAll, go, ROLES, role, step, near };
   },
   template: `
   <div class="page gd">
     <div class="page-head"><div><h1>دليل المستخدم</h1><div class="sub">خطوات قصيرة مع أمثلة لكل ما في البرنامج</div></div>
-      <div class="btn-row"><input class="input gd-q" v-model="q" placeholder="ابحث: إرجاع، G50، دين سابق…" aria-label="بحث في الدليل"><button type="button" class="cl-btn" @click="printAll">طباعة / PDF</button></div></div>
+      <div class="btn-row"><input class="input gd-q" v-model="q" placeholder="ابحث: إرجاع، G50، كلمة السر…" aria-label="بحث في الدليل"><button type="button" class="cl-btn" @click="printAll">طباعة / PDF</button></div></div>
+    <div class="seg gd-roles" role="group" aria-label="الدليل لـ"><span class="m">الدليل لـ</span><button v-for="r in ROLES" :key="r[0]" type="button" :aria-pressed="role === r[0]" @click="role = r[0]">{{ r[1] }}</button></div>
     <div class="gd-grid">
       <nav class="st2-card gd-toc" aria-label="أقسام الدليل"><template v-for="g in groups" :key="g[0]"><small>{{ g[0] }}</small>
         <a v-for="s in g[1]" :key="s.id" href="#" :class="{on: s.id === cur}" @click.prevent="cur = s.id">{{ s.title }}</a></template>
@@ -3723,9 +3732,12 @@ const GuidePage = {
             <p v-if="b[0] === 'p'">{{ b[1] }}</p><h3 v-else-if="b[0] === 'h'">{{ b[1] }}</h3>
             <ol v-else-if="b[0] === 'ol'"><li v-for="x in b[1]" :key="x">{{ x }}</li></ol>
             <div v-else-if="b[0] === 'tip'" class="gd-tip">{{ b[1] }}</div>
+            <div v-else-if="b[0] === 'warn'" class="gd-warn">{{ b[1] }}</div>
+            <dl v-else-if="b[0] === 'dl'" class="gd-dl"><template v-for="e in b[1]" :key="e[0]"><dt>{{ e[0] }}</dt><dd>{{ e[1] }}</dd></template></dl>
             <div v-else-if="b[0] === 'err'" class="gd-err"><h3>أخطاء شائعة</h3><dl><template v-for="e in b[1]" :key="e[0]"><dt>{{ e[0] }}</dt><dd>{{ e[1] }}</dd></template></dl></div>
           </template>
           <a v-if="s.go" class="gd-go" :href="'/atelier' + s.go" @click.prevent="go(s.go)">افتح الشاشة ←</a>
+          <div v-if="sec && s.id === sec.id" class="gd-nav"><button v-if="near.prev" type="button" class="cl-btn" @click="step(-1)">→ {{ near.prev.title }}</button><span style="flex:1"></span><button v-if="near.next" type="button" class="cl-btn" @click="step(1)">{{ near.next.title }} ←</button></div>
         </article>
       </div>
     </div>
@@ -3767,16 +3779,22 @@ const SettingsPage = {
     const saveAlerts = () => run("alerts", async () => Object.assign(alerts, await call("save_alerts", { alerts: JSON.stringify(alerts) }, true)), "حُفظت التنبيهات");
     // accounts
     const nu = reactive({ email: "", full_name: "", role: "sales" }), link = ref(null);
+    // password window: set it now (tell it to the employee) or send a link to choose it
+    const pw = ref(null);
+    const openPw = (email, name, fresh = false) => { pw.value = { email, name: name || email, mode: "set", password: "", show: false, url: null, done: false, fresh }; };
+    const setPw = () => run("pw", async () => { await call("set_user_password", { email: pw.value.email, password: pw.value.password }, true); pw.value.done = true; }, "حُفظت كلمة السر");
+    const makeLink = () => run("pw", async () => { pw.value.url = await call("reset_link", { email: pw.value.email }, true); });
+    const pwWa = computed(() => pw.value?.url ? "https://wa.me/?text=" + encodeURIComponent(`حسابك في رقمي (${pw.value.email}): اختر كلمة سرك من هذا الرابط\n${pw.value.url}`) : null);
     const saveUser = (u) => run("user", async () => {
       const r = await call("save_user", u ? { email: u.name, full_name: u.full_name, role: u.role, enabled: u.enabled } : { ...nu }, true);
-      if (!u) { link.value = { email: nu.email, url: r.link }; nu.email = ""; nu.full_name = ""; }
+      if (!u) { openPw(r.name || nu.email, nu.full_name, true); nu.email = ""; nu.full_name = ""; }
       await load();
     }, u ? "حُفظ الحساب" : "أُنشئ الحساب");
     const addToTeam = (u) => run("team", async () => {
       const team = await call("add_to_team", { email: u.name }, true);
       state.boot.team_members = team; state.boot.team = team.map((m) => m.name); await load();
     }, "أُضيف إلى الفريق");
-    const resetLink = (u) => run("link", async () => { link.value = { email: u.name, url: await call("reset_link", { email: u.name }, true) }; });
+    const resetLink = (u) => openPw(u.name, u.full_name);
     const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast("نُسخ الرابط"); } catch { /* user can select it */ } };
     // funds
     const renameFund = (f) => run("fund", () => call("rename_fund", { account: f.name, label: f.account_name }, true), "حُفظ الاسم");
@@ -3832,7 +3850,7 @@ const SettingsPage = {
     onMounted(() => setTimeout(markOrig, 900));
     const onUnload = (e) => { if (dirtyForms.value.length) { e.preventDefault(); e.returnValue = ""; } };
     onMounted(() => window.addEventListener("beforeunload", onUnload)); onBeforeUnmount(() => window.removeEventListener("beforeunload", onUnload));
-    return { onEdit, dirtyForms, saveAll, undoAll, saving2, leaveTo, switchTab, leave, sq, sres, goSearch, ready, navFlag, fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, copy,
+    return { onEdit, dirtyForms, saveAll, undoAll, saving2, leaveTo, switchTab, leave, sq, sres, goSearch, ready, navFlag, fold, foldDone, saveFolders, syncFolders, foldSample, mail, mailTo, MAIL_PRESETS, testMail, preview, meta, SETTINGS_GROUPS, s, load, tab, p, docs, alerts, busy, err, saveProfile, logoInput, onLogo, saveDocs, saveAlerts, nu, link, saveUser, resetLink, pw, setPw, makeLink, pwWa, copy,
       LIST_DEFS, addToTeam, renameFund, setMode, newFund, newMode, addFund, removeFund, addMode, removeMode, backup, size, sample, SETTINGS_TABS, fig, ago, state, go };
   },
   template: `
@@ -3900,14 +3918,36 @@ const SettingsPage = {
                         <button v-if="!u.member" type="button" class="cl-link" style="margin-inline-start:6px" :disabled="!!busy" @click="addToTeam(u)">إضافة إلى الفريق</button></span></td>
                     <td><select class="input" style="width:auto;min-height:34px" v-model="u.role" :aria-label="'صلاحية ' + u.full_name"><option value="manager">مدير</option><option value="sales">بائع</option><option value="designer">مصمم</option><option value="printer">طباعة</option></select></td>
                     <td><label class="st2-check"><input type="checkbox" :checked="!!u.enabled" @change="u.enabled = $event.target.checked ? 1 : 0"><span>مفعّل</span></label></td>
-                    <td class="n"><button type="button" class="cl-btn sm" :disabled="!!busy" @click="saveUser(u)">حفظ</button> <button type="button" class="cl-btn sm ghost" :disabled="!!busy" @click="resetLink(u)">رابط كلمة السر</button></td></tr>
+                    <td class="n"><button type="button" class="cl-btn sm" :disabled="!!busy" @click="saveUser(u)">حفظ</button> <button type="button" class="cl-btn sm ghost" :disabled="!!busy" @click="resetLink(u)">كلمة السر</button></td></tr>
                   <tr v-if="!s.data.users.length"><td colspan="4" class="cl-empty">لا حسابات بعد.</td></tr></tbody></table>
                 <form class="st2-row st2-newu" @submit.prevent="saveUser()"><label class="cl-fgroup"><span>الاسم</span><input class="input" v-model="nu.full_name"></label>
                   <label class="cl-fgroup grow2"><span>البريد</span><input class="input" v-model="nu.email" type="email" dir="ltr"></label>
                   <label class="cl-fgroup" style="flex:0 0 130px"><span>الصلاحية</span><select class="input" v-model="nu.role"><option value="manager">مدير</option><option value="sales">بائع</option><option value="designer">مصمم</option><option value="printer">طباعة</option></select></label>
                   <button type="submit" class="cl-btn primary" style="align-self:flex-end" :disabled="!nu.email || !!busy"><Icon name="plus" :size="15"/>إنشاء حساب</button></form>
-                <div v-if="link" class="st2-link"><b>رابط اختيار كلمة السر لـ {{ link.email }}</b><span class="muted">أرسله للموظف ليختار كلمة سره بنفسه.</span>
-                  <div class="row" style="gap:6px"><input class="input" :value="link.url" readonly dir="ltr" aria-label="الرابط" @focus="$event.target.select()"><button type="button" class="cl-btn" @click="copy(link.url)">نسخ</button></div></div>
+                <div v-if="pw" class="overlay" role="dialog" aria-modal="true" aria-labelledby="pw-h" @click.self="pw = null" @keydown.esc="pw = null">
+                  <div class="pw-dlg">
+                    <h3 id="pw-h">{{ pw.fresh ? 'أُنشئ الحساب — ' : '' }}كلمة السر: {{ pw.name }}</h3><div class="muted pw-mail" dir="ltr">{{ pw.email }}</div>
+                    <div class="seg pw-seg" role="group" aria-label="الطريقة"><button type="button" :aria-pressed="pw.mode === 'set'" @click="pw.mode = 'set'">أكتبها أنا الآن</button><button type="button" :aria-pressed="pw.mode === 'link'" @click="pw.mode = 'link'">رابط ليختارها بنفسه</button></div>
+                    <template v-if="pw.mode === 'set'">
+                      <template v-if="!pw.done">
+                        <label class="cl-fgroup"><span>كلمة السر الجديدة (8 أحرف على الأقل، حروف وأرقام)</span>
+                          <div class="row" style="gap:6px"><input class="input" :type="pw.show ? 'text' : 'password'" v-model="pw.password" dir="ltr" autocomplete="new-password" @keydown.enter.prevent="pw.password.length >= 8 && setPw()"><button type="button" class="cl-btn" @click="pw.show = !pw.show">{{ pw.show ? 'إخفاء' : 'إظهار' }}</button></div></label>
+                        <p class="muted pw-note">أعطها للموظف شفهيًا. تُغلق جلساته المفتوحة.</p>
+                        <div class="btn-row"><button type="button" class="cl-btn primary" :disabled="!!busy || pw.password.length < 8" @click="setPw">حفظ كلمة السر</button><button type="button" class="cl-btn" @click="pw = null">إغلاق</button></div>
+                      </template>
+                      <template v-else><p class="alert success">حُفظت. يدخل {{ pw.name }} ببريده <b dir="ltr">{{ pw.email }}</b> وكلمة السر التي كتبتها.</p>
+                        <div class="btn-row"><button type="button" class="cl-btn primary" @click="pw = null">تم</button></div></template>
+                    </template>
+                    <template v-else>
+                      <p class="muted pw-note">يفتح الموظف الرابط من هاتفه ويختار كلمة سره. الرابط لمرة واحدة.</p>
+                      <div v-if="!pw.url" class="btn-row"><button type="button" class="cl-btn primary" :disabled="!!busy" @click="makeLink">إنشاء الرابط</button><button type="button" class="cl-btn" @click="pw = null">إغلاق</button></div>
+                      <template v-else>
+                        <input class="input" :value="pw.url" readonly dir="ltr" aria-label="الرابط" @focus="$event.target.select()">
+                        <div class="btn-row" style="margin-top:10px"><button type="button" class="cl-btn primary" @click="copy(pw.url)">نسخ الرابط</button><a class="cl-btn" :href="pwWa" target="_blank" rel="noopener">إرسال عبر واتساب</a><button type="button" class="cl-btn" @click="pw = null">إغلاق</button></div>
+                      </template>
+                    </template>
+                  </div>
+                </div>
               </div></div>
             <div class="st2-grp"><div class="st2-lbl"><b>أسماء الفريق</b><span>الأسماء التي تُسند إليها البطاقات. اربط كل اسم ببريد حسابه ليعمل «مهامي» والتنبيهات.</span></div>
               <div class="st2-fields"><TeamPage :embedded="true"/></div></div>

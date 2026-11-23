@@ -3310,3 +3310,15 @@ th, td { position: relative; }
 .mn-undo{border:0;background:none;color:var(--muted);font:inherit;font-size:12px;cursor:pointer;padding:2px 6px;border-radius:6px;opacity:0;white-space:nowrap}
 .mn-mv:hover .mn-undo,.mn-undo:focus-visible{opacity:1}.mn-undo:hover{color:#B42318;background:#FDECEA}
 @media (hover:none){.mn-undo{opacity:1}}
+
+.pw-dlg{background:var(--card,#fff);border-radius:12px;padding:20px 22px;width:min(480px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(16,24,40,.25)}
+.pw-dlg h3{margin:0;font-size:17px}.pw-mail{font-size:13px;margin:2px 0 12px;text-align:end}
+.pw-seg{margin-bottom:14px;display:flex}.pw-seg button{flex:1}
+.pw-note{font-size:13px;margin:8px 0 12px}
+
+.gd-roles{display:inline-flex;width:fit-content;max-width:100%;align-self:flex-start;justify-self:start;align-items:center;gap:4px;margin:0 0 12px}.gd-roles .m{margin-inline-end:6px;font-size:13px}
+.gd-warn{background:#FFF4E0;color:#7A4A00;border-radius:8px;padding:8px 12px;font-size:13px;margin-top:10px}
+.gd-dl{margin:6px 0;display:grid;grid-template-columns:max-content 1fr;gap:6px 14px}.gd-dl dt{font-weight:600}.gd-dl dd{margin:0;color:var(--muted)}
+.gd-nav{display:flex;gap:8px;margin-top:18px;padding-top:12px;border-top:1px solid var(--line);white-space:nowrap}
+@media(max-width:800px){.gd-dl{grid-template-columns:1fr}.gd-dl dd{margin-bottom:6px}.gd-nav{flex-wrap:wrap}}
+@media print{body.gd-printing .gd-roles,body.gd-printing .gd-nav{display:none!important}}

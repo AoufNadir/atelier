@@ -1891,15 +1891,60 @@ def no_worker():
 		frappe.throw(_("هذه الصفحة غير متاحة لدورك"), frappe.PermissionError)
 
 
-def _here(link):
-	"""Reset links are built from the site's host_name setting; show them on the address the manager is using."""
+def _is_local(netloc):
+	host = (netloc or "").split(":")[0].lower()
+	return host in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or host.endswith(".localhost") or host.startswith(("192.168.", "10."))
+
+
+def remember_public_url():
+	"""Called on boot: the first time the app is opened from a public address (e.g. the Tailscale link),
+	remember it, so links made on the shop's own computer (localhost) still work on the workers' phones."""
 	req = getattr(frappe.local, "request", None)
-	if not link or not req:
+	if not req:
+		return
+	from urllib.parse import urlsplit
+
+	h = urlsplit(req.host_url)
+	if h.scheme == "https" and not _is_local(h.netloc):
+		url = f"https://{h.netloc}"
+		if frappe.db.get_default("atelier_public_url") != url:
+			frappe.db.set_default("atelier_public_url", url)
+			frappe.db.commit()  # boot is a GET request: Frappe does not commit it by itself
+
+
+def _here(link):
+	"""A link the person receiving it can open: the shop's public address when the manager is on the shop's own
+	computer (localhost), else the address the manager is using."""
+	req = getattr(frappe.local, "request", None)
+	if not link:
 		return link
 	from urllib.parse import urlsplit, urlunsplit
 
-	u, h = urlsplit(link), urlsplit(req.host_url)
-	return urlunsplit((h.scheme, h.netloc, u.path, u.query, u.fragment))
+	u = urlsplit(link)
+	base = urlsplit(req.host_url) if req else None
+	public = frappe.db.get_default("atelier_public_url")
+	if public and (not base or _is_local(base.netloc)):
+		base = urlsplit(public)
+	if not base:
+		return link
+	return urlunsplit((base.scheme, base.netloc, u.path, u.query, u.fragment))
+
+
+@frappe.whitelist(methods=["POST"])
+def set_user_password(email, password):
+	"""The manager sets a password and tells it to the employee (simpler than a link for a small shop)."""
+	_manager_only()
+	if email in ("Administrator", "Guest") or not frappe.db.exists("User", email):
+		frappe.throw(_("الحساب غير موجود"))
+	password = password or ""
+	if len(password) < 8:
+		frappe.throw(_("كلمة السر 8 أحرف على الأقل"))
+	if password.isdigit() or len(set(password)) < 4:
+		frappe.throw(_("كلمة السر سهلة جدًا: امزج حروفًا وأرقامًا"))
+	from frappe.utils.password import update_password
+
+	update_password(email, password, logout_all_sessions=True)
+	return {"ok": 1}
 
 
 @frappe.whitelist(methods=["POST"])
