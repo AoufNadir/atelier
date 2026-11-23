@@ -3404,5 +3404,5 @@ th, td { position: relative; }
 .tc-stage:hover{background:color-mix(in srgb,var(--sc) 28%,#fff)}.tc-stage:focus-visible{outline:2px solid var(--primary,#4B32C3);outline-offset:2px}
 .cb .tc2 .tc-foot{margin-top:9px;align-items:center}
 .cb .tc2 .tc-due{font-size:14px;font-weight:600;color:#101828}.cb .tc2 .tc-due.today{color:#B54708}
-.tc-amt{font-size:14px;font-weight:700;color:#101828;white-space:nowrap}.tc-amt.owe{color:#B42318}.tc-amt.warn{color:#B54708;font-weight:600}
+.tc-amt{font-size:14px;font-weight:700;color:#101828;white-space:nowrap}.tc-amt.owe{color:#B42318}.tc-amt.warn{color:#B54708;font-weight:700;background:#FFFAEB;border:1px solid #FEDF89;border-radius:6px;padding:0 8px;font-size:13px;line-height:1.8}
 .cb .tc2 .tc-members{margin-inline-start:6px}
