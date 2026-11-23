@@ -1539,4 +1539,4 @@ from atelier.opening import opening_info, add_opening, reverse_opening  # noqa: 
 from atelier.printing import set_item_name_fr  # noqa: E402,F401
 from atelier.importer import import_check, import_errors, import_run, import_template  # noqa: E402, F401
 from atelier.setup_wizard import setup_hide, setup_skip, setup_status  # noqa: E402, F401
-from atelier.simple import set_user_password  # noqa: E402, F401
+from atelier.simple import password_by_link, set_user_password  # noqa: E402, F401

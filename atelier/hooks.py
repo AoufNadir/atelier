@@ -41,6 +41,7 @@ website_redirects = [
 	{"source": "", "target": "/atelier"},
 	{"source": "index", "target": "/atelier"},
 	{"source": "login", "target": "/atelier-login", "forward_query_parameters": True},
+	{"source": "update-password", "target": "/atelier-password", "forward_query_parameters": True},
 ]
 
 fixtures = [{"dt": "Custom Field", "filters": [["module", "=", "Atelier"]]}]

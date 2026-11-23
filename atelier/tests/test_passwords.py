@@ -51,3 +51,14 @@ class TestPasswords(unittest.TestCase):
 		self.assertTrue(link.startswith("https://atelier.tail0000.ts.net/update-password?key="), link)
 		simple.remember_public_url()  # a local visit does not overwrite it
 		self.assertEqual(frappe.db.get_default("atelier_public_url"), "https://atelier.tail0000.ts.net")
+
+	def test_password_by_link(self):
+		from urllib.parse import parse_qs, urlsplit
+
+		key = parse_qs(urlsplit(simple.reset_link(self.email)).query)["key"][0]
+		with self.assertRaises(frappe.ValidationError):
+			simple.password_by_link(key, "1234567")
+		self.assertEqual(simple.password_by_link(key, "Link2026pass")["email"], self.email)
+		self.assertEqual(check_password(self.email, "Link2026pass"), self.email)
+		with self.assertRaises(frappe.ValidationError):  # one use only
+			simple.password_by_link(key, "Other2026pass")

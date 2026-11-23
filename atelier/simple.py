@@ -8,6 +8,7 @@ import re
 import json
 
 import frappe
+from frappe.rate_limiter import rate_limit
 from frappe import _
 from frappe.utils import add_days, cint, flt, get_first_day, get_last_day, nowdate
 
@@ -1936,15 +1937,36 @@ def set_user_password(email, password):
 	_manager_only()
 	if email in ("Administrator", "Guest") or not frappe.db.exists("User", email):
 		frappe.throw(_("الحساب غير موجود"))
+	_check_password(password)
+	from frappe.utils.password import update_password
+
+	update_password(email, password, logout_all_sessions=True)
+	return {"ok": 1}
+
+
+def _check_password(password):
+	"""One rule for the manager's window and the employee's link page: 8+ characters, not only digits."""
 	password = password or ""
 	if len(password) < 8:
 		frappe.throw(_("كلمة السر 8 أحرف على الأقل"))
 	if password.isdigit() or len(set(password)) < 4:
 		frappe.throw(_("كلمة السر سهلة جدًا: امزج حروفًا وأرقامًا"))
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(limit=10, seconds=600)
+def password_by_link(key, password):
+	"""The employee's own link (from «كلمة السر» ← «رابط»): checks the link, then sets the password."""
+	from frappe.core.doctype.user.user import _get_user_for_update_password
 	from frappe.utils.password import update_password
 
-	update_password(email, password, logout_all_sessions=True)
-	return {"ok": 1}
+	r = _get_user_for_update_password(key, None)
+	if not r.user or r.message:
+		frappe.throw(_("الرابط مستعمل من قبل أو انتهت صلاحيته. اطلب رابطًا جديدًا من مدير المطبعة."))
+	_check_password(password)
+	update_password(r.user, password, logout_all_sessions=True)
+	frappe.db.set_value("User", r.user, "reset_password_key", "")
+	return {"email": r.user}
 
 
 @frappe.whitelist(methods=["POST"])
