@@ -1321,7 +1321,7 @@ const BoardPanel = {
             <div v-else class="od-money"><span class="m">{{ ed.grand_total - ed.paid > 0.005 ? 'الباقي' : 'دُفع بالكامل' }}</span><b :class="{bad: ed.grand_total - ed.paid > 0.005}">{{ money(Math.max(0, ed.grand_total - ed.paid)) }}</b></div>
             <div v-if="!ed.price_pending" class="tm-paybar"><span :style="{width: Math.min(100, ed.grand_total ? ed.paid / ed.grand_total * 100 : 0) + '%'}"></span></div>
             <span class="m">المدفوع: {{ money(ed.paid) }}</span>
-            <button v-if="state.boot.can.payment && !ed.price_pending && ed.grand_total - ed.paid > 0.005" type="button" class="cl-btn primary" @click="payNow">استلمت دفعة</button>
+            <button v-if="state.boot.can.payment && !ed.price_pending && ed.grand_total - ed.paid > 0.005" type="button" class="cl-btn primary" data-g="card-pay" @click="payNow">استلمت دفعة</button>
                       <span v-if="state.boot.can.order && !worker" class="od-pop-host od-docs"><button type="button" class="cl-btn od-docbtn" :aria-expanded="hdPop === 'docs'" @click.stop="hdPop = hdPop === 'docs' ? null : 'docs'"><Icon name="file" :size="16"/>المستندات<Icon name="down" :size="14"/></button>
             <div v-if="hdPop === 'docs'" class="tm-pop od-pop" @click.stop>
               <button type="button" class="tm-pop-row" :disabled="unpriced > 0" @click="quoteDoc('devis')"><Icon name="file" :size="15"/>Devis — عرض سعر</button>
@@ -2459,7 +2459,7 @@ const SimpleCustomers = {
             <div class="cs-big"><span>المطلوب منه الآن</span><b :class="pv.balance > 0.005 ? 'bad' : 'ok'" class="money">{{ pv.balance > 0.005 ? money(pv.balance) : 'لا شيء' }}</b>
               <small><template v-if="pv.unbilled > 0.005">طلبات لم تُفوتر {{ fig(pv.unbilled) }}</template><template v-if="pvd && pvd.avg_pay_days"> · عادة يدفع بعد {{ pvd.avg_pay_days }} يومًا</template><template v-if="pv.overdue_days"> · متأخر {{ pv.overdue_days }} يومًا</template></small></div>
             <div class="cs-acts"><a v-if="pv.mobile_no" class="cl-btn sm" :href="'tel:' + pv.mobile_no">اتصال</a><a v-if="waLink(pv.mobile_no)" class="cl-btn sm" target="_blank" rel="noopener" :href="waLink(pv.mobile_no)">واتساب</a>
-              <button v-if="state.boot.can.payment" type="button" class="cl-btn sm" @click="state.sheet = {type: 'payment', customer: {name: pv.name, customer_name: pv.customer_name}}">استلمت دفعة</button>
+              <button v-if="state.boot.can.payment" type="button" class="cl-btn sm" data-g="cust-pay" @click="state.sheet = {type: 'payment', customer: {name: pv.name, customer_name: pv.customer_name}}">استلمت دفعة</button>
               <button v-if="state.boot.can.order" type="button" class="cl-btn sm" @click="newOrderFor(pv)">+ طلب</button><span class="spacer"></span><button type="button" class="cl-btn sm primary" @click="open(pv.name)">فتح الملف</button></div>
             <div v-if="!pvd" class="ws-loading">…</div>
             <template v-else>
@@ -2813,7 +2813,7 @@ const BoxPage = {
     <div v-else-if="s.data" class="bx-body">
       <section class="mn-card bx-card">
         <div class="mn-card-h"><b>صندوقي — {{ s.data.name }}</b><span class="spacer"></span><span class="m">{{ s.data.since ? 'منذ آخر تسليم ' + when(s.data.since) : 'لم تسلّم بعد' }}</span></div>
-        <div class="bx-big"><span>في يدي الآن</span><b class="money">{{ money(s.data.balance) }}</b><small>نقدًا فقط · CCP والبنك لا تمر بصندوقك</small></div>
+        <div class="bx-big" data-g="box-now"><span>في يدي الآن</span><b class="money">{{ money(s.data.balance) }}</b><small>نقدًا فقط · CCP والبنك لا تمر بصندوقك</small></div>
         <div v-if="s.data.pending" class="alert warn bx-wait">سلّمت {{ money(s.data.pending.counted) }} {{ when(s.data.pending.at) }} — بانتظار تأكيد المدير.</div>
         <div v-for="c in s.data.collections" :key="c.name" class="bx-li"><span>{{ c.party_name }}<span class="m"> · {{ date(c.posting_date) }}</span></span><b class="money">+{{ money(c.paid_amount) }}</b></div>
         <p v-if="!s.data.collections.length" class="muted bx-empty">لا تحصيلات نقدية منذ آخر تسليم.</p>
@@ -2939,7 +2939,7 @@ const SimpleMoney = {
             <button type="button" aria-label="الشهر السابق" @click="offset++"><Icon name="back" :size="16"/></button>
             <button type="button" class="mn-month-l" :aria-pressed="offset === 0" @click="offset = 0">{{ month }}</button>
             <button type="button" aria-label="الشهر التالي" :disabled="offset === 0" @click="offset > 0 && offset--"><Icon name="chev" :size="16"/></button></div>
-          <div v-if="d && state.boot.can.expense" class="cl-pop-host"><button type="button" class="cl-btn" :aria-expanded="mvMenu || !!tr" @click.stop="tr ? (tr = null) : (mvMenu = !mvMenu)">حركة ▾</button>
+          <div v-if="d && state.boot.can.expense" class="cl-pop-host"><button type="button" class="cl-btn" data-g="money-move" :aria-expanded="mvMenu || !!tr" @click.stop="tr ? (tr = null) : (mvMenu = !mvMenu)">حركة ▾</button>
             <div v-if="mvMenu" class="tm-pop mv-menu" @click.stop>
               <button type="button" class="tm-pop-row" @click="mvMenu = false; state.sheet = {type: 'expense'}"><b>مصروف</b><span>كراء، كهرباء، أجور، نقل…</span></button>
               <button v-for="k in MOVE_KINDS" :key="k[0]" type="button" class="tm-pop-row" :disabled="k[0] === 'transfer' && d.funds.length < 2" @click="openTransfer(k[0])"><b>{{ k[1] }}</b><span>{{ k[2] }}</span></button></div>
@@ -2951,15 +2951,15 @@ const SimpleMoney = {
               <label class="cl-fgroup"><span>ملاحظة</span><input class="input" v-model="tr.note" :placeholder="tr.kind === 'withdraw' ? 'مثلًا: مصروف البيت' : 'اختياري'"></label>
               <p class="mv-note">{{ tr.kind === 'transfer' ? 'لا يغيّر الدخل ولا المصاريف — ينقل المال فقط.' : 'لا يدخل في المصاريف ولا الدخل، ولا يغيّر الربح. يُسجَّل على حساب المالك.' }}</p>
               <div class="cl-pop-foot"><button type="button" class="cl-link" @click="tr = null">إلغاء</button><button type="submit" class="cl-btn primary" :disabled="trBusy || !(parseAmount(tr.amount) > 0) || (tr.kind === 'transfer' && tr.from === tr.to)">{{ tr.kind === 'transfer' ? 'تحويل' : tr.kind === 'withdraw' ? 'تسجيل السحب' : 'تسجيل الإيداع' }}</button></div></form></div>
-          <button v-if="d && cashFunds.length" type="button" class="cl-btn" :aria-pressed="!!cl" @click="cl ? (cl = null) : openClose()"><Icon name="check" :size="16"/>إغلاق الصندوق</button>
-          <button v-if="state.boot.can.payment" type="button" class="cl-btn primary" @click="pay()"><Icon name="in" :size="16"/>تسجيل دخل</button>
+          <button v-if="d && cashFunds.length" type="button" class="cl-btn" data-g="money-close" :aria-pressed="!!cl" @click="cl ? (cl = null) : openClose()"><Icon name="check" :size="16"/>إغلاق الصندوق</button>
+          <button v-if="state.boot.can.payment" type="button" class="cl-btn primary" data-g="money-in" @click="pay()"><Icon name="in" :size="16"/>تسجيل دخل</button>
         </div>
       </header>
       <div v-if="s.loading && !s.data" class="ws-loading">جارٍ التحميل…</div>
       <div v-else-if="s.error" class="alert error" style="margin:20px 28px">{{ s.error }}</div>
       <template v-else-if="d">
         <div class="mn-funds" role="group" aria-label="الصناديق">
-          <button type="button" class="mn-fund" :aria-pressed="!fundSel" @click="fundSel = null"><span>كل الصناديق</span><b class="money">{{ money(d.cash_balance) }}</b><small>{{ d.funds.length }} {{ d.funds.length === 1 ? 'صندوق' : 'صناديق' }}</small></button>
+          <button type="button" class="mn-fund" data-g="money-funds" :aria-pressed="!fundSel" @click="fundSel = null"><span>كل الصناديق</span><b class="money">{{ money(d.cash_balance) }}</b><small>{{ d.funds.length }} {{ d.funds.length === 1 ? 'صندوق' : 'صناديق' }}</small></button>
           <button v-for="f in d.funds" :key="f.name" type="button" class="mn-fund" :aria-pressed="fundSel === f.name" :title="'عرض حركات ' + f.label + ' فقط'" @click="fundSel = fundSel === f.name ? null : f.name">
             <span>{{ f.label }}</span><b class="money">{{ fig(f.balance) }}</b><small :class="{warn: f.cheques}">{{ fundNote(f) }}</small></button>
         </div>
@@ -3751,7 +3751,11 @@ const TourLayer = {
       const top = Math.max(4, r.top - pad), height = Math.min(r.height + pad * 2, H - top - 4);
       rect.value = { top, left: Math.max(4, r.left - pad), width: Math.min(r.width + pad * 2, W - 8), height, low: r.top > H / 2 };
     };
-    const go2 = () => { const st = step.value; if (st?.route && route.value.name !== (st.route === "/" ? "home" : st.route.slice(1))) go(st.route); place(); };
+    const OPENERS = { order: () => { state.sheet = { type: "order" }; }, card: () => document.querySelector(".tb-cols .tc2")?.click(), customer: () => document.querySelector(".cl-name")?.click() };
+    const go2 = () => { const st = step.value; if (!st) return;
+      if (st.route && route.value.name !== (st.route === "/" ? "home" : st.route.slice(1))) go(st.route);
+      if (st.open && state.tour.opened !== st.open) { state.tour.opened = st.open; setTimeout(() => OPENERS[st.open]?.(), st.route ? 700 : 0); }
+      place(); };
     const move = (n, skipping) => { if (!state.tour) return; state.tour.dir = n; const i = state.tour.i + n;
       if (i < 0) return; if (i >= state.tour.steps.length) { finish(); return; } state.tour.i = i; if (!skipping) waited = 0; nextTick(go2); };
     const finish = async () => { state.tour = null; try { await call("tour_mark", { action: "done" }, true); } catch { /* shown again next login */ } state.boot.tour_pending = false; };
@@ -3788,64 +3792,73 @@ const TourLayer = {
     </div>
   </div>`,
 };
+const guideAsset = (f) => new URL(`./guide/${f}`, import.meta.url).href;
+let SHOTS = null;
+const loadShots = async () => (SHOTS ||= await fetch(guideAsset("shots.json")).then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
 const GuidePage = {
   setup() {
-    const all = ref([]), q = ref(""), cur = ref(null);
+    const all = ref([]), shots = ref({}), q = ref(""), cur = ref(null), lit = ref(0), menu = ref(false);
     const norm = (x) => String(x || "").toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[ًٌٍَُِّْ]/g, "");
-    const text = (s) => s.task + " " + s.title + " " + s.desc + " " + s.body.map((b) => (Array.isArray(b[1]) ? b[1].flat().join(" ") : b[1])).join(" ");
-    const myRole = state.boot.role === "manager" ? "manager" : state.boot.role === "sales" ? "sales" : "worker";
-    const ROLES = [["all", "الكل"], ["manager", "أنا المدير"], ["sales", "أنا البائع"], ["worker", "أنا المصمم أو الطابع"]];
-    const role = ref(myRole);
-    onMounted(async () => { all.value = await loadGuide(); const want = state.query.get("s"), from = state.query.get("from");
-      const hit = all.value.find((s) => s.id === want) || (from && from !== "home" && all.value.find((s) => s.page.includes(from)));
-      cur.value = hit ? hit.id : null; });
-    const hits = computed(() => { const t = norm(q.value.trim());
-      return all.value.filter((s) => (t ? norm(text(s)).includes(t) : role.value === "all" || (s.roles || []).includes(role.value))); });
-    const groups = computed(() => { const m = new Map(); for (const s of hits.value) { if (!m.has(s.group)) m.set(s.group, []); m.get(s.group).push(s); } return [...m.entries()]; });
+    const text = (s) => [s.task, s.title, s.desc, ...(s.walk || []).map((w) => w.t + " " + w.d), ...s.body.map((b) => (Array.isArray(b[1]) ? b[1].flat().join(" ") : b[1]))].join(" ");
+    const mine = (s) => state.boot.role === "manager" || (s.roles || []).includes(state.boot.role === "sales" ? "sales" : "worker");
+    onMounted(async () => { [all.value, shots.value] = await Promise.all([loadGuide(), loadShots()]);
+      const want = state.query.get("s"), from = state.query.get("from");
+      const hit = all.value.find((s) => s.id === want) || (from && all.value.find((s) => s.page.includes(from) && mine(s)));
+      cur.value = (hit || all.value.find((s) => s.id === "start")).id; });
+    const list = computed(() => { const t = norm(q.value.trim()); return all.value.filter((s) => mine(s) && (!t || norm(text(s)).includes(t))); });
+    const groups = computed(() => { const m = new Map(); for (const s of list.value) { if (!m.has(s.group)) m.set(s.group, []); m.get(s.group).push(s); } return [...m.entries()]; });
     const sec = computed(() => all.value.find((s) => s.id === cur.value));
-    const open = (id) => { cur.value = id; window.scrollTo(0, 0); };
-    const near = computed(() => { const l = hits.value.some((s) => s.id === cur.value) ? hits.value : all.value, i = l.findIndex((s) => s.id === cur.value);
+    const shot = computed(() => sec.value?.walk && shots.value[sec.value.id]);
+    const open = (id) => { cur.value = id; lit.value = 0; menu.value = false; window.scrollTo(0, 0); };
+    const near = computed(() => { const l = list.value.some((s) => s.id === cur.value) ? list.value : all.value, i = l.findIndex((s) => s.id === cur.value);
       return { prev: i > 0 ? l[i - 1] : null, next: i >= 0 && i < l.length - 1 ? l[i + 1] : null }; });
-    const forWho = (s) => (s.roles || []).length === 3 ? "لمن: الجميع" : "لمن: " + (s.who || "");
-    // a step = bold head (before «:») + detail; «names» shown as keys; numbers in examples stand out
-    const stepOf = (x) => { const i = x.indexOf(": "); return i > 0 && i < 60 ? [x.slice(0, i), x.slice(i + 2)] : [x, ""]; };
-    const parts = (t, nums) => String(t).split(nums ? /(«[^»]+»|\d[\d\s.,]*(?:\s?دج|%)?)/ : /(«[^»]+»)/).filter(Boolean)
-      .map((x) => (x.startsWith("«") ? { k: x.slice(1, -1) } : nums && /^\d/.test(x) ? { n: x } : { t: x }));
+    const forWho = (s) => "لمن: " + ((s.roles || []).length === 3 ? "الجميع" : s.who || "");
+    const parts = (t) => String(t).split(/(«[^»]+»)/).filter(Boolean).map((x) => (x.startsWith("«") ? { k: x } : { t: x }));
+    const showMe = () => { const s = sec.value; if (!s?.walk) return;
+      state.tour = { i: 0, steps: s.walk.map((w, n) => ({ route: s.shot.path, open: s.shot.open, sel: [w.sel], t: w.t, x: w.d })) }; };
     const printAll = () => { document.body.classList.add("gd-printing"); setTimeout(() => { window.print(); document.body.classList.remove("gd-printing"); }, 50); };
     const tourAgain = () => { go("/"); setTimeout(startTour, 400); };
-    return { all, q, cur, groups, sec, open, near, ROLES, role, forWho, stepOf, parts, printAll, go, tourAgain };
+    return { all, q, cur, groups, sec, shot, lit, menu, open, near, forWho, parts, showMe, printAll, tourAgain, guideAsset, go };
   },
   template: `
-  <div class="page gd">
-    <template v-if="!sec">
-      <div class="gd-hero">
-        <div><h1>ماذا تريد أن تفعل؟</h1><div class="sub">اختر مهمة، أو ابحث بكلمة.</div>
-          <div class="gd-who" role="group" aria-label="الدليل لـ"><button v-for="r in ROLES" :key="r[0]" type="button" :class="{on: role === r[0] && !q}" @click="role = r[0]; q = ''">{{ r[1] }}</button></div></div>
-        <div class="gd-hero-side"><input class="input gd-q" v-model="q" placeholder="ابحث: إرجاع، G50، كلمة السر…" aria-label="بحث في الدليل">
-          <div class="btn-row"><button type="button" class="cl-btn primary" @click="tourAgain">ابدأ الجولة</button><button type="button" class="cl-btn" @click="printAll">طباعة الدليل كاملًا</button></div></div>
-      </div>
-      <template v-for="g in groups" :key="g[0]"><h2 class="gd-grp">{{ g[0] }}</h2>
-        <div class="gd-cards"><button v-for="s in g[1]" :key="s.id" type="button" class="gd-card" @click="open(s.id)"><b>{{ s.task }}</b><span>{{ s.desc }}</span></button></div></template>
-      <p v-if="!groups.length" class="m gd-none">لا نتائج لـ «{{ q }}». جرّب كلمة أخرى.</p>
-    </template>
-    <article v-for="s in all" :key="s.id" class="gd-sec" :class="{shown: sec && s.id === sec.id}">
-      <div class="gd-crumb"><a href="#" @click.prevent="cur = null">الدليل</a> ← {{ s.group }}</div>
-      <h2>{{ s.task }}</h2><span class="gd-for">{{ forWho(s) }}</span>
-      <template v-for="(b, i) in s.body" :key="i">
-        <div v-if="b[0] === 'ex'" class="gd-ex"><small>مثال</small><template v-for="(x, j) in parts(b[1], true)" :key="j"><b v-if="x.n">{{ x.n }}</b><span v-else-if="x.k" class="gd-k">{{ x.k }}</span><template v-else>{{ x.t }}</template></template></div>
-        <p v-else-if="b[0] === 'p'"><template v-for="(x, j) in parts(b[1])" :key="j"><span v-if="x.k" class="gd-k">{{ x.k }}</span><template v-else>{{ x.t }}</template></template></p>
-        <h3 v-else-if="b[0] === 'h'">{{ b[1] }}</h3>
-        <ol v-else-if="b[0] === 'ol'" class="gd-steps"><li v-for="x in b[1]" :key="x"><b><template v-for="(y, j) in parts(stepOf(x)[0])" :key="j"><span v-if="y.k" class="gd-k">{{ y.k }}</span><template v-else>{{ y.t }}</template></template></b>
-          <span v-if="stepOf(x)[1]"><template v-for="(y, j) in parts(stepOf(x)[1])" :key="j"><span v-if="y.k" class="gd-k">{{ y.k }}</span><template v-else>{{ y.t }}</template></template></span></li></ol>
-        <div v-else-if="b[0] === 'tip'" class="gd-note tip"><b>نصيحة</b>{{ b[1] }}</div>
-        <div v-else-if="b[0] === 'warn'" class="gd-note warn"><b>انتبه</b>{{ b[1] }}</div>
-        <div v-else-if="b[0] === 'err'" class="gd-err"><h3>إذا ظهرت مشكلة</h3><div v-for="e in b[1]" :key="e[0]" class="gd-qa"><b>{{ e[0] }}</b><span>{{ e[1] }}</span></div></div>
-        <dl v-else-if="b[0] === 'dl'" class="gd-dl"><template v-for="e in b[1]" :key="e[0]"><dt>{{ e[0] }}</dt><dd>{{ e[1] }}</dd></template></dl>
-      </template>
-      <div class="btn-row gd-acts"><button v-if="s.go" type="button" class="cl-btn primary" @click="go(s.go)">افتح الشاشة</button><button type="button" class="cl-btn" @click="cur = null">كل المهام</button></div>
-      <nav v-if="sec && s.id === sec.id" class="gd-nav" aria-label="التنقل"><a v-if="near.prev" href="#" @click.prevent="open(near.prev.id)">السابق<b>→ {{ near.prev.task }}</b></a><span v-else></span>
-        <a v-if="near.next" href="#" class="nx" @click.prevent="open(near.next.id)">التالي<b>{{ near.next.task }} ←</b></a></nav>
-    </article>
+  <div class="hc">
+    <aside class="hc-side" :class="{open: menu}">
+      <div class="hc-brand"><b>مركز المساعدة</b><button type="button" class="hc-menu" :aria-expanded="menu" @click="menu = !menu">كل المقالات ▾</button></div>
+      <input class="input hc-q" v-model="q" placeholder="ابحث: إرجاع، G50، كلمة السر…" aria-label="بحث في المساعدة">
+      <nav class="hc-list" aria-label="المقالات"><template v-for="g in groups" :key="g[0]"><div class="hc-g">{{ g[0] }}</div>
+        <a v-for="s in g[1]" :key="s.id" href="#" class="hc-a" :class="{on: s.id === cur}" :aria-current="s.id === cur ? 'page' : null" @click.prevent="open(s.id)">{{ s.task }}</a></template>
+        <p v-if="!groups.length" class="m hc-none">لا نتائج. جرّب كلمة أخرى.</p></nav>
+      <div class="hc-side-foot"><button type="button" class="cl-link" @click="tourAgain">الجولة التعريفية</button><button type="button" class="cl-link" @click="printAll">طباعة الدليل</button></div>
+    </aside>
+    <main class="hc-main">
+      <article v-for="s in all" :key="s.id" class="hc-art" :class="{shown: sec && s.id === sec.id}">
+        <div class="hc-crumb">مركز المساعدة · {{ s.group }}</div>
+        <h1>{{ s.task }}</h1>
+        <p class="hc-lead">{{ s.desc }}</p>
+        <div class="btn-row hc-acts"><button v-if="s.walk" type="button" class="cl-btn primary" @click="showMe">أرني على الشاشة</button>
+          <button v-if="s.go" type="button" class="cl-btn" @click="go(s.go)">افتح الشاشة</button><span class="hc-meta">{{ forWho(s) }}</span></div>
+        <div v-if="s.walk && sec && s.id === sec.id" class="hc-walk" :class="{noshot: !shot}">
+          <ol class="hc-steps"><li v-for="(w, n) in s.walk" :key="n" :class="{on: lit === n}" tabindex="0" @mouseenter="lit = n" @focus="lit = n" @click="lit = n">
+            <span class="hc-n">{{ n + 1 }}</span><div><b>{{ w.t }}</b><p>{{ w.d }}</p></div></li></ol>
+          <figure v-if="shot" class="hc-shot"><img :src="guideAsset(s.id + '.png')" :alt="s.task" loading="lazy" width="1280" height="760">
+            <template v-for="(pt, n) in shot.points" :key="n"><button v-if="pt" type="button" class="hc-hs" :class="{on: lit === n}" :style="{left: pt[0] + '%', top: pt[1] + '%'}" :aria-label="'الخطوة ' + (n + 1)" @mouseenter="lit = n" @click="lit = n">{{ n + 1 }}</button></template></figure>
+        </div>
+        <div class="hc-body">
+          <template v-for="(b, i) in s.body" :key="i">
+            <div v-if="b[0] === 'ex'" class="hc-ex"><span>مثال</span>{{ b[1] }}</div>
+            <p v-else-if="b[0] === 'p'"><template v-for="(x, j) in parts(b[1])" :key="j"><b v-if="x.k">{{ x.k }}</b><template v-else>{{ x.t }}</template></template></p>
+            <h2 v-else-if="b[0] === 'h'">{{ b[1] }}</h2>
+            <ol v-else-if="b[0] === 'ol'" class="hc-ol"><li v-for="x in b[1]" :key="x"><template v-for="(y, j) in parts(x)" :key="j"><b v-if="y.k">{{ y.k }}</b><template v-else>{{ y.t }}</template></template></li></ol>
+            <div v-else-if="b[0] === 'tip'" class="hc-note tip"><b>نصيحة</b>{{ b[1] }}</div>
+            <div v-else-if="b[0] === 'warn'" class="hc-note warn"><b>انتبه</b>{{ b[1] }}</div>
+            <div v-else-if="b[0] === 'err'" class="hc-faq"><h2>أسئلة شائعة</h2><details v-for="e in b[1]" :key="e[0]"><summary>{{ e[0] }}</summary><p>{{ e[1] }}</p></details></div>
+            <dl v-else-if="b[0] === 'dl'" class="hc-dl"><template v-for="e in b[1]" :key="e[0]"><dt>{{ e[0] }}</dt><dd>{{ e[1] }}</dd></template></dl>
+          </template>
+        </div>
+        <nav v-if="sec && s.id === sec.id" class="hc-next" aria-label="التنقل"><a v-if="near.prev" href="#" @click.prevent="open(near.prev.id)">السابق<b>→ {{ near.prev.task }}</b></a><span v-else></span>
+          <a v-if="near.next" href="#" class="nx" @click.prevent="open(near.next.id)">التالي<b>{{ near.next.task }} ←</b></a></nav>
+      </article>
+    </main>
   </div>`,
 };
 const SettingsPage = {
