@@ -1461,15 +1461,18 @@ const BoardCard = {
     @dragover.prevent.stop="$emit('dropon', c, false)" @drop.prevent.stop="$emit('dropon', c, true)" :aria-label="c.title + ' — ' + c.customer_name">
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
     <div v-else-if="c.cover_color" class="tc2-band" :style="{background: c.cover_color}"></div>
-    <div v-if="urgent" class="tc-urg">عاجل</div>
     <div class="tc-body">
       <div class="tc3-top"><div class="tc-title">{{ c.title }}</div>
         <button type="button" class="tc2-more" aria-label="خيارات البطاقة" @click.stop="$emit('menu', c, $event)"><Icon name="more" :size="14"/></button></div>
       <div class="tc-cust">{{ c.customer_name }}</div>
-      <button v-if="cur" type="button" class="tc-stage" :style="{'--sc': cur.color}" :title="'الحالة — اضغط للتالية، والزر الأيمن لكل الحالات'" @click.stop="$emit('cycle', c)" @contextmenu.prevent.stop="$emit('status', c, $event)">{{ stText }}</button>
+      <div class="tc-tags">
+        <span v-if="urgent" class="tc-pill urg">عاجل</span>
+        <button v-if="cur" type="button" class="tc-st" :style="{'--sc': cur.color}" :title="'الحالة — اضغط للتالية، والزر الأيمن لكل الحالات'" @click.stop="$emit('cycle', c)" @contextmenu.prevent.stop="$emit('status', c, $event)"><i></i>{{ stText }}</button>
+        <span v-for="id in otherLabels.slice(0, 2)" :key="id" class="tc-pill" :style="{'--lc': labels[id].color}">{{ labels[id].name }}</span>
+        <span v-if="otherLabels.length > 2" class="tc-pill more" :title="otherLabels.slice(2).map(id => labels[id].name).join('، ')">+{{ otherLabels.length - 2 }}</span>
+      </div>
       <div class="tc-foot">
         <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: late, today: !late && today}">{{ late ? 'متأخر ' + lateDays : dueWord(c.due) }}<template v-if="c.due_time && !late"> {{ c.due_time }}</template></span>
-        <i v-for="id in otherLabels.slice(0, 3)" :key="id" class="tc-ldot" :style="{background: labels[id].color}" :title="labels[id].name"></i>
         <span class="spacer"></span>
         <template v-if="c.grand_total !== null && c.grand_total !== undefined">
           <span v-if="c.price_pending" class="tc-amt warn">بلا سعر</span>
