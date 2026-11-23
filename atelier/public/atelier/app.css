@@ -3394,3 +3394,15 @@ th, td { position: relative; }
 .mp-dec .cl-btn{flex:none;white-space:nowrap}
 .mp-pop{color:var(--ink,#101828);font-weight:400}.mp-dec-t b{color:var(--ink,#101828)}
 .mp-pop .mp-dec-t small{color:#667085;font-weight:400}
+
+/* clear card (plan A): urgent band, big title, status bar */
+.tc-urg{background:#D92D20;color:#fff;font-weight:700;font-size:13px;padding:3px 12px;letter-spacing:.3px}
+.cb .tc2 .tc-title{font-size:16px;font-weight:700;line-height:1.45}
+.cb .tc2 .tc-cust{font-size:13px;color:#475467;margin-top:1px}
+.tc-stage{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;text-align:center;margin-top:9px;border-radius:8px;padding:4px 8px;font-weight:700;font-size:14px;
+  background:color-mix(in srgb,var(--sc) 18%,#fff);color:color-mix(in srgb,var(--sc) 70%,#101828)}
+.tc-stage:hover{background:color-mix(in srgb,var(--sc) 28%,#fff)}.tc-stage:focus-visible{outline:2px solid var(--primary,#4B32C3);outline-offset:2px}
+.cb .tc2 .tc-foot{margin-top:9px;align-items:center}
+.cb .tc2 .tc-due{font-size:14px;font-weight:600;color:#101828}.cb .tc2 .tc-due.today{color:#B54708}
+.tc-amt{font-size:14px;font-weight:700;color:#101828;white-space:nowrap}.tc-amt.owe{color:#B42318}.tc-amt.warn{color:#B54708;font-weight:600}
+.cb .tc2 .tc-members{margin-inline-start:6px}

@@ -393,10 +393,11 @@ DEFAULT_CONFIG = {
 		{"id": "c-done", "name": "سُلّم", "color": "#22A06B", "deliver": 1},
 	],
 	"labels": [
-		{"id": "l-wait", "name": "بالانتظار", "color": "#F5D547"},
-		{"id": "l-cours", "name": "قيد العمل", "color": "#F59E0B"},
-		{"id": "l-valid", "name": "للمراجعة", "color": "#22A06B"},
-		{"id": "l-done", "name": "منتهٍ", "color": "#2563EB"},
+		# where the card is inside its column's stage; «ننتظر العميل» is set by hand, the others follow one click each
+		{"id": "l-wait", "name": "لم يبدأ", "color": "#98A2B3"},
+		{"id": "l-cours", "name": "قيد العمل", "color": "#2E90FA"},
+		{"id": "l-done", "name": "انتهى", "color": "#12B76A"},
+		{"id": "l-valid", "name": "ننتظر العميل", "color": "#F79009", "aside": 1},
 		{"id": "l-urgent", "name": "عاجل", "color": "#E5484D"},
 		{"id": "l-important", "name": "مهم", "color": "#C2410C"},
 		{"id": "l-approve", "name": "في انتظار موافقة العميل", "color": "#1597A6"},
@@ -424,7 +425,7 @@ def _is_manager():
 
 
 # new sites start with Arabic statuses; older sites keep the names they stored (all editable)
-STATUS_NAMES = ("En attente", "En cours", "En validation", "Terminé", "بالانتظار", "قيد العمل", "للمراجعة", "منتهٍ")
+STATUS_NAMES = ("En attente", "En cours", "En validation", "Terminé", "بالانتظار", "قيد العمل", "للمراجعة", "منتهٍ", "لم يبدأ", "ننتظر العميل", "انتهى")
 COVER_COLORS = ("#0F6E56", "#534AB7", "#993C1D", "#185FA5", "#993556", "#5F5E5A", "#854F0B", "#3B6D11")
 
 
@@ -536,7 +537,7 @@ def save_board(config, moves=None):
 		"color": c.get("color") or COLORS[0], **({"deliver": 1} if c.get("deliver") else {}), **({"limit": cint(c["limit"])} if cint(c.get("limit")) > 0 else {}), **({"hidden": 1} if c.get("hidden") else {}), **({"materials": 1} if c.get("materials") else {}), **({"supplier": 1} if c.get("supplier") and not c.get("deliver") else {})} for c in cfg.get("columns") or []]  # a delivery column is never «at a supplier»
 	labels = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0]}
 		for l in cfg.get("labels") or []]
-	statuses = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0]}
+	statuses = [{"id": (l.get("id") or frappe.generate_hash(length=8)), "name": (l.get("name") or "").strip()[:60], "color": l.get("color") or COLORS[0], **({"aside": 1} if l.get("aside") else {})}
 		for l in (cfg.get("statuses") if cfg.get("statuses") is not None else old["statuses"])]
 	if any(not l["name"] for l in statuses):
 		frappe.throw(_("لكل حالة اسم"))
@@ -641,6 +642,10 @@ def move_card(name, column):
 	else:
 		first = column == cfg["columns"][0]["id"]
 		so.db_set("atelier_stage", "جديد" if first else "طباعة")
+		# a new stage starts «not started»: the status says where the card is inside its column
+		start = next((x["id"] for x in cfg.get("statuses") or [] if not x.get("aside")), None)
+		if start:
+			so.db_set("atelier_status", start)
 	frappe.db.set_value("Sales Order", name, "atelier_column", column)
 	_log(name, _("نقل البطاقة إلى «{0}»").format(col["name"]))
 	return column

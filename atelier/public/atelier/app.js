@@ -1430,7 +1430,7 @@ const ago = (iso) => { const m = Math.round((Date.now() - new Date(String(iso).r
   return m < 1 ? "الآن" : m < 60 ? `منذ ${m} دقيقة` : m < 1440 ? `منذ ${Math.round(m / 60)} ساعة` : `منذ ${Math.round(m / 1440)} يوم`; };
 
 const BoardCard = {
-  props: ["c", "labels", "statuses", "busy", "dropBefore", "columns"], emits: ["open", "drag", "dropon", "menu", "status", "hover"], components: { Avatar, Icon },
+  props: ["c", "labels", "statuses", "busy", "dropBefore", "columns", "nextCol", "ready"], emits: ["open", "drag", "dropon", "menu", "status", "hover", "cycle"], components: { Avatar, Icon },
   setup(props, { emit }) {
     const sts = computed(() => (props.statuses || []).filter((x) => (props.c.status || []).includes(x.id)));
     // a lifted, slightly tilted copy follows the pointer; the card left behind fades
@@ -1444,7 +1444,16 @@ const BoardCard = {
     };
     const late = computed(() => !!props.c.due && props.c.per_delivered < 100 && daysFromToday(props.c.due) < 0);
     const lateDays = computed(() => { const n = -daysFromToday(props.c.due); return n === 1 ? "يومًا" : n === 2 ? "يومين" : n <= 10 ? n + " أيام" : n + " يومًا"; });
-    return { dragStart, sts, inkOn, labelStyle, dueWord, daysFromToday, money, late, lateDays };
+    // where the card is inside its stage: the first status (none chosen = the stage's first step)
+    const cycle = computed(() => (props.statuses || []).filter((x) => !x.aside));
+    const cur = computed(() => sts.value[0] || cycle.value[0] || null);
+    const finished = computed(() => cur.value && cycle.value.length > 1 && cur.value.id === cycle.value[cycle.value.length - 1].id);
+    const stText = computed(() => (!cur.value ? "" : finished.value && props.ready ? "جاهز للتسليم" : finished.value && props.nextCol ? `${cur.value.name} ← ينقل إلى ${props.nextCol}` : cur.value.name));
+    const urgent = computed(() => (props.c.labels || []).some((id) => props.labels[id] && (id === "l-urgent" || props.labels[id].name === "عاجل")));
+    const otherLabels = computed(() => (props.c.labels || []).filter((id) => props.labels[id] && !(id === "l-urgent" || props.labels[id].name === "عاجل")));
+    const today = computed(() => !!props.c.due && daysFromToday(props.c.due) === 0);
+    const left = computed(() => Math.max(0, (+props.c.grand_total || 0) - (+props.c.paid || 0)));
+    return { dragStart, sts, inkOn, labelStyle, dueWord, daysFromToday, money, late, lateDays, cur, stText, urgent, otherLabels, today, left };
   },
   template: `
   <article class="tc tc2" :class="{busy, 'drop-before': dropBefore, 'is-late': late}" draggable="true" tabindex="0" @dragstart="dragStart($event)" @dragend="$el.classList.remove('is-dragging')" @click="$emit('open', c)" @keydown.enter="$emit('open', c)"
@@ -1452,16 +1461,21 @@ const BoardCard = {
     @dragover.prevent.stop="$emit('dropon', c, false)" @drop.prevent.stop="$emit('dropon', c, true)" :aria-label="c.title + ' — ' + c.customer_name">
     <img v-if="c.cover" class="tc-cover" :src="c.cover" alt="" loading="lazy">
     <div v-else-if="c.cover_color" class="tc2-band" :style="{background: c.cover_color}"></div>
+    <div v-if="urgent" class="tc-urg">عاجل</div>
     <div class="tc-body">
       <div class="tc3-top"><div class="tc-title">{{ c.title }}</div>
         <button type="button" class="tc2-more" aria-label="خيارات البطاقة" @click.stop="$emit('menu', c, $event)"><Icon name="more" :size="14"/></button></div>
-      <div class="tc-cust">{{ c.customer_name }}<template v-if="c.price_pending"> · <span class="bd-warn">بلا سعر</span></template><template v-else-if="c.grand_total > 0"> · {{ money(c.grand_total) }}</template></div>
+      <div class="tc-cust">{{ c.customer_name }}</div>
+      <button v-if="cur" type="button" class="tc-stage" :style="{'--sc': cur.color}" :title="'الحالة — اضغط للتالية، والزر الأيمن لكل الحالات'" @click.stop="$emit('cycle', c)" @contextmenu.prevent.stop="$emit('status', c, $event)">{{ stText }}</button>
       <div class="tc-foot">
-        <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: late, soon: !late && daysFromToday(c.due) <= 1}">{{ late ? 'متأخر ' + lateDays : dueWord(c.due) }}<template v-if="c.due_time && !late"> {{ c.due_time }}</template></span>
-        <button v-if="sts.length" type="button" class="tc-sdot" :aria-label="'الحالة: ' + sts.map(x => x.name).join('، ') + ' — تغيير'" @click.stop="$emit('status', c, $event)"><i :style="{background: sts[0].color}"></i>{{ sts[0].name }}</button>
-        <i v-for="id in c.labels.filter(id => labels[id]).slice(0, 3)" :key="id" class="tc-ldot" :style="{background: labels[id].color}" :title="labels[id].name"></i>
+        <span v-if="c.due && c.per_delivered < 100" class="tc-due" :class="{late: late, today: !late && today}">{{ late ? 'متأخر ' + lateDays : dueWord(c.due) }}<template v-if="c.due_time && !late"> {{ c.due_time }}</template></span>
+        <i v-for="id in otherLabels.slice(0, 3)" :key="id" class="tc-ldot" :style="{background: labels[id].color}" :title="labels[id].name"></i>
         <span class="spacer"></span>
-        <span class="tc-members"><Avatar v-for="m in c.members.slice(0, 3)" :key="m" :name="m"/></span>
+        <template v-if="c.grand_total !== null && c.grand_total !== undefined">
+          <span v-if="c.price_pending" class="tc-amt warn">بلا سعر</span>
+          <span v-else-if="ready && left > 0.005" class="tc-amt owe">الباقي {{ money(left) }}</span>
+          <span v-else-if="c.grand_total > 0" class="tc-amt">{{ money(c.grand_total) }}</span></template>
+        <span class="tc-members"><Avatar v-for="m in c.members.slice(0, 2)" :key="m" :name="m"/></span>
       </div>
     </div>
   </article>`,
@@ -1877,6 +1891,15 @@ const Board = {
     onMounted(() => window.addEventListener("keydown", onSpace)); onBeforeUnmount(() => window.removeEventListener("keydown", onSpace));
     const stMenu = ref(null);
     const openStatus = (c, ev) => { menu.value = null; stMenu.value = { c, ...place(ev, 230) }; fitPop(stMenu, ev); };
+    const nextOf = (id) => { const l = cfg.value.columns.filter((x) => !x.hidden), i = l.findIndex((x) => x.id === id); return i >= 0 ? l[i + 1] || null : null; };
+    // one click moves the card to the next step of its stage (not started → in progress → done → not started)
+    const cycleStatus = async (c) => {
+      const steps = (cfg.value.statuses || []).filter((x) => !x.aside); if (!steps.length) return;
+      const i = steps.findIndex((x) => (c.status || [])[0] === x.id), next = steps[(i + 1) % steps.length];
+      const before = c.status; c.status = [next.id];
+      try { await call("update_card", { name: c.name, changes: JSON.stringify({ status: [next.id] }) }, true); }
+      catch (e) { c.status = before; toast(e.message, "error"); }
+    };
     const pickStatus = async (list) => {
       const c = stMenu.value?.c; if (!c) return;
       const before = c.status; c.status = list;
@@ -1955,7 +1978,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { shownCols, WHEN, activeFilters, nFilters, colTip, SCALES, sizeState, setScale, setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { nextOf, cycleStatus, shownCols, WHEN, activeFilters, nFilters, colTip, SCALES, sizeState, setScale, setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, archTab, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -2048,9 +2071,9 @@ const Board = {
           <template v-if="!s.data.worker && c.items.length"><span v-if="c.deliver && c.owed > 0.005" class="tb-owed">لم يُحصَّل <b class="num">{{ money(c.owed) }}</b></span><span v-else-if="c.sum" class="num">{{ money(c.sum) }}</span></template>
           <span v-if="colSort[c.id]" class="m">مرتّبة {{ {due: 'بالموعد', created: 'بالأحدث', amount: 'بالمبلغ'}[colSort[c.id]] }}</span></div>
         <TransitionGroup name="tcm" tag="div" class="tb-list">
-          <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :statuses="cfg.statuses" :busy="busy === card.name" :drop-before="before === card.name"
+          <BoardCard v-for="card in c.items" :key="card.name" :c="card" :labels="labels" :statuses="cfg.statuses" :busy="busy === card.name" :drop-before="before === card.name" :next-col="nextOf(c.id)?.name" :ready="!!nextOf(c.id)?.deliver"
             :class="{'tc-flash': flash && flash.col === c.id && (flash.kind === 'late' ? isLate(card) : card.price_pending)}"
-            @open="open = card.name" @drag="dragging = $event" @dropon="dropOn" @menu="openMenu" @status="openStatus" @hover="hovered = $event"/>
+            @open="open = card.name" @drag="dragging = $event" @dropon="dropOn" @menu="openMenu" @status="openStatus" @cycle="cycleStatus" @hover="hovered = $event"/>
         </TransitionGroup>
         <div v-if="dragging && over === c.id && !before && dragging.column !== c.id" class="tb-ph" aria-hidden="true"></div>
         <button v-if="c.deliver && paidCount(c) && state.boot.can.payment" type="button" class="tb-addbtn" @click="archivePaid(c.id)">أرشفة المدفوع كله ({{ paidCount(c) }})</button>
