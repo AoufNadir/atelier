@@ -3045,3 +3045,32 @@ def morning():
 		"owed": flt(owed[0]), "owed_old": flt(owed[1]), "in_funds": in_funds,
 		"boxes_pending": [{"name": h["name"], "amount": flt(h["recorded"])} for h in boxes["pending"]],
 		"decisions": decisions, "books": {"at": check.get("at"), "differences": check.get("differences")}}
+
+
+# ---------------------------------------------------------------- first-login tour (per user, stored on the account)
+
+
+def tour_pending(user=None):
+	"""True until the user finished or skipped the tour; «later» hides it until the next day."""
+	user = user or frappe.session.user
+	if user in ("Guest", "Administrator"):
+		return False
+	v = frappe.db.get_default("atelier_tour", parent=user) or ""
+	if v == "done":
+		return False
+	if v.startswith("later:"):
+		return v[6:] < nowdate()
+	return True
+
+
+@frappe.whitelist(methods=["POST"])
+def tour_mark(action="done"):
+	"""done = finished or closed; later = ask again tomorrow; reset = show again (from the guide)."""
+	user = frappe.session.user
+	if user == "Guest":
+		frappe.throw(_("سجّل الدخول أولًا"), frappe.PermissionError)
+	value = {"done": "done", "later": "later:" + nowdate(), "reset": ""}.get(action)
+	if value is None:
+		frappe.throw(_("إجراء غير معروف"))
+	frappe.db.set_default("atelier_tour", value, parent=user)
+	return {"pending": tour_pending(user)}

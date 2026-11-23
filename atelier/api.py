@@ -117,6 +117,15 @@ def _remember_public_url():
 		pass
 
 
+def _tour_pending():
+	try:
+		from atelier.simple import tour_pending
+
+		return tour_pending()
+	except Exception:
+		return False
+
+
 def _setup_pending():
 	from atelier.setup_wizard import pending
 
@@ -153,6 +162,7 @@ def boot():
 		"stages": STAGES,
 		"units": simple_units(),
 		"setup_pending": role == "manager" and _setup_pending(),
+		"tour_pending": _tour_pending(),
 		"lists": simple_lists(),
 		**production.boot_info(),
 		"modes": [{"value": v, "label": l} for v, l in all_modes() if frappe.db.exists("Mode of Payment", v)],
@@ -1539,4 +1549,4 @@ from atelier.opening import opening_info, add_opening, reverse_opening  # noqa: 
 from atelier.printing import set_item_name_fr  # noqa: E402,F401
 from atelier.importer import import_check, import_errors, import_run, import_template  # noqa: E402, F401
 from atelier.setup_wizard import setup_hide, setup_skip, setup_status  # noqa: E402, F401
-from atelier.simple import password_by_link, set_user_password  # noqa: E402, F401
+from atelier.simple import password_by_link, set_user_password, tour_mark  # noqa: E402, F401

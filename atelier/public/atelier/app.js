@@ -1951,7 +1951,7 @@ const Board = {
           <button v-if="s.data && s.data.manager" type="button" @click="go('/settings?tab=board')"><Icon name="gear" :size="16"/>تخصيص اللوحة</button>
           <template v-if="hiddenCols.length && s.data && s.data.manager"><span class="m tb-more-h">أعمدة مخفية</span>
             <button v-for="hc in hiddenCols" :key="hc.id" type="button" @click="hideCol(false, hc.id)"><i class="st-sw" :style="{background: hc.color}"></i>إظهار «{{ hc.name }}»</button></template></div></div>
-      <button v-if="state.boot.can.order" type="button" class="cl-btn primary" @click="state.sheet = {type: 'order'}"><Icon name="plus" :size="16"/>طلب جديد</button>
+      <button v-if="state.boot.can.order" type="button" class="cl-btn primary" data-tour="new-order" @click="state.sheet = {type: 'order'}"><Icon name="plus" :size="16"/>طلب جديد</button>
     </div>
     <MorningPanel v-if="state.boot.role === 'manager'" @open="(n) => (open = n)"/>
     <div v-if="s.data" class="tb-filters" role="group" aria-label="تصفية البطاقات">
@@ -3694,6 +3694,92 @@ const SetupPanel = {
     </div>
   </div>`,
 };
+// ------------------------------------------------------------------ first-login tour: the real screen, one button at a time
+const TOURS = {
+  manager: [
+    { route: "/", sel: [".mp"], t: "ملخص الصباح", x: "كل صباح هنا: ما يُسلَّم اليوم، المتأخر، الديون، وقرارات تنتظرك. اضغط أي سطر لتفتح ما يخصه." },
+    { route: "/", sel: ["[data-tour=new-order]"], t: "طلب جديد", x: "كل عمل يبدأ من هنا: تختار العميل، تكتب ما يطلبه وسعره، وتسجّل التسبيق إن دفع." },
+    { route: "/", sel: [".tb-cols"], t: "لوحة الطلبات", x: "كل طلب بطاقة. تنتقل البطاقة من عمود إلى آخر كلما تقدّم العمل، وعمود التسليم يُنشئ الفاتورة." },
+    { sel: ["[data-tour=nav-customers]"], t: "العملاء", x: "دين كل عميل وكشف حسابه، ومنه تسجّل «استلمت دفعة»." },
+    { sel: ["[data-tour=nav-money]"], t: "المال", x: "الصناديق والمصاريف والتحويلات، وكل حركة دخلت أو خرجت." },
+    { sel: ["[data-tour=nav-settings]"], t: "الإعدادات", x: "بيانات المطبعة، الفريق وكلمات السر، الأسعار، ومعالج التجهيز." },
+    { sel: ["[data-tour=nav-help]"], t: "الدليل", x: "إن نسيت شيئًا: كل مهمة خطوة بخطوة، ومنه تعيد هذه الجولة متى شئت." },
+  ],
+  sales: [
+    { route: "/", sel: ["[data-tour=new-order]"], t: "طلب جديد", x: "كل عمل يبدأ من هنا: تختار العميل، تكتب ما يطلبه وسعره، وتسجّل التسبيق إن دفع." },
+    { route: "/", sel: [".tb-cols .tc2", ".tb-cols"], t: "البطاقة", x: "كل طلب بطاقة. اضغطها لترى البنود والملفات والتعليقات، أو لتسجّل دفعة." },
+    { sel: ["[data-tour=nav-customers]"], t: "العملاء", x: "ابحث عن العميل، ثم «استلمت دفعة» لتسجيل ما دفعه. منه أيضًا كشف حسابه." },
+    { sel: ["[data-tour=nav-box]"], t: "صندوقي", x: "ما قبضته نقدًا اليوم. آخر اليوم: عُدّ المال ثم «سلّمت الصندوق» للمدير." },
+    { route: "/", sel: [".search", ".cl-search"], t: "البحث", x: "اكتب اسم عميل أو رقم طلب أو فاتورة. ومن أي صفحة: Ctrl+K." },
+    { sel: ["[data-tour=nav-help]"], t: "الدليل", x: "إن نسيت شيئًا: كل مهمة خطوة بخطوة، ومنه تعيد هذه الجولة متى شئت." },
+  ],
+  worker: [
+    { route: "/", sel: [".tb-cols"], t: "لوحة الطلبات", x: "كل طلب بطاقة في عمود حسب مرحلته. البطاقات المسندة إليك تحمل حرف اسمك." },
+    { route: "/", sel: [".tb-cols .tc2", ".tb-cols"], t: "البطاقة", x: "اضغطها لترى البنود والمقاسات والملفات. أضف ملفك أو صورة العمل أو تعليقًا." },
+    { route: "/", sel: [".tb-cols .tc2-more", ".tb-cols .tc2", ".tb-cols"], t: "نقل البطاقة", x: "عند انتهائك: اسحب البطاقة إلى العمود التالي، أو من هذه القائمة ← «نقل إلى»." },
+    { sel: ["[data-tour=nav-help]"], t: "الدليل", x: "إن نسيت شيئًا: كل مهمة خطوة بخطوة، ومنه تعيد هذه الجولة متى شئت." },
+  ],
+};
+const tourRole = () => (state.boot?.role === "manager" ? "manager" : state.boot?.role === "sales" ? "sales" : "worker");
+const startTour = () => { state.tour = { i: 0, steps: TOURS[tourRole()] }; };
+const TourLayer = {
+  setup() {
+    const rect = ref(null), mobile = ref(false);
+    const first = computed(() => String(state.boot?.full_name || "").split(" ")[0]);
+    const step = computed(() => state.tour?.steps?.[state.tour.i]);
+    const visible = (el) => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const find = (st) => { for (const q of st.sel) { const el = [...document.querySelectorAll(q)].find(visible); if (el) return el; } return null; };
+    let timer = null, waited = 0;
+    const place = () => {
+      mobile.value = window.innerWidth < 700;
+      if (!step.value) { rect.value = null; return; }
+      const el = find(step.value);
+      if (!el) { waited += 1; if (waited > 8) { waited = 0; move(state.tour.dir || 1, true); } rect.value = null; return; }
+      waited = 0;
+      if (!el.dataset.tourSeen) { el.scrollIntoView({ block: "nearest", inline: "nearest" }); el.dataset.tourSeen = "1"; }
+      // the page may be zoomed (text size setting): positions are in zoomed pixels
+      const z = zoomOf(), b = el.getBoundingClientRect(), pad = 6, W = window.innerWidth / z, H = window.innerHeight / z;
+      const r = { top: b.top / z, left: b.left / z, width: b.width / z, height: b.height / z };
+      const top = Math.max(4, r.top - pad), height = Math.min(r.height + pad * 2, H - top - 4);
+      rect.value = { top, left: Math.max(4, r.left - pad), width: Math.min(r.width + pad * 2, W - 8), height, low: r.top > H / 2 };
+    };
+    const go2 = () => { const st = step.value; if (st?.route && route.value.name !== (st.route === "/" ? "home" : st.route.slice(1))) go(st.route); place(); };
+    const move = (n, skipping) => { if (!state.tour) return; state.tour.dir = n; const i = state.tour.i + n;
+      if (i < 0) return; if (i >= state.tour.steps.length) { finish(); return; } state.tour.i = i; if (!skipping) waited = 0; nextTick(go2); };
+    const finish = async () => { state.tour = null; try { await call("tour_mark", { action: "done" }, true); } catch { /* shown again next login */ } state.boot.tour_pending = false; };
+    const later = async () => { state.tour = null; try { await call("tour_mark", { action: "later" }, true); } catch { /* ignore */ } state.boot.tour_pending = false; };
+    const begin = () => { state.tour = { i: 0, steps: TOURS[tourRole()] }; nextTick(go2); };
+    const bubble = computed(() => {
+      const r = rect.value; if (!r || mobile.value) return null;
+      const z = zoomOf(), W = window.innerWidth / z, H = window.innerHeight / z;
+      const w = 330, below = r.top + r.height + 12, fitsBelow = below + 190 < H;
+      const left = Math.min(Math.max(12, r.left + r.width / 2 - w / 2), W - w - 12);
+      return fitsBelow ? { top: below + "px", left: left + "px", width: w + "px" } : { top: Math.max(12, r.top - 200) + "px", left: left + "px", width: w + "px" };
+    });
+    const onKey = (e) => { if (!state.tour || state.tour.welcome) return; if (e.key === "Escape") finish(); else if (e.key === "ArrowLeft") move(1); else if (e.key === "ArrowRight") move(-1); };
+    onMounted(() => { timer = setInterval(place, 250); window.addEventListener("keydown", onKey); });
+    onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener("keydown", onKey); });
+    watch(() => state.tour && !state.tour.welcome && state.tour.i, () => nextTick(go2));
+    return { state, rect, step, bubble, mobile, move, finish, later, begin, first };
+  },
+  template: `
+  <div v-if="state.tour && state.tour.welcome" class="overlay tour-wel" role="dialog" aria-modal="true" aria-labelledby="tour-h">
+    <div class="tour-wbox"><h2 id="tour-h">أهلًا {{ first }}</h2>
+      <p>جولة قصيرة ({{ state.tour.steps.length }} خطوات، دقيقة واحدة) تريك أين تجد ما تحتاجه في «رقمي».</p>
+      <div class="btn-row" style="justify-content:center"><button type="button" class="cl-btn primary" @click="begin">ابدأ الجولة</button><button type="button" class="cl-btn" @click="later">لاحقًا</button></div>
+      <button type="button" class="cl-link tour-never" @click="finish">لا أحتاجها</button></div>
+  </div>
+  <div v-else-if="state.tour && step" class="tour" role="dialog" aria-modal="true" aria-labelledby="tour-t">
+    <div v-if="rect" class="tour-hole" :style="{top: rect.top + 'px', left: rect.left + 'px', width: rect.width + 'px', height: rect.height + 'px'}"></div>
+    <div v-else class="tour-dim"></div>
+    <div class="tour-bub" :class="{sheet: mobile || !bubble, top: (mobile || !bubble) && rect && rect.low}" :style="bubble || {}" aria-live="polite">
+      <small>الخطوة {{ state.tour.i + 1 }} من {{ state.tour.steps.length }}</small><b id="tour-t">{{ step.t }}</b><p>{{ step.x }}</p>
+      <div class="tour-row"><div class="tour-dots" aria-hidden="true"><i v-for="(x, k) in state.tour.steps" :key="k" :class="{on: k === state.tour.i}"></i></div><span style="flex:1"></span>
+        <button type="button" class="cl-link" @click="finish">إنهاء</button><button v-if="state.tour.i > 0" type="button" class="cl-btn" @click="move(-1)">السابق</button>
+        <button type="button" class="cl-btn primary" @click="move(1)">{{ state.tour.i === state.tour.steps.length - 1 ? 'انتهيت' : 'التالي' }}</button></div>
+    </div>
+  </div>`,
+};
 const GuidePage = {
   setup() {
     const all = ref([]), q = ref(""), cur = ref(null);
@@ -3718,7 +3804,8 @@ const GuidePage = {
     const parts = (t, nums) => String(t).split(nums ? /(«[^»]+»|\d[\d\s.,]*(?:\s?دج|%)?)/ : /(«[^»]+»)/).filter(Boolean)
       .map((x) => (x.startsWith("«") ? { k: x.slice(1, -1) } : nums && /^\d/.test(x) ? { n: x } : { t: x }));
     const printAll = () => { document.body.classList.add("gd-printing"); setTimeout(() => { window.print(); document.body.classList.remove("gd-printing"); }, 50); };
-    return { all, q, cur, groups, sec, open, near, ROLES, role, forWho, stepOf, parts, printAll, go };
+    const tourAgain = () => { go("/"); setTimeout(startTour, 400); };
+    return { all, q, cur, groups, sec, open, near, ROLES, role, forWho, stepOf, parts, printAll, go, tourAgain };
   },
   template: `
   <div class="page gd">
@@ -3727,7 +3814,7 @@ const GuidePage = {
         <div><h1>ماذا تريد أن تفعل؟</h1><div class="sub">اختر مهمة، أو ابحث بكلمة.</div>
           <div class="gd-who" role="group" aria-label="الدليل لـ"><button v-for="r in ROLES" :key="r[0]" type="button" :class="{on: role === r[0] && !q}" @click="role = r[0]; q = ''">{{ r[1] }}</button></div></div>
         <div class="gd-hero-side"><input class="input gd-q" v-model="q" placeholder="ابحث: إرجاع، G50، كلمة السر…" aria-label="بحث في الدليل">
-          <button type="button" class="cl-btn" @click="printAll">طباعة الدليل كاملًا</button></div>
+          <div class="btn-row"><button type="button" class="cl-btn primary" @click="tourAgain">ابدأ الجولة</button><button type="button" class="cl-btn" @click="printAll">طباعة الدليل كاملًا</button></div></div>
       </div>
       <template v-for="g in groups" :key="g[0]"><h2 class="gd-grp">{{ g[0] }}</h2>
         <div class="gd-cards"><button v-for="s in g[1]" :key="s.id" type="button" class="gd-card" @click="open(s.id)"><b>{{ s.task }}</b><span>{{ s.desc }}</span></button></div></template>
@@ -5358,14 +5445,17 @@ const StockPage = {
 };
 
 const App = {
-  components: { GuidePage, SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, SupplierPaySheet, CancelSheet, ReturnSheet, PartialSheet, OpeningSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
+  components: { TourLayer, GuidePage, SizeControl, BoardPanel, StockPage, CalcPage, MaterialsSheet, OutsourceSheet, CollectSheet, SupplierPaySheet, CancelSheet, ReturnSheet, PartialSheet, OpeningSheet, Icon, SearchBox, PaymentSheet, ExpenseSheet, ItemSheet, PricesPage, TeamPage, Board, SimpleCustomers, SimpleMoney, BoxPage, ServicesPage, BoardSettings, CustomerSheet2, SettingsPage, ReportsPage2, SuppliersPage },
   setup() {
     const bootErr = ref(null);
     const loadBoot = async () => {
       bootErr.value = null;
       try { state.boot = await call("boot"); applyScale(state.boot.ui_scale); sizeState.zoom = zoomOf();
         // a new shop: the manager lands on the setup wizard until the essential steps are done (once per session)
-        try { if (state.boot.setup_pending && route.value.name === "home" && !sessionStorage.getItem("raqmi_setup_seen")) { sessionStorage.setItem("raqmi_setup_seen", "1"); go("/settings?tab=setup"); } } catch (_e) { /* storage off */ }
+        let toSetup = false;
+        try { if (state.boot.setup_pending && route.value.name === "home" && !sessionStorage.getItem("raqmi_setup_seen")) { sessionStorage.setItem("raqmi_setup_seen", "1"); toSetup = true; go("/settings?tab=setup"); } } catch (_e) { /* storage off */ }
+        // first login: offer the tour (the manager of a new shop gets the setup wizard first)
+        if (state.boot.tour_pending && !toSetup && route.value.name === "home") setTimeout(() => { if (!state.tour) state.tour = { welcome: true, i: 0, steps: TOURS[tourRole()] }; }, 900);
       } catch (e) { bootErr.value = e.message; }
       if (state.boot && !["designer", "printer"].includes(state.boot.role)) call("orders").then((l) => (state.openOrders = l.length)).catch(() => {});
     };
@@ -5398,14 +5488,14 @@ const App = {
         <span class="name"><span class="brand-word">{{ t('app_name') }}</span><small>{{ t('app_tagline') }}</small></span>
       </div>
       <button type="button" class="ws-org"><Icon name="printer" :size="18"/><span class="lbl">{{ state.boot.company_label }}</span><Icon name="down" :size="16"/></button>
-      <a v-for="n in NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+(n.path==='/'?'':n.path)" @click.prevent="go(n.path)"
+      <a v-for="n in NAV.filter(n => !n.need || state.boot.can[n.need])" :key="n.key" :data-tour="'nav-' + n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+(n.path==='/'?'':n.path)" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span><span v-if="n.key==='orders' && state.openOrders" class="nav-n">{{ state.openOrders }}</span></a>
       <div v-if="state.boot.can.finance" class="group">{{ t('nav_group_admin') }}</div>
       <a v-for="n in SECTION_NAV.filter(n => !['machines', 'team'].includes(n.key) && (!n.need || state.boot.can[n.need]))" :key="n.key" class="nav" :class="{active: isActive(n)}" :href="'/atelier'+n.path" @click.prevent="go(n.path)"
         :aria-current="isActive(n) ? 'page' : null"><Icon :name="n.icon"/><span class="lbl">{{ t(n.label) }}</span></a>
       <div class="spacer"></div>
-      <a class="nav" :class="{active: route.name==='help'}" href="/atelier/help" @click.prevent="go('/help?from=' + route.name)"><Icon name="help"/><span class="lbl">الدليل</span></a>
-      <a v-if="state.boot.can.prices" class="nav" :class="{active: route.name==='settings'}" href="/atelier/settings" @click.prevent="go('/settings')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
+      <a class="nav" data-tour="nav-help" :class="{active: route.name==='help'}" href="/atelier/help" @click.prevent="go('/help?from=' + route.name)"><Icon name="help"/><span class="lbl">الدليل</span></a>
+      <a v-if="state.boot.can.prices" class="nav" data-tour="nav-settings" :class="{active: route.name==='settings'}" href="/atelier/settings" @click.prevent="go('/settings')"><Icon name="gear"/><span class="lbl">{{ t('nav_settings') }}</span></a>
       <div class="who-row"><span class="who-av">{{ initials(state.boot.full_name) }}</span><span class="who-txt"><span class="who-name">{{ state.boot.full_name }}</span><span class="who-role">{{ state.boot.can.prices ? t('role_manager') : 'موظف' }}</span></span>
         <button type="button" class="who-out" aria-label="تسجيل الخروج" title="تسجيل الخروج" @click="logout"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></button></div>
     </nav>
@@ -5442,13 +5532,14 @@ const App = {
     </div>
 
     <nav class="bottom-nav" :aria-label="t('app_name')">
-      <a href="/atelier" :class="{active: ['home','orders','order'].includes(route.name)}" @click.prevent="go('/')"><Icon name="orders"/>{{ t('nav_orders') }}</a>
-      <a class="fab" href="/atelier/orders/new" @click.prevent="state.sheet = {type: 'order'}"><span class="fab-circle"><Icon name="plus" :size="22"/></span><span class="lbl">{{ t('new_order') }}</span></a>
-      <a href="/atelier/customers" :class="{active: ['customer','customers'].includes(route.name)}" @click.prevent="go('/customers')"><Icon name="users"/>{{ t('nav_customers') }}</a>
-      <a v-if="state.boot.can.finance" href="/atelier/money" :class="{active: route.name==='money'}" @click.prevent="go('/money')"><Icon name="wallet"/>{{ t('nav_money_simple') }}</a>
-      <a v-else-if="state.boot.can.box" href="/atelier/box" :class="{active: route.name==='box'}" @click.prevent="go('/box')"><Icon name="wallet"/>{{ t('nav_box') }}</a>
+      <a href="/atelier" data-tour="nav-orders" :class="{active: ['home','orders','order'].includes(route.name)}" @click.prevent="go('/')"><Icon name="orders"/>{{ t('nav_orders') }}</a>
+      <a class="fab" data-tour="new-order" href="/atelier/orders/new" @click.prevent="state.sheet = {type: 'order'}"><span class="fab-circle"><Icon name="plus" :size="22"/></span><span class="lbl">{{ t('new_order') }}</span></a>
+      <a href="/atelier/customers" data-tour="nav-customers" :class="{active: ['customer','customers'].includes(route.name)}" @click.prevent="go('/customers')"><Icon name="users"/>{{ t('nav_customers') }}</a>
+      <a v-if="state.boot.can.finance" href="/atelier/money" data-tour="nav-money" :class="{active: route.name==='money'}" @click.prevent="go('/money')"><Icon name="wallet"/>{{ t('nav_money_simple') }}</a>
+      <a v-else-if="state.boot.can.box" href="/atelier/box" data-tour="nav-box" :class="{active: route.name==='box'}" @click.prevent="go('/box')"><Icon name="wallet"/>{{ t('nav_box') }}</a>
     </nav>
 
+    <TourLayer/>
     <PaymentSheet v-if="state.sheet && state.sheet.type==='payment'" :opts="state.sheet"/>
     <ExpenseSheet v-if="state.sheet && state.sheet.type==='expense'" :opts="state.sheet"/>
     <CustomerSheet2 v-if="state.sheet && state.sheet.type==='customer'" :opts="state.sheet"/>
