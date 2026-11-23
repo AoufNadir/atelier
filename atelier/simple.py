@@ -2970,6 +2970,10 @@ def morning():
 		decisions.append({"kind": "unpriced", "text": _("{0} طلبات بلا سعر منذ أكثر من يومين").format(unpriced), "go": "/"})
 	for m in low:
 		decisions.append({"kind": "low", "text": _("«{0}» تحت الحد الأدنى ({1} من {2})").format(m.item_name, f"{flt(m.qty):g}", f"{flt(m.safety_stock):g}"), "go": "/stock"})
+	from atelier.backup_status import warning as backup_warning
+
+	if (bw := backup_warning()):
+		decisions.insert(0, {"kind": "backup", "text": bw, "go": "/settings?tab=backup"})
 	return {"date": str(today), "due_today": due_today, "late": late[:8], "late_count": len(late),
 		"owed": flt(owed[0]), "owed_old": flt(owed[1]), "in_funds": in_funds,
 		"boxes_pending": [{"name": h["name"], "amount": flt(h["recorded"])} for h in boxes["pending"]],

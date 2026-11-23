@@ -2,6 +2,8 @@
 
 ## جلسة 2026-11-23 — التشغيل من حاسوب المطبعة (على الفرع)
 
+- تنبيه النسخ الاحتياطي: Backup-Nasaq.ps1 يسجّل النتيجة (mark_backup.sh ← atelier.backup_status)، والملخص الصباحي ينبّه بعد 48 ساعة بلا نسخة في Drive؛ إن غاب Drive تنتظر النسخة في %LOCALAPPDATA%\Nasaq\pending-backups. تحقق: test_backup_status ناجح. **السكربت المعدّل لم يُشغَّل على Windows بعد.**
+
 - قرار المستخدم: لا اشتراكات الآن؛ البرنامج يعمل من حاسوب المطبعة ويُنقل إلى خادم بعد اكتمال التطوير.
 - جديد: docs/HOSTING_LOCAL.md، وtools/dev/Install-Nasaq-Autostart.ps1 (مهمتا «Raqmi Start» عند الدخول و«Raqmi Backup» يوميًا)، وBackup-Nasaq.ps1 وbackup_nasaq.sh (نسخة بالملفات إلى مجلد Google Drive، آخر 14).
 - تم التحقق على حاسوب المستخدم (2026-11-23): Backup-Nasaq.ps1 نجح مرتين إلى G:\My Drive\raqmi-backups (71.7 MB)، وتسجيل المهمتين نجح. إيقاف التسجيل المفتوح نُفّذ بلا أخطاء، وTailscale Funnel يعمل (رابط ts.net يفتح صفحة رقمي من الهاتف)، والتحويل من / و/login إلى رقمي يعمل. لم يُختبر بعد: التشغيل التلقائي بعد إعادة تشغيل الحاسوب.
