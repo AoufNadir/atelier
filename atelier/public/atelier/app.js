@@ -1580,7 +1580,7 @@ const SizeControl = {
 
 // the manager's first look of the day: today's deliveries, what is late, money owed and in the boxes, decisions waiting
 const MorningPanel = {
-  emits: ["open"], components: { Icon },
+  props: ["when"], emits: ["open", "when"], components: { Icon },
   setup(props, { emit }) {
     const d = ref(null), err = ref(null);
     const key = () => "raqmi.morning.closed." + todayISO();
@@ -1592,15 +1592,28 @@ const MorningPanel = {
     watch(() => state.rev, load);
     const toggle = () => { closed.value = !closed.value; try { localStorage.setItem(key(), closed.value ? "1" : "0"); } catch { /* fine */ } if (!d.value) load(); };
     const waiting = computed(() => (d.value ? d.value.decisions.length + (d.value.books.differences ? 1 : 0) : 0));
+    const pop = ref(false);
+    const shut = () => { pop.value = false; };
+    onMounted(() => document.addEventListener("click", shut)); onBeforeUnmount(() => document.removeEventListener("click", shut));
+    const calm = computed(() => d.value && !d.value.late_count && !d.value.due_today.length && !waiting.value);
+    const plural = (n, one, two, many) => (n === 1 ? one : n === 2 ? two : `${n} ${many}`);
     const dayName = computed(() => new Date().toLocaleDateString("ar-DZ-u-nu-latn", { weekday: "long", day: "numeric", month: "long" }));
     const lateWord = (n) => (n === -1 ? "متأخر يومًا" : n === -2 ? "متأخر يومين" : `متأخر ${-n} أيام`);
-    return { d, err, closed, toggle, dayName, money, lateWord, emit, go, waiting };
+    return { d, err, closed, toggle, dayName, money, lateWord, emit, go, waiting, pop, calm, plural };
   },
   template: `
   <section class="mp" aria-label="ملخص الصباح">
-    <div class="mp-head"><h2>صباح الخير — {{ dayName }}</h2>
-      <button v-if="closed && d" type="button" class="mp-line" @click="toggle"><span>يُسلَّم اليوم <b>{{ d.due_today.length }}</b></span><span :class="{bad: d.late_count}">متأخر <b>{{ d.late_count }}</b></span>
-        <span>ديون <b>{{ money(d.owed) }}</b></span><span :class="{warn: waiting}">ينتظرك <b>{{ waiting }}</b></span></button>
+    <div class="mp-head" :class="{line: closed}"><h2 v-if="!closed">صباح الخير — {{ dayName }}</h2>
+      <div v-if="closed && d" class="mp-strip" role="group" aria-label="ما يحتاج انتباهك">
+        <span v-if="calm" class="mp-pill ok">كل شيء في وقته</span>
+        <button v-if="d.late_count" type="button" class="mp-pill bad" :aria-pressed="when === 'late'" @click="emit('when', 'late')">{{ plural(d.late_count, 'طلب متأخر', 'طلبان متأخران', 'طلبات متأخرة') }}</button>
+        <button v-if="d.due_today.length" type="button" class="mp-pill info" :aria-pressed="when === 'today'" @click="emit('when', 'today')">{{ plural(d.due_today.length, 'طلب للتسليم اليوم', 'طلبان للتسليم اليوم', 'للتسليم اليوم') }}</button>
+        <span v-if="waiting" class="mp-pop-host"><button type="button" class="mp-pill warn" :aria-expanded="pop" @click.stop="pop = !pop">{{ plural(waiting, 'أمر ينتظر قرارك', 'أمران ينتظران قرارك', 'أمور تنتظر قرارك') }} ▾</button>
+          <div v-if="pop" class="mp-pop" @click.stop><button v-for="(x, i) in d.decisions" :key="i" type="button" class="mp-li" @click="pop = false; go(x.go)"><span>{{ x.text }}</span><Icon name="chev" :size="14"/></button>
+            <div v-if="d.books.differences" class="mp-li"><span>في الحسابات {{ d.books.differences }} أرقام لا تتطابق — يلزم مراجعتها</span></div></div></span>
+        <span class="mp-strip-sp"></span>
+        <a v-if="d.owed > 0.005" href="/atelier/customers?f=debt" class="mp-owed" @click.prevent="go('/customers?f=debt')">ديون العملاء <b>{{ money(d.owed) }}</b></a>
+      </div>
       <button type="button" class="cl-link" @click="toggle">{{ closed ? 'عرض الملخص' : 'طيّ الملخص' }}</button></div>
     <template v-if="!closed">
       <p v-if="err" class="alert error">{{ err }}</p>
@@ -1961,7 +1974,7 @@ const Board = {
             <button v-for="hc in hiddenCols" :key="hc.id" type="button" @click="hideCol(false, hc.id)"><i class="st-sw" :style="{background: hc.color}"></i>إظهار «{{ hc.name }}»</button></template></div></div>
       <button v-if="state.boot.can.order" type="button" class="cl-btn primary" data-tour="new-order" @click="state.sheet = {type: 'order'}"><Icon name="plus" :size="16"/>طلب جديد</button>
     </div>
-    <MorningPanel v-if="state.boot.role === 'manager'" @open="(n) => (open = n)"/>
+    <MorningPanel v-if="state.boot.role === 'manager'" :when="when" @open="(n) => (open = n)" @when="(w) => (when = when === w ? '' : w)"/>
     <div v-if="s.data" class="tb-filters" role="group" aria-label="تصفية البطاقات">
       <select class="input" :class="{on: fCust}" v-model="fCust" aria-label="العميل"><option value="">كل العملاء</option><option v-for="o in custOpts" :key="o[0]" :value="o[0]">{{ o[1] }}</option></select>
       <select v-if="memberOpts.length" class="input" :class="{on: fMember}" v-model="fMember" aria-label="العضو"><option value="">كل الأعضاء</option><option v-for="m in memberOpts" :key="m" :value="m">{{ m }}</option></select>
@@ -2196,6 +2209,7 @@ const SimpleCustomers = {
         late: all.value.filter((c) => c.overdue_days > 0).length, top, away: all.value.filter((c) => c.away).length };
     });
     const quick = (k) => { Object.assign(f, { ...EMPTY, status: k }); };
+    if (state.query.get("f") === "debt") quick("debt");
     async function open(name, keep) {
       sel.value = name; err.value = null; if (!keep) { tab.value = "log"; d.value = null; jq.value = ""; hview.value = "list"; Object.keys(openYears).forEach((k) => delete openYears[k]); window.scrollTo(0, 0); }
       try { d.value = await call("customer2", { name }); } catch (e) { err.value = e.message; }
