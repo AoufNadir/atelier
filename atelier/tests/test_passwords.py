@@ -19,10 +19,15 @@ class TestPasswords(unittest.TestCase):
 		frappe.set_user("Administrator")
 		self.saved = frappe.db.get_default("atelier_public_url")
 		self.team = frappe.db.get_default("atelier_team")
+		self.had_request = hasattr(frappe.local, "request")
+		self.request = getattr(frappe.local, "request", None)
 		self.email = simple.save_user("pw.test@example.invalid", "اختبار كلمة السر", "sales")["name"]
 
 	def tearDown(self):
-		frappe.local.request = None
+		if self.had_request:
+			frappe.local.request = self.request
+		elif hasattr(frappe.local, "request"):
+			del frappe.local.request
 		frappe.db.set_default("atelier_public_url", self.saved or "")
 		frappe.db.set_default("atelier_team", self.team or "[]")
 		frappe.delete_doc("User", self.email, force=1, ignore_permissions=True)
