@@ -3384,3 +3384,5 @@ th, td { position: relative; }
   .cl-btn[data-tour=new-order]{display:none}
   .tb-fpop,.cl-pop.cl-menu{position:fixed!important;inset-inline:12px!important;top:110px!important;width:auto!important;max-height:70vh;overflow:auto;z-index:50}
 }
+.tb-none{padding:24px 8px;color:var(--muted)}
+.tb-fres{margin-inline-start:4px}

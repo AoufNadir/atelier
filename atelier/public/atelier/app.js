@@ -1680,6 +1680,8 @@ const Board = {
       const sum = items.reduce((a, c) => a + (+c.grand_total || 0), 0), paid = items.reduce((a, c) => a + (+c.paid || 0), 0);
       const owed = items.reduce((a, c) => a + Math.max(0, (+c.grand_total || 0) - (+c.paid || 0)), 0);
       return { ...col, items, sum, paid, owed, late: items.filter(isLate).length, unpriced: items.filter((c) => c.price_pending).length }; }));
+    // while filtering, only the columns that hold results: the late cards come into view instead of hiding off-screen
+    const shownCols = computed(() => (filtersOn.value ? cols.value.filter((c) => c.items.length) : cols.value));
     const flash = ref(null);  // {col, kind}: briefly marks the late or unpriced cards of one column
     const flashCards = (col, kind) => { flash.value = { col, kind }; setTimeout(() => (flash.value = null), 2200); };
     const hiddenCols = computed(() => cfg.value.columns.filter((c) => c.hidden));
@@ -1950,7 +1952,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { WHEN, activeFilters, nFilters, colTip, SCALES, sizeState, setScale, setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { shownCols, WHEN, activeFilters, nFilters, colTip, SCALES, sizeState, setScale, setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, archTab, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -1992,6 +1994,7 @@ const Board = {
     <MorningPanel v-if="state.boot.role === 'manager'" :when="when" @open="(n) => (open = n)" @when="(w) => (when = when === w ? '' : w)"/>
     <div v-if="s.data && (activeFilters.length || view === 'calendar')" class="tb-filters" role="group" aria-label="التصفية المفعّلة">
       <span v-for="x in activeFilters" :key="x.k" class="tb-af">{{ x.t }}<button type="button" :aria-label="'إزالة ' + x.t" @click="x.off()">×</button></span>
+      <span v-if="activeFilters.length && view !== 'calendar'" class="m tb-fres">{{ shownCols.reduce((a, c) => a + c.items.length, 0) }} بطاقة</span>
       <button v-if="activeFilters.length > 1" type="button" class="cl-link" @click="clearFilters">مسح الكل</button>
       <template v-if="view === 'calendar'"><span class="spacer"></span>
         <b class="cal2-range">{{ calMode === 'week' ? date(days[0].iso) + ' — ' + date(days[6].iso, true) : monthTitle }}</b>
@@ -2032,7 +2035,8 @@ const Board = {
     </div>
 
     <div v-else class="tb-cols">
-      <section v-for="c in cols" :key="c.id" class="tb-col" :data-col="c.id" :class="{over: over === c.id, 'col-moving': colDrag === c.id, deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name" :style="{'--cc': c.color}"
+      <p v-if="filtersOn && !shownCols.length" class="tb-none">لا بطاقات تطابق التصفية. <button type="button" class="cl-link" @click="clearFilters">إلغاء التصفية</button></p>
+      <section v-for="c in shownCols" :key="c.id" class="tb-col" :data-col="c.id" :class="{over: over === c.id, 'col-moving': colDrag === c.id, deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name" :style="{'--cc': c.color}"
         @dragover.prevent="dragging && (over = c.id, before = null)" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="drop(c.id)">
         <h2 class="tb-ch" :class="{'col-grab': s.data.manager}" :title="s.data.manager ? 'اسحب العنوان لتغيير ترتيب العمود' : null" @pointerdown="colPointer(c, $event)"><i :style="{background: c.color}"></i>{{ c.name }}<span v-if="c.deliver" title="عمود التسليم" class="cb-truck"><Icon name="truck" :size="15"/></span>
           <span class="bd-n" :class="{over: c.limit && c.items.length > c.limit}">{{ c.items.length }}<template v-if="c.limit"> / {{ c.limit }}<template v-if="c.items.length > c.limit"> !</template></template></span>
