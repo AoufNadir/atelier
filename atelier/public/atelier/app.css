@@ -3386,3 +3386,11 @@ th, td { position: relative; }
 }
 .tb-none{padding:24px 8px;color:var(--muted)}
 .tb-fres{margin-inline-start:4px}
+
+.mp-pop{padding:8px}.mp-pop-h{font-size:12px;color:var(--muted);font-weight:600;padding:4px 8px 6px}
+.mp-dec{display:flex;align-items:center;gap:10px;padding:10px 8px;border-top:1px solid var(--line)}.mp-pop-h+.mp-dec{border-top:0}
+.mp-dec>i{flex:none;width:8px;height:8px;border-radius:50%;background:#F79009}.mp-dec.bad>i{background:#D92D20}
+.mp-dec-t{flex:1;min-width:0;display:flex;flex-direction:column}.mp-dec-t b{font-size:14px;font-weight:600}.mp-dec-t small{font-size:12px;color:var(--muted);line-height:1.6}
+.mp-dec .cl-btn{flex:none;white-space:nowrap}
+.mp-pop{color:var(--ink,#101828);font-weight:400}.mp-dec-t b{color:var(--ink,#101828)}
+.mp-pop .mp-dec-t small{color:#667085;font-weight:400}

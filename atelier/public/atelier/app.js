@@ -1604,8 +1604,10 @@ const MorningPanel = {
         <button v-if="d.late_count" type="button" class="mp-pill bad" :aria-pressed="when === 'late'" @click="emit('when', 'late')">{{ plural(d.late_count, 'طلب متأخر', 'طلبان متأخران', 'طلبات متأخرة') }}</button>
         <button v-if="d.due_today.length" type="button" class="mp-pill info" :aria-pressed="when === 'today'" @click="emit('when', 'today')">{{ plural(d.due_today.length, 'طلب للتسليم اليوم', 'طلبان للتسليم اليوم', 'للتسليم اليوم') }}</button>
         <span v-if="waiting" class="mp-pop-host"><button type="button" class="mp-pill warn" :aria-expanded="pop" @click.stop="pop = !pop">{{ plural(waiting, 'أمر ينتظر قرارك', 'أمران ينتظران قرارك', 'أمور تنتظر قرارك') }} ▾</button>
-          <div v-if="pop" class="mp-pop" @click.stop><button v-for="(x, i) in d.decisions" :key="i" type="button" class="mp-li" @click="pop = false; go(x.go)"><span>{{ x.text }}</span><Icon name="chev" :size="14"/></button>
-            <div v-if="d.books.differences" class="mp-li"><span>في الحسابات {{ d.books.differences }} أرقام لا تتطابق — يلزم مراجعتها</span></div></div></span>
+          <div v-if="pop" class="mp-pop" @click.stop><div class="mp-pop-h">ينتظر قرارك</div>
+            <div v-for="(x, i) in d.decisions" :key="i" class="mp-dec" :class="x.tone"><i aria-hidden="true"></i><span class="mp-dec-t"><b>{{ x.title || x.text }}</b><small v-if="x.detail">{{ x.detail }}</small></span>
+              <button type="button" class="cl-btn sm" @click="pop = false; go(x.go)">{{ x.action || 'فتح' }}</button></div>
+            <div v-if="d.books.differences" class="mp-dec bad"><i aria-hidden="true"></i><span class="mp-dec-t"><b>أرقام لا تتطابق في الحسابات</b><small>{{ d.books.differences }} فروق — يلزم مراجعتها</small></span></div></div></span>
         <span class="mp-strip-sp"></span>
         <a v-if="d.owed > 0.005" href="/atelier/customers?f=debt" class="mp-owed" @click.prevent="go('/customers?f=debt')">ديون العملاء <b>{{ money(d.owed) }}</b></a>
       </div>
@@ -1627,7 +1629,8 @@ const MorningPanel = {
               <span class="mp-tag" :class="o.days < 0 ? 'bad' : 'ok'">{{ o.days < 0 ? lateWord(o.days) : (o.column || 'اليوم') }}</span></button>
             <span v-if="!d.late.length && !d.due_today.length" class="m">لا تسليم اليوم ولا متأخر.</span></div>
           <div class="mp-box"><h3>يحتاج قرارك</h3>
-            <button v-for="(x, i) in d.decisions" :key="i" type="button" class="mp-li" @click="go(x.go)"><span class="ellipsis">{{ x.text }}</span><Icon name="chev" :size="14"/></button>
+            <div v-for="(x, i) in d.decisions" :key="i" class="mp-dec" :class="x.tone"><i aria-hidden="true"></i><span class="mp-dec-t"><b>{{ x.title || x.text }}</b><small v-if="x.detail">{{ x.detail }}</small></span>
+              <button type="button" class="cl-btn sm" @click="go(x.go)">{{ x.action || 'فتح' }}</button></div>
             <div v-if="d.books.differences" class="mp-li"><span>في الحسابات {{ d.books.differences }} أرقام لا تتطابق — يلزم مراجعتها</span><span class="mp-tag bad">تحقق</span></div>
             <span v-if="!d.decisions.length && !d.books.differences" class="m">لا شيء ينتظرك.</span></div>
         </div>

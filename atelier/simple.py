@@ -3035,21 +3035,29 @@ def morning():
 	low = frappe.db.sql("""select i.item_name, coalesce(sum(b.actual_qty), 0) qty, i.safety_stock from `tabItem` i left join `tabBin` b on b.item_code=i.name
 		where i.is_stock_item=1 and i.disabled=0 and i.safety_stock > 0 group by i.name having qty < i.safety_stock order by i.item_name limit 5""", as_dict=True)
 	check = frappe.parse_json(frappe.db.get_default("atelier_books_check") or "{}") or {}
+	# each decision: a short title, one line of detail, and the action that settles it (text kept for older screens)
 	decisions = []
+
+	def add(kind, title, detail, action, go, tone="warn", first=False):
+		row = {"kind": kind, "title": title, "detail": detail, "action": action, "go": go, "tone": tone, "text": f"{title} — {detail}"}
+		decisions.insert(0, row) if first else decisions.append(row)
+
 	for h in boxes["pending"]:
 		diff = flt(h["counted"]) - flt(h["recorded"])
 		gap = _("مطابق") if abs(diff) < 0.005 else (_("زيادة {0}") if diff > 0 else _("عجز {0}")).format(_dz(abs(diff)))
-		decisions.append({"kind": "handover", "text": _("{0} سلّم {1} — المسجّل عليه {2} ({3})").format(h["name"], _dz(h["counted"]), _dz(h["recorded"]), gap),
-			"go": "/money"})
+		add("handover", _("صندوق {0} بانتظار تأكيدك").format(h["name"]),
+			_("سلّم {0} · المسجّل عليه {1} · {2}").format(_dz(h["counted"]), _dz(h["recorded"]), gap), _("مراجعة"), "/money",
+			"bad" if diff < -0.005 else "warn")
 	if unpriced:
-		decisions.append({"kind": "unpriced", "text": (_("طلب واحد بلا سعر منذ أكثر من يومين") if unpriced == 1 else _("طلبان بلا سعر منذ أكثر من يومين") if unpriced == 2
-			else _("{0} طلبات بلا سعر منذ أكثر من يومين").format(unpriced)), "go": "/"})
+		add("unpriced", _("طلب بلا سعر") if unpriced == 1 else _("طلبان بلا سعر") if unpriced == 2 else _("{0} طلبات بلا سعر").format(unpriced),
+			_("منذ أكثر من يومين — لا تدخل الحسابات حتى تُسعَّر"), _("تسعير"), "/")
 	for m in low:
-		decisions.append({"kind": "low", "text": _("«{0}» تحت الحد الأدنى ({1} من {2})").format(m.item_name, f"{flt(m.qty):g}", f"{flt(m.safety_stock):g}"), "go": "/stock"})
+		add("low", _("«{0}» على وشك النفاد").format(m.item_name),
+			_("المتبقي {0} · الحد الأدنى {1}").format(f"{flt(m.qty):g}", f"{flt(m.safety_stock):g}"), _("شراء"), "/stock")
 	from atelier.backup_status import warning as backup_warning
 
 	if (bw := backup_warning()):
-		decisions.insert(0, {"kind": "backup", "text": bw, "go": "/settings?tab=backup"})
+		add("backup", _("النسخة الاحتياطية متأخرة"), bw, _("تحقق"), "/settings?tab=backup", "bad", first=True)
 	return {"date": str(today), "due_today": due_today, "late": late[:8], "late_count": len(late),
 		"owed": flt(owed[0]), "owed_old": flt(owed[1]), "in_funds": in_funds,
 		"boxes_pending": [{"name": h["name"], "amount": flt(h["recorded"])} for h in boxes["pending"]],
