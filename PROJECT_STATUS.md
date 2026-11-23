@@ -4,7 +4,7 @@
 
 - قرار المستخدم: لا اشتراكات الآن؛ البرنامج يعمل من حاسوب المطبعة ويُنقل إلى خادم بعد اكتمال التطوير.
 - جديد: docs/HOSTING_LOCAL.md، وtools/dev/Install-Nasaq-Autostart.ps1 (مهمتا «Raqmi Start» عند الدخول و«Raqmi Backup» يوميًا)، وBackup-Nasaq.ps1 وbackup_nasaq.sh (نسخة بالملفات إلى مجلد Google Drive، آخر 14).
-- تم التحقق: صياغة سكربت bash فقط (bash -n). **لم يُشغَّل أي منها على Windows ولا على بيئة Docker؛ تُجرَّب على حاسوب المستخدم.**
+- تم التحقق على حاسوب المستخدم (2026-11-23): Backup-Nasaq.ps1 نجح مرتين إلى G:\My Drive\raqmi-backups (71.7 MB)، وتسجيل المهمتين نجح. لم يُختبر بعد: التشغيل التلقائي بعد إعادة التشغيل، وإيقاف التسجيل المفتوح، وTailscale Funnel.
 - نسخة Gemini (مستودع AoufNadir/-): تطبيق Node منفصل بلا ERPNext ولا قيد مزدوج؛ لا يُعتمد. نُبّه المستخدم أن AoufNadir/atelier عام.
 - الخطوة التالية: المستخدم ينفّذ HOSTING_LOCAL.md ويرسل النتائج.
 
