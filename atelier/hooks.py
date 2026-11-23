@@ -36,6 +36,12 @@ add_to_apps_screen = [
 
 # The daily app is a SPA under /atelier (www/atelier.html); deep links fall back to it.
 website_route_rules = [{"from_route": "/atelier/<path:app_path>", "to_route": "atelier"}]
+# the site's address and ERPNext's own login page lead to رقمي (redirect-to is kept by atelier-login)
+website_redirects = [
+	{"source": "", "target": "/atelier"},
+	{"source": "index", "target": "/atelier"},
+	{"source": "login", "target": "/atelier-login", "forward_query_parameters": True},
+]
 
 fixtures = [{"dt": "Custom Field", "filters": [["module", "=", "Atelier"]]}]
 
