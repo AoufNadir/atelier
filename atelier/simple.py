@@ -3001,6 +3001,12 @@ def delete_customer_file(file):
 
 
 # ---------------------------------------------------------------- morning summary for the manager
+def _dz(v):
+	"""Amounts in sentences the way the screens show them: 6,500 دج (decimals only when there are some)."""
+	v = round(flt(v), 2)
+	return (f"{v:,.0f}" if v == int(v) else f"{v:,.2f}") + " دج"
+
+
 @frappe.whitelist()
 def morning():
 	"""What the manager needs first thing: today's deliveries, what is late, money owed and in the boxes, and the
@@ -3031,10 +3037,13 @@ def morning():
 	check = frappe.parse_json(frappe.db.get_default("atelier_books_check") or "{}") or {}
 	decisions = []
 	for h in boxes["pending"]:
-		decisions.append({"kind": "handover", "text": _("{0} سلّم صندوقه: {1} من {2}").format(h["name"],
-			frappe.format_value(flt(h["counted"]), {"fieldtype": "Currency"}), frappe.format_value(flt(h["recorded"]), {"fieldtype": "Currency"})), "go": "/money"})
+		diff = flt(h["counted"]) - flt(h["recorded"])
+		gap = _("مطابق") if abs(diff) < 0.005 else (_("زيادة {0}") if diff > 0 else _("عجز {0}")).format(_dz(abs(diff)))
+		decisions.append({"kind": "handover", "text": _("{0} سلّم {1} — المسجّل عليه {2} ({3})").format(h["name"], _dz(h["counted"]), _dz(h["recorded"]), gap),
+			"go": "/money"})
 	if unpriced:
-		decisions.append({"kind": "unpriced", "text": _("{0} طلبات بلا سعر منذ أكثر من يومين").format(unpriced), "go": "/"})
+		decisions.append({"kind": "unpriced", "text": (_("طلب واحد بلا سعر منذ أكثر من يومين") if unpriced == 1 else _("طلبان بلا سعر منذ أكثر من يومين") if unpriced == 2
+			else _("{0} طلبات بلا سعر منذ أكثر من يومين").format(unpriced)), "go": "/"})
 	for m in low:
 		decisions.append({"kind": "low", "text": _("«{0}» تحت الحد الأدنى ({1} من {2})").format(m.item_name, f"{flt(m.qty):g}", f"{flt(m.safety_stock):g}"), "go": "/stock"})
 	from atelier.backup_status import warning as backup_warning

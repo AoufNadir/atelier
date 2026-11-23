@@ -11,7 +11,10 @@ const BASE = "/atelier";
 const t = (k, ...a) => String(STR[k] ?? k).replace(/\{(\d)\}/g, (_, i) => a[i] ?? "");
 // Amounts: 28,000.00 دج — the number is wrapped in LRI…PDI so it keeps its order inside Arabic text.
 const LRI = "⁦", PDI = "⁩";
-const nf2 = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf2c = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf0 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+// on screen: 6,500 دج — the centimes only when there are some (6,500.50 دج); documents keep their own format
+const nf2 = { format: (v) => (Number.isInteger(v) ? nf0.format(v) : nf2c.format(v)) };
 const nfq = new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 });
 // rounded to the cent first, so a tiny negative remainder never shows as «-0.00»
 const cents = (v) => { const r = Math.round((+v || 0) * 100) / 100; return r === 0 ? 0 : r; };
@@ -1462,7 +1465,7 @@ const BoardCard = {
         <span v-if="c.files" class="tc-m" title="مرفقات"><Icon name="file" :size="13"/>{{ c.files }}</span>
         <span v-if="c.check[1]" class="tc-check" :class="{full: c.check[0] === c.check[1]}" title="قائمة المهام"><Icon name="check" :size="13"/>{{ c.check[0] }}/{{ c.check[1] }}</span>
         <span class="spacer"></span>
-        <span v-if="c.grand_total > 0" class="tc-pay" :class="c.paid >= c.grand_total - 0.005 ? 'ok' : c.paid > 0.005 ? 'part' : 'none'">{{ c.paid >= c.grand_total - 0.005 ? 'مدفوع' : c.paid > 0.005 ? 'جزئي' : 'غير مدفوع' }}</span>
+        <span v-if="c.grand_total > 0" class="tc-pay" :class="c.paid >= c.grand_total - 0.005 ? 'ok' : c.paid > 0.005 ? 'part' : 'none'">{{ c.paid >= c.grand_total - 0.005 ? 'مدفوع' : c.paid > 0.005 ? 'دُفع جزء' : 'غير مدفوع' }}</span>
         <span class="tc-members"><Avatar v-for="m in c.members.slice(0, 3)" :key="m" :name="m"/></span>
       </div>
     </div>
@@ -1582,18 +1585,23 @@ const MorningPanel = {
     const d = ref(null), err = ref(null);
     const key = () => "raqmi.morning.closed." + todayISO();
     const closed = ref(false);
-    try { closed.value = localStorage.getItem(key()) === "1"; } catch { /* storage off: always shown */ }
+    // full the first time each day, then one line (the board is the day's work); the choice is remembered for the day
+    try { const v = localStorage.getItem(key()); closed.value = v === null ? false : v === "1"; if (v === null) localStorage.setItem(key(), "1"); } catch { /* storage off: always shown */ }
     const load = async () => { try { d.value = await call("morning"); } catch (e) { err.value = e.message; } };
-    onMounted(() => { if (!closed.value) load(); });
-    watch(() => state.rev, () => { if (!closed.value) load(); });
-    const toggle = () => { closed.value = !closed.value; try { localStorage.setItem(key(), closed.value ? "1" : "0"); } catch { /* fine */ } if (!closed.value && !d.value) load(); };
+    onMounted(load);
+    watch(() => state.rev, load);
+    const toggle = () => { closed.value = !closed.value; try { localStorage.setItem(key(), closed.value ? "1" : "0"); } catch { /* fine */ } if (!d.value) load(); };
+    const waiting = computed(() => (d.value ? d.value.decisions.length + (d.value.books.differences ? 1 : 0) : 0));
     const dayName = computed(() => new Date().toLocaleDateString("ar-DZ-u-nu-latn", { weekday: "long", day: "numeric", month: "long" }));
     const lateWord = (n) => (n === -1 ? "متأخر يومًا" : n === -2 ? "متأخر يومين" : `متأخر ${-n} أيام`);
-    return { d, err, closed, toggle, dayName, money, lateWord, emit, go };
+    return { d, err, closed, toggle, dayName, money, lateWord, emit, go, waiting };
   },
   template: `
   <section class="mp" aria-label="ملخص الصباح">
-    <div class="mp-head"><h2>صباح الخير — {{ dayName }}</h2><button type="button" class="cl-link" @click="toggle">{{ closed ? 'إظهار ملخص اليوم' : 'طيّ الملخص' }}</button></div>
+    <div class="mp-head"><h2>صباح الخير — {{ dayName }}</h2>
+      <button v-if="closed && d" type="button" class="mp-line" @click="toggle"><span>يُسلَّم اليوم <b>{{ d.due_today.length }}</b></span><span :class="{bad: d.late_count}">متأخر <b>{{ d.late_count }}</b></span>
+        <span>ديون <b>{{ money(d.owed) }}</b></span><span :class="{warn: waiting}">ينتظرك <b>{{ waiting }}</b></span></button>
+      <button type="button" class="cl-link" @click="toggle">{{ closed ? 'عرض الملخص' : 'طيّ الملخص' }}</button></div>
     <template v-if="!closed">
       <p v-if="err" class="alert error">{{ err }}</p>
       <div v-else-if="!d" class="m">جارٍ التحميل…</div>
@@ -1612,8 +1620,8 @@ const MorningPanel = {
             <span v-if="!d.late.length && !d.due_today.length" class="m">لا تسليم اليوم ولا متأخر.</span></div>
           <div class="mp-box"><h3>يحتاج قرارك</h3>
             <button v-for="(x, i) in d.decisions" :key="i" type="button" class="mp-li" @click="go(x.go)"><span class="ellipsis">{{ x.text }}</span><Icon name="chev" :size="14"/></button>
-            <div class="mp-li"><span>فحص الدفاتر الليلي</span>
-              <span class="mp-tag" :class="d.books.differences ? 'bad' : 'ok'">{{ d.books.at == null ? 'لم يعمل بعد' : d.books.differences ? d.books.differences + ' فروق' : 'سليم' }}</span></div></div>
+            <div v-if="d.books.differences" class="mp-li"><span>في الحسابات {{ d.books.differences }} أرقام لا تتطابق — يلزم مراجعتها</span><span class="mp-tag bad">تحقق</span></div>
+            <span v-if="!d.decisions.length && !d.books.differences" class="m">لا شيء ينتظرك.</span></div>
         </div>
       </template>
     </template>

@@ -3348,3 +3348,8 @@ th, td { position: relative; }
 .tour-wel{z-index:2000}.tour-wbox{background:#fff;border-radius:14px;padding:26px 28px;width:min(420px,calc(100vw - 32px));text-align:center}
 .tour-wbox h2{margin:0 0 6px;font-size:20px}.tour-wbox p{color:#475467;margin:0 0 16px;font-size:14px;line-height:1.8}.tour-never{display:inline-block;margin-top:10px;font-size:13px}
 .tour-bub.sheet.top{bottom:auto;top:12px!important}
+
+.mp-line{all:unset;cursor:pointer;display:flex;gap:18px;align-items:center;margin-inline-start:auto;margin-inline-end:14px;font-size:13px;color:var(--muted);white-space:nowrap}
+.mp-line b{color:var(--ink,#1F2430);font-weight:700}.mp-line .bad b{color:#B42318}.mp-line .warn b{color:#B54708}
+.mp-line:focus-visible{outline:2px solid var(--primary,#4B32C3);outline-offset:4px;border-radius:4px}
+@media(max-width:800px){.mp-line{gap:10px;flex-wrap:wrap;white-space:normal}}
