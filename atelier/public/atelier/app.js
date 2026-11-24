@@ -1701,6 +1701,16 @@ const Board = {
       const owed = items.reduce((a, c) => a + Math.max(0, (+c.grand_total || 0) - (+c.paid || 0)), 0);
       return { ...col, items, sum, paid, owed, late: items.filter(isLate).length, unpriced: items.filter((c) => c.price_pending).length }; }));
     // while filtering, only the columns that hold results: the late cards come into view instead of hiding off-screen
+    // the board fills exactly what is left of the screen: the sideways scrollbar stays at the screen's bottom edge
+    // (any zoom, any number of cards) and each column scrolls up and down on its own
+    const colsEl = ref(null), colsH = ref(0);
+    const fitCols = () => { const el = colsEl.value; if (!el || window.innerWidth < 1024) { colsH.value = 0; return; }
+      const z = zoomOf(), top = el.getBoundingClientRect().top; colsH.value = Math.max(260, Math.floor(window.innerHeight / z - top - 4)); };
+    let fitTimer = null; const fitSoon = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitCols, 60); };
+    // the top edge also moves without a resize (summary opened, filters shown, zoom changed): a light re-check
+    let fitTick = null;
+    onMounted(() => { window.addEventListener("resize", fitSoon); fitSoon(); fitTick = setInterval(fitCols, 500); });
+    onBeforeUnmount(() => { window.removeEventListener("resize", fitSoon); clearInterval(fitTick); });
     const shownCols = computed(() => (filtersOn.value ? cols.value.filter((c) => c.items.length) : cols.value));
     const flash = ref(null);  // {col, kind}: briefly marks the late or unpriced cards of one column
     const flashCards = (col, kind) => { flash.value = { col, kind }; setTimeout(() => (flash.value = null), 2200); };
@@ -1981,7 +1991,7 @@ const Board = {
     };
     const saved = async () => { await load(); panel.value = null; };
     const closePanel = () => { panel.value = null; if (route.value.name === "order-new") go("/"); };
-    return { nextOf, cycleStatus, shownCols, WHEN, activeFilters, nFilters, colTip, SCALES, sizeState, setScale, setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
+    return { colsEl, colsH, fitSoon, nextOf, cycleStatus, shownCols, WHEN, activeFilters, nFilters, colTip, SCALES, sizeState, setScale, setSupplierCol, stockCol, setStockCol, colDrag, colOver, colIdx, colPointer, colDrop, flash, flashCards, isLate, menuView, team, menuStatus, toggleMember, menuDue, hovered, isoIn, fCust, fMember, when, custOpts, memberOpts, filtersOn, clearFilters, colSort, hiddenCols, colMenu, colName, colMove, openColMenu, renameCol, setColColor, hideCol, sortCol, moveAll,
       tplAsk, tplName, tplBusy, saveTpl, BOARD_COLORS, money, me, delAsk, delBusy, doDelete, stMenu, openStatus, pickStatus, fopen, more, openCount, s, load, cfg, labels, mine, label, q, view, cols, panel, open, busy, dragging, over, before, moveTo, drop, dropOn, adding, newTitle, addCard, startAdd,
       newCol, addingCol, addColumn, startCol, archivePaid, paidCount, menu, openMenu, act, photoInput, onPhoto, archive, archTab, showArchive, restore,
       notes, bell, toggleBell, weekStart, days, lateCount, dropDay, calMode, monthDays, monthTitle, calHead, lateRows, undated, lateWord, colOf, calPrev, calNext, calToday, openWeek, calCfg, saved, closePanel, labelStyle, ago, dueWord, date, state, go, t };
@@ -2063,7 +2073,7 @@ const Board = {
         <div class="cal2-legend"><span v-for="c in (cfg.columns || []).filter((x) => !x.deliver && !x.hidden)" :key="c.id"><i :style="{background: c.color}"></i>{{ c.name }}</span></div></aside></div>
     </div>
 
-    <div v-else class="tb-cols">
+    <div v-else ref="colsEl" class="tb-cols fit" :style="colsH ? {height: colsH + 'px'} : null">
       <p v-if="filtersOn && !shownCols.length" class="tb-none">لا بطاقات تطابق التصفية. <button type="button" class="cl-link" @click="clearFilters">إلغاء التصفية</button></p>
       <section v-for="c in shownCols" :key="c.id" class="tb-col" :data-col="c.id" :class="{over: over === c.id, 'col-moving': colDrag === c.id, deliver: c.deliver, full: c.limit && c.items.length > c.limit}" :aria-label="c.name" :style="{'--cc': c.color}"
         @dragover.prevent="dragging && (over = c.id, before = null)" @dragleave="over === c.id && !before && (over = null)" @drop.prevent="drop(c.id)">

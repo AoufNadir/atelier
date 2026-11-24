@@ -3416,3 +3416,11 @@ th, td { position: relative; }
   background:color-mix(in srgb,var(--sc) 18%,#fff);color:color-mix(in srgb,var(--sc) 70%,#101828)}
 .tc-st i{width:8px;height:8px;border-radius:50%;background:var(--sc)}.tc-st:hover{background:color-mix(in srgb,var(--sc) 28%,#fff)}
 .tc-st:focus-visible{outline:2px solid var(--primary,#4B32C3);outline-offset:2px}
+
+/* board fitted to the screen (desktop): columns scroll inside, the sideways scrollbar is always visible */
+@media(min-width:1024px){
+  .cb .tb-cols.fit{flex:none;min-height:0;align-items:stretch;overflow-x:auto;overflow-y:hidden;padding-bottom:10px;box-sizing:border-box}
+  .cb .tb-cols.fit .tb-col{max-height:100%;align-self:flex-start}
+  .cb .tb-cols.fit .tb-list{min-height:0;flex:1 1 auto}
+  .cb .tb-cols.fit::-webkit-scrollbar{height:12px}.cb .tb-cols.fit::-webkit-scrollbar-thumb{background:#C1C7D0;border-radius:6px}.cb .tb-cols.fit::-webkit-scrollbar-track{background:#EEF0F3}
+}
